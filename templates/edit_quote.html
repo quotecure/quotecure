@@ -1,0 +1,992 @@
+{% extends 'base.html' %}
+{% block title %}{{ quote.customer_name }} — QuoteCure{% endblock %}
+{% block extra_css %}
+<style>
+/* ── Spreadsheet table ─────────────────────────────────────────── */
+.qt { width:100%; border-collapse:collapse; font-size:13px; }
+.qt thead th {
+  padding:8px 10px; text-align:left;
+  font-size:10px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase;
+  color:var(--text3); border-bottom:2px solid var(--border);
+  white-space:nowrap;
+}
+.qt thead th.r { text-align:right; }
+.qt tbody tr.qrow { border-bottom:1px solid var(--border2); transition:background 0.1s; }
+.qt tbody tr.qrow:hover { background:var(--surface2); }
+.qt tbody tr.qrow.editing { background:var(--surface2); }
+.qt tbody td { padding:10px 10px; vertical-align:middle; }
+.qt tbody td.r { text-align:right; }
+
+/* Service cell */
+.svc-name { font-weight:600; color:var(--text); line-height:1.3; }
+.svc-bc { font-size:11px; color:#4ade80; margin-top:2px; cursor:pointer; }
+.svc-bc:hover { text-decoration:underline; }
+.svc-bc.empty { color:var(--text3); font-style:italic; }
+.svc-desc { font-size:11px; color:var(--text3); margin-top:2px; cursor:pointer; max-width:260px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.svc-desc:hover { text-decoration:underline; color:var(--text2); }
+.svc-desc.empty { font-style:italic; }
+.qual-chip { font-size:10px; padding:2px 7px; border-radius:10px; border:1px solid var(--border);
+  color:var(--text3); cursor:pointer; user-select:none; }
+.qual-chip:hover { border-color:var(--text3); color:var(--text2); }
+.qual-chip.on { background:#7c3aed33; border-color:#a78bfa; color:#c4b5fd; }
+
+/* Product picker (inline below row) */
+.product-picker { display:none; background:var(--bg); border:1px solid var(--border);
+  border-radius:6px; padding:12px; margin:4px 0 8px; }
+.product-picker.open { display:block; }
+.pp-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+
+/* Editable cell */
+.ec { position:relative; cursor:text; }
+.ec-val { display:block; padding:2px 4px; border-radius:4px; min-height:22px; }
+.ec:hover .ec-val { background:var(--border2); }
+.ec input, .ec select {
+  position:absolute; top:50%; left:0; transform:translateY(-50%);
+  width:100%; background:var(--surface); border:1px solid var(--blue-light);
+  border-radius:4px; color:var(--text); font-size:12px; padding:3px 6px;
+  font-family:'DM Sans',sans-serif; z-index:10; min-width:80px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.3);
+}
+.ec input.mono-inp { font-family:'Chivo Mono',monospace; text-align:right; }
+.ec.r { text-align:right; }
+
+/* Markup stepper */
+.mstep { display:inline-flex; align-items:center; gap:2px; }
+.mstep button {
+  background:var(--surface2); border:1px solid var(--border); border-radius:4px;
+  color:var(--text2); width:20px; height:20px; font-size:11px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.mstep button:hover:not(:disabled) { background:var(--border); color:var(--text); }
+.mstep button:disabled { opacity:0.3; cursor:not-allowed; }
+.mstep .mv {
+  font-family:'Chivo Mono',monospace; font-size:11px; font-weight:500;
+  padding:0 4px; min-width:36px; text-align:center; color:var(--text);
+}
+.mstep.floor { }
+.mstep.floor .mv { color:#f87171; }
+
+/* Split row (labor/material sub-rows) */
+.qrow-split td { padding:4px 10px; }
+.split-tag { font-size:9px; font-weight:700; letter-spacing:0.07em; text-transform:uppercase;
+  padding:1px 5px; border-radius:3px; margin-right:4px; }
+.tag-l { background:#1e3a8a44; color:#93c5fd; }
+.tag-m { background:#14532d44; color:#4ade80; }
+
+/* Add row */
+.add-row td { padding:10px; color:var(--text3); font-size:12px; cursor:pointer;
+  border-top:1px solid var(--border2); }
+.add-row:hover td { color:var(--text); background:var(--surface2); }
+
+/* New row inputs */
+.new-row-panel { display:none; padding:12px 10px; background:var(--bg);
+  border-top:1px solid var(--border); }
+.new-row-panel.open { display:grid;
+  grid-template-columns:1fr 140px 90px 80px 100px 80px;
+  gap:10px; align-items:end; }
+.nr-label { font-size:9px; font-weight:700; letter-spacing:0.07em; text-transform:uppercase;
+  color:var(--text3); margin-bottom:3px; display:block; }
+.nr-input { width:100%; background:var(--surface); border:1px solid var(--border);
+  border-radius:4px; color:var(--text); font-size:12px; padding:4px 8px; height:30px;
+  font-family:'DM Sans',sans-serif; }
+.nr-input.mono { font-family:'Chivo Mono',monospace; text-align:right; }
+
+/* Summary cards */
+.sum-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:14px; }
+.sum-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; }
+.sum-lbl { font-size:10px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--text3); margin-bottom:2px; }
+.sum-val { font-size:18px; font-weight:700; font-family:'Chivo Mono',monospace; }
+.sum-val.blue { color:#93c5fd; }
+.sum-val.green { color:#4ade80; }
+.sum-val.amber { color:#fbbf24; }
+
+/* Schedule bar */
+.sched-bar { display:flex; justify-content:space-between; align-items:center;
+  padding:8px 12px; cursor:pointer; background:var(--surface);
+  border:1px solid var(--border); border-radius:var(--radius); margin-top:10px; }
+.sched-body { display:none; background:var(--surface); border:1px solid var(--border);
+  border-top:none; border-radius:0 0 var(--radius) var(--radius); padding:10px 12px; }
+.sched-body.open { display:block; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-wide">
+
+  <!-- Header -->
+  <div class="page-header" style="margin-bottom:12px;">
+    <div>
+      <div class="page-title">{{ quote.customer_name }}</div>
+      <div class="page-subtitle" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:3px;">
+        <span class="mono" style="color:var(--text3)">QT-{{ '%04d'|format(quote.quote_id) }}</span>
+        {% if quote.address %}<span>{{ quote.address }}</span>{% endif %}
+        {% if quote.salesperson %}<span>Rep: <strong>{{ quote.salesperson }}</strong></span>{% endif %}
+        {% if quote.total_surface_sqft %}<span><strong>{{ quote.total_surface_sqft|int }} sqft</strong>{% if quote.has_spa %} Pool+Spa{% endif %}</span>{% endif %}
+        {% if quote.pool_perimeter %}<span>{{ quote.pool_perimeter|int }} lf perimeter</span>{% endif %}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;user-select:none;">
+        <input type="checkbox" id="include-terms-chk" onchange="toggleTerms(this.checked)"
+               {{ 'checked' if quote.include_terms is none or quote.include_terms }}>
+        Include Terms
+      </label>
+      <a href="/quotes/{{ quote.quote_id }}/preview" class="btn btn-primary" target="_blank">📄 Preview</a>
+      <button class="btn btn-secondary" type="button" onclick="emailQuote()" id="email-quote-btn">✉️ Email Quote</button>
+      <a href="/quotes/{{ quote.quote_id }}/edit_details" class="btn btn-secondary">Edit Details</a>
+      <a href="/quotes" class="btn btn-secondary">← Quotes</a>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="sum-grid">
+    <div class="sum-card"><div class="sum-lbl">Total Cost</div><div class="sum-val" id="sum-cost">${{ '%.2f'|format(quote.total_cost) }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Total Price</div><div class="sum-val blue" id="sum-price">${{ '%.2f'|format(quote.total_price) }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Margin</div><div class="sum-val green" id="sum-margin">{{ '%.0f'|format(quote.total_margin) }}%</div></div>
+    {% if current_role and current_role.show_gross_profit %}
+    <div class="sum-card"><div class="sum-lbl">Gross Profit</div><div class="sum-val green" id="sum-gross">${{ '%.2f'|format(quote.total_price - quote.total_cost) }}</div></div>
+    {% endif %}
+    {% if current_role and current_role.show_commission %}
+    <div class="sum-card"><div class="sum-lbl">Commission</div><div class="sum-val amber" id="sum-commission">${{ '%.2f'|format(quote.commission) }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Net</div><div class="sum-val" id="sum-net" style="color:#94a3b8;">${{ '%.2f'|format(quote.total_price - quote.total_cost - quote.commission) }}</div></div>
+    {% endif %}
+  </div>
+
+  {% macro qt_head() %}
+      <thead>
+        <tr>
+          <th style="width:22%">Service</th>
+          <th style="width:14%">Subcontractor</th>
+          <th class="r" style="width:8%">Qty</th>
+          <th class="r" style="width:6%">Unit</th>
+          <th class="r" style="width:9%">Cost/Unit</th>
+          <th class="r" style="width:9%">Total Cost</th>
+          <th class="r" style="width:10%">Markup</th>
+          <th class="r" style="width:7%">Margin</th>
+          <th class="r" style="width:9%">Price</th>
+          <th style="width:6%"></th>
+        </tr>
+      </thead>
+  {% endmacro %}
+
+  {% macro qt_rows(items, qualifiers_by_wt, additives) %}
+      {% for item in items %}
+      {% set has_mat = item.material_cost_per_unit and item.material_cost_per_unit > 0 %}
+      {% set is_split = has_mat %}
+
+      <!-- Main row -->
+      <tr class="qrow" id="qrow-{{ item.id }}" data-id="{{ item.id }}">
+
+        <!-- Service -->
+        <td>
+          <div class="svc-name">{{ item.work_type_label }}</div>
+          {% if item.work_type_id == 1 %}
+          <div class="svc-bc {% if not item.product_label %}empty{% endif %}"
+               id="bc-{{ item.id }}"
+               onclick="toggleProductPicker({{ item.id }})">
+            {{ item.product_label or '+ Select surface product' }}
+          </div>
+          {% elif item.work_type_id in [4,5,6] or item.material_id %}
+          <div class="svc-bc {% if not item.material_label %}empty{% endif %}"
+               id="bc-{{ item.id }}"
+               onclick="toggleProductPicker({{ item.id }})">
+            {{ item.material_label or '+ Select tile material' }}
+          </div>
+          {% endif %}
+          <div class="svc-desc {% if not item.description %}empty{% endif %}"
+               id="desc-bc-{{ item.id }}"
+               onclick="toggleDescPicker({{ item.id }})">
+            {{ item.description or '+ Add description' }}
+          </div>
+          {% set wt_quals = qualifiers_by_wt.get(item.work_type_id, []) %}
+          {% if wt_quals %}
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;">
+            {% for ql in wt_quals %}
+            {% set applied = ql.qualifier_id in item.applied_qualifier_ids %}
+            <span class="qual-chip {% if applied %}on{% endif %}"
+                  id="qual-{{ item.id }}-{{ ql.qualifier_id }}"
+                  onclick="toggleQualifier({{ item.id }}, {{ ql.qualifier_id }}, {{ (not applied)|tojson }})">
+              {{ ql.label }} (+${{ '%.0f'|format(ql.amount) }})
+            </span>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </td>
+
+        <!-- Sub -->
+        <td class="ec" onclick="editCell(this, {{ item.id }}, 'sub')" id="cell-sub-{{ item.id }}">
+          <span class="ec-val">{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</span>
+        </td>
+
+        <!-- Qty -->
+        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if is_split %}'labor_qty'{% else %}'labor_qty'{% endif %})" id="cell-qty-{{ item.id }}">
+          <span class="ec-val mono">{{ item.labor_quantity }}</span>
+        </td>
+
+        <!-- Unit -->
+        <td class="ec r" onclick="editCell(this, {{ item.id }}, 'unit')" id="cell-unit-{{ item.id }}">
+          <span class="ec-val" style="color:var(--text3);">{{ item.labor_unit }}</span>
+        </td>
+
+        <!-- Cost/Unit -->
+        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if is_split %}'none'{% else %}'labor_cpu'{% endif %})" id="cell-cpu-{{ item.id }}">
+          <span class="ec-val mono" style="color:var(--text3);">{% if is_split %}—{% else %}${{ '%.2f'|format(item.labor_cost_per_unit) }}{% endif %}</span>
+        </td>
+
+        <!-- Total Cost -->
+        <td class="r">
+          <span class="mono" id="tcost-{{ item.id }}">${{ '%.2f'|format(item.total_cost) }}</span>
+        </td>
+
+        <!-- Markup -->
+        <td class="r">
+          {% if not is_split %}
+          <div class="mstep {% if item.labor_markup_pct <= item.labor_min_markup %}floor{% endif %}" id="mstep-{{ item.id }}">
+            <button onclick="adjMarkup({{ item.id }},'labor',-5)" {% if item.labor_markup_pct <= item.labor_min_markup %}disabled{% endif %} id="mdn-{{ item.id }}">−</button>
+            <span class="mv" id="mv-{{ item.id }}">{{ '%.0f'|format(item.labor_markup_pct) }}%</span>
+            <button onclick="adjMarkup({{ item.id }},'labor',5)">+</button>
+          </div>
+          {% else %}
+          <span style="font-size:10px;color:var(--text3);">split ↕</span>
+          {% endif %}
+        </td>
+
+        <!-- Margin -->
+        <td class="r">
+          <span class="pill pill-margin" id="margin-{{ item.id }}">{{ '%.0f'|format(item.total_margin_pct) }}%</span>
+        </td>
+
+        <!-- Price -->
+        <td class="r">
+          <span class="mono" style="font-weight:600;" id="price-{{ item.id }}">${{ '%.2f'|format(item.total_price) }}</span>
+        </td>
+
+        <!-- Actions -->
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="reorder-btn" onclick="moveRow({{ item.id }},-1)" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:11px;">▲</button>
+          <button class="reorder-btn" onclick="moveRow({{ item.id }},1)" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:11px;">▼</button>
+          <button onclick="deleteItem({{ item.id }})" style="background:none;border:none;color:var(--red);cursor:pointer;padding:2px 6px;font-size:12px;">✕</button>
+        </td>
+      </tr>
+
+      <!-- Product picker row (inline, hidden by default) -->
+      <tr id="pprow-{{ item.id }}" style="display:none;">
+        <td colspan="10" style="padding:0 10px 10px 10px;">
+          <div class="product-picker open" id="pp-{{ item.id }}">
+            {% if item.work_type_id == 1 %}
+            <div class="pp-grid" style="{% if additives %}grid-template-columns:1fr 1fr 1fr 1fr;{% endif %}">
+              <div>
+                <label class="nr-label">Manufacturer</label>
+                <select class="nr-input" id="pp-mfr-{{ item.id }}" onchange="ppLoadLines({{ item.id }})">
+                  <option value="">— Select —</option>
+                  {% for mfr in manufacturers %}
+                  <option value="{{ mfr.manufacturer_id }}" {{ 'selected' if item.get('mfr_id') == mfr.manufacturer_id }}>{{ mfr.manufacturer_name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="nr-label">Product Line</label>
+                <select class="nr-input" id="pp-pl-{{ item.id }}" onchange="ppLoadFinishes({{ item.id }})">
+                  <option value="">— Select manufacturer —</option>
+                </select>
+              </div>
+              <div>
+                <label class="nr-label">Finish</label>
+                <select class="nr-input" id="pp-fin-{{ item.id }}" onchange="ppSaveSurface({{ item.id }})">
+                  <option value="">— Select product line —</option>
+                </select>
+              </div>
+              {% if additives %}
+              <div>
+                <label class="nr-label">Additive</label>
+                <select class="nr-input" id="pp-additive-{{ item.id }}" onchange="ppSaveSurface({{ item.id }})">
+                  <option value="">— None —</option>
+                  {% for a in additives %}
+                  <option value="{{ a.label }}" {{ 'selected' if item.product_label and (' with ' + a.label) in item.product_label }}>{{ a.label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              {% endif %}
+            </div>
+            {% else %}
+            <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;">
+              <div>
+                <label class="nr-label">Material</label>
+                <select class="nr-input" id="pp-mat-{{ item.id }}" onchange="ppSaveMaterial({{ item.id }})">
+                  <option value="">— None —</option>
+                  {% for mat in materials %}
+                  {% if mat.work_type_id == item.work_type_id or item.work_type_id in [4,5,6] %}
+                  <option value="{{ mat.material_id }}" data-cost="{{ mat.cost_per_quote_unit }}" {{ 'selected' if item.material_id == mat.material_id }}>
+                    {{ mat.series }} — ${{ '%.2f'|format(mat.cost_per_quote_unit) }}/{{ mat.quote_unit }}
+                  </option>
+                  {% endif %}
+                  {% endfor %}
+                </select>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="toggleProductPicker({{ item.id }})">Done</button>
+            </div>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+
+      <!-- Description picker row (inline, hidden by default) -->
+      <tr id="descrow-{{ item.id }}" style="display:none;">
+        <td colspan="10" style="padding:0 10px 10px 10px;">
+          <div class="product-picker open">
+            <label class="nr-label">Quote Description (shown to customer on PDF)</label>
+            <textarea class="nr-input" id="desc-inp-{{ item.id }}" rows="2" style="width:100%;resize:vertical;height:auto;">{{ item.description or '' }}</textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
+              <button class="btn btn-secondary btn-sm" onclick="toggleDescPicker({{ item.id }})">Cancel</button>
+              <button class="btn btn-primary btn-sm" onclick="saveDescription({{ item.id }})">Save</button>
+            </div>
+          </div>
+        </td>
+      </tr>
+
+      <!-- Split sub-rows if labor+material -->
+      {% if is_split %}
+      <tr class="qrow-split" style="border-bottom:1px solid var(--border2);">
+        <td style="padding-left:20px;">
+          <span class="split-tag tag-l">Labor</span>
+          <span style="font-size:11px;color:var(--text2);">{{ item.sub_name or '—' }}</span>
+        </td>
+        <td></td>
+        <td class="r mono" style="font-size:12px;color:var(--text2);">{{ item.labor_quantity }}</td>
+        <td class="r" style="font-size:11px;color:var(--text3);">{{ item.labor_unit }}</td>
+        <td class="r mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.labor_cost_per_unit) }}</td>
+        <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.labor_total_cost) }}</td>
+        <td class="r">
+          <div class="mstep {% if item.labor_markup_pct <= item.labor_min_markup %}floor{% endif %}">
+            <button onclick="adjMarkup({{ item.id }},'labor',-5)" {% if item.labor_markup_pct <= item.labor_min_markup %}disabled{% endif %} id="mdn-labor-{{ item.id }}">−</button>
+            <span class="mv" id="mv-labor-{{ item.id }}">{{ '%.0f'|format(item.labor_markup_pct) }}%</span>
+            <button onclick="adjMarkup({{ item.id }},'labor',5)">+</button>
+          </div>
+        </td>
+        <td class="r"><span class="pill pill-margin" id="margin-labor-{{ item.id }}">{{ '%.0f'|format(item.labor_margin_pct) }}%</span></td>
+        <td class="r mono" style="font-size:12px;" id="price-labor-{{ item.id }}">${{ '%.2f'|format(item.labor_total_price) }}</td>
+        <td></td>
+      </tr>
+      <tr class="qrow-split" style="border-bottom:2px solid var(--border);">
+        <td style="padding-left:20px;">
+          <span class="split-tag tag-m">Material</span>
+          <span style="font-size:11px;color:var(--text2);">{{ item.material_label or '—' }}</span>
+        </td>
+        <td></td>
+        <td class="r mono" style="font-size:12px;color:var(--text2);" id="mat-qty-{{ item.id }}">{{ item.material_quantity }}</td>
+        <td class="r" style="font-size:11px;color:var(--text3);">{{ item.material_unit }}</td>
+        <td class="r mono" style="font-size:12px;color:var(--text2);" id="mat-cpu-{{ item.id }}">${{ '%.2f'|format(item.material_cost_per_unit) }}</td>
+        <td class="r mono" style="font-size:12px;" id="mat-tcost-{{ item.id }}">${{ '%.2f'|format(item.material_total_cost) }}</td>
+        <td class="r">
+          <div class="mstep {% if item.material_markup_pct <= item.material_min_markup %}floor{% endif %}">
+            <button onclick="adjMarkup({{ item.id }},'material',-5)" {% if item.material_markup_pct <= item.material_min_markup %}disabled{% endif %} id="mdn-mat-{{ item.id }}">−</button>
+            <span class="mv" id="mv-mat-{{ item.id }}">{{ '%.0f'|format(item.material_markup_pct) }}%</span>
+            <button onclick="adjMarkup({{ item.id }},'material',5)">+</button>
+          </div>
+        </td>
+        <td class="r"><span class="pill pill-margin" id="margin-mat-{{ item.id }}">{{ '%.0f'|format(item.material_margin_pct) }}%</span></td>
+        <td class="r mono" style="font-size:12px;" id="price-mat-{{ item.id }}">${{ '%.2f'|format(item.material_total_price) }}</td>
+        <td></td>
+      </tr>
+      {% endif %}
+
+      {% endfor %}
+  {% endmacro %}
+
+  {% macro new_row_panel(section) %}
+      <!-- Add row trigger -->
+      <tr class="add-row" onclick="openNewRow('{{ section }}')">
+        <td colspan="10">+ {% if section == 'opt' %}Add optional item{% else %}Add line item{% endif %}</td>
+      </tr>
+
+      <!-- New row panel -->
+      <tr id="new-row-tr-{{ section }}" style="display:none;">
+        <td colspan="10" style="padding:0;">
+          <div class="new-row-panel open" id="new-row-panel-{{ section }}">
+            <div>
+              <label class="nr-label">Work Type</label>
+              <select class="nr-input" id="nr-wt-{{ section }}" onchange="onNrWorkType('{{ section }}')">
+                <option value="">— Select —</option>
+                {% for wt in work_types %}
+                <option value="{{ wt.work_type_id }}" data-unit="{{ wt.unit }}" data-markup="{{ wt.default_markup }}" data-min="{{ wt.min_markup }}" data-sub="{{ wt.default_sub_id or '' }}">{{ wt.work_type }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="nr-label">Subcontractor</label>
+              <select class="nr-input" id="nr-sub-{{ section }}" onchange="onNrSub('{{ section }}')">
+                <option value="">— Select work type —</option>
+              </select>
+            </div>
+            <div>
+              <label class="nr-label">Quantity</label>
+              <input class="nr-input mono" id="nr-qty-{{ section }}" type="number" step="0.01" oninput="calcNrPreview('{{ section }}')">
+            </div>
+            <div>
+              <label class="nr-label">Unit</label>
+              <select class="nr-input" id="nr-unit-{{ section }}">
+                <option value="each">each</option>
+                <option value="sqft">sqft</option>
+                <option value="lf">lf</option>
+              </select>
+            </div>
+            <div>
+              <label class="nr-label">Cost/Unit</label>
+              <input class="nr-input mono" id="nr-cpu-{{ section }}" type="number" step="0.01" oninput="calcNrPreview('{{ section }}')">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <span class="nr-label" id="nr-preview-{{ section }}" style="color:#93c5fd;font-family:'Chivo Mono',monospace;"></span>
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-green btn-sm" onclick="addNrRow('{{ section }}')">Add</button>
+                <button class="btn btn-secondary btn-sm" onclick="closeNewRow('{{ section }}')">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+  {% endmacro %}
+
+  <!-- Main line items table -->
+  <div class="card">
+    <table class="qt">
+      {{ qt_head() }}
+      <tbody id="qt-body">
+      {{ qt_rows(line_items, qualifiers_by_wt, additives) }}
+      {% if not line_items %}
+      <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text3);">No line items yet.</td></tr>
+      {% endif %}
+      {{ new_row_panel('main') }}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Optional add-ons table -->
+  <div class="card" style="margin-top:16px;">
+    <div style="padding:14px 16px 0;display:flex;justify-content:space-between;align-items:baseline;">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--text);">Optional Add-Ons</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Priced but not included in the quote total. Customer decides.</div>
+      </div>
+      {% if optional_items %}
+      <div class="mono" style="font-size:13px;color:var(--text2);">${{ '%.2f'|format(optional_total) }} if all added</div>
+      {% endif %}
+    </div>
+    <table class="qt">
+      {{ qt_head() }}
+      <tbody id="qt-body-opt">
+      {{ qt_rows(optional_items, qualifiers_by_wt, additives) }}
+      {% if not optional_items %}
+      <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text3);">No optional items yet.</td></tr>
+      {% endif %}
+      {{ new_row_panel('opt') }}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Customer-declined items (read-only, decided on the customer preview screen) -->
+  {% if declined_items %}
+  <div class="card" style="margin-top:16px;">
+    <div style="padding:14px 16px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);">Declined by Customer</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">Offered as an optional add-on and turned down on the quote preview screen.</div>
+    </div>
+    <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:6px;">
+      {% for item in declined_items %}
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border2);">
+        <span style="font-size:12px;color:var(--text3);text-decoration:line-through;">{{ item.work_type_label }}</span>
+        <span style="display:flex;gap:10px;align-items:center;">
+          <span class="mono" style="font-size:12px;color:var(--text3);">${{ '%.2f'|format(item.total_price) }}</span>
+          {% if current_role and current_role.can_override_min_markup %}
+          <button class="btn btn-secondary btn-sm" onclick="restoreDeclined({{ item.id }})">Restore</button>
+          {% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Payment schedule -->
+  <div class="sched-bar" onclick="toggleSchedule()">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);">Payment Schedule</span>
+      {% if schedule %}
+      <span style="font-size:11px;color:var(--text2);">
+        {% for draw in schedule %}<span class="mono" style="color:#93c5fd;">${{ '%.0f'|format(draw.amount) }}</span> {{ draw.label }}{% if not loop.last %} · {% endif %}{% endfor %}
+      </span>
+      {% else %}<span style="font-size:11px;color:var(--text3);">Add line items to generate</span>{% endif %}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();regenSchedule()" style="padding:2px 8px;font-size:10px;">↺</button>
+      <span id="sched-chev" style="color:var(--text3);font-size:11px;">▼</span>
+    </div>
+  </div>
+  <div class="sched-body" id="sched-body">
+    {% if schedule %}
+    {% for draw in schedule %}
+    <div style="display:grid;grid-template-columns:1fr 140px 60px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border2);">
+      <input style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:4px 8px;height:28px;width:100%;" value="{{ draw.label }}" onchange="updateDraw({{ draw.id }},'label',this.value)">
+      <div style="position:relative;">
+        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:11px;">$</span>
+        <input style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:4px 8px 4px 18px;height:28px;width:100%;text-align:right;font-family:'Chivo Mono',monospace;" value="{{ '%.2f'|format(draw.amount) }}" onchange="updateDraw({{ draw.id }},'amount',this.value)" id="draw-amt-{{ draw.id }}">
+      </div>
+      <div style="font-size:11px;color:var(--text3);text-align:center;" id="draw-pct-{{ draw.id }}">{{ '%.0f'|format(draw.pct) }}%</div>
+    </div>
+    {% endfor %}
+    <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:4px;">
+      <span style="font-size:10px;color:var(--text3);">Must equal quote total</span>
+      <span class="mono" style="font-size:11px;font-weight:600;color:#93c5fd;" id="sched-total">${{ '%.2f'|format(schedule|sum(attribute='amount')) }}</span>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+const QID = {{ quote.quote_id }};
+const POOL_SQFT = {{ quote.total_surface_sqft or quote.pool_sqft or 0 }};
+const POOL_LF = {{ (quote.pool_perimeter or 0) + (quote.spa_perimeter if quote.has_spa else 0)
+                    + (quote.steps_lf or 0) + (quote.benches_lf or 0) + (quote.swimouts_lf or 0) }};
+const DRAWS = {{ schedule_json | default("[]") | safe }};
+let activeCell = null;
+
+// ── Cell editing ──────────────────────────────────────────────────
+function editCell(td, id, field) {
+  if (field === 'none') return;
+  if (activeCell) closeActiveCell();
+  activeCell = td;
+  td.classList.add('editing');
+  const val = td.querySelector('.ec-val');
+  const currentText = val.textContent.trim().replace('$','').replace('%','');
+
+  if (field === 'sub') {
+    const sel = document.createElement('select');
+    sel.className = 'ie-select';
+    sel.innerHTML = '<option value="">— None —</option>';
+    {% for sub in subs %}
+    sel.innerHTML += '<option value="{{ sub.sub_id }}" {{ '' }}>{{ sub.name }}</option>';
+    {% endfor %}
+    {% for app in applicators %}
+    sel.innerHTML += '<option value="{{ app.sub_id }}">{{ app.name }}</option>';
+    {% endfor %}
+    // Set current value
+    const curSub = td.querySelector('.chip')?.textContent?.trim() || '';
+    [...sel.options].forEach(o => { if (o.textContent.trim() === curSub) o.selected = true; });
+    sel.onchange = async () => {
+      await saveCell(id, field, sel.value);
+      closeActiveCell();
+      location.reload();
+    };
+    sel.onblur = () => { closeActiveCell(); };
+    val.style.display = 'none';
+    td.appendChild(sel);
+    sel.focus();
+    return;
+  }
+
+  if (field === 'unit') {
+    const sel = document.createElement('select');
+    sel.innerHTML = '<option value="each">each</option><option value="sqft">sqft</option><option value="lf">lf</option>';
+    [...sel.options].forEach(o => { if (o.value === currentText) o.selected = true; });
+    sel.onchange = async () => { await saveCell(id, field, sel.value); closeActiveCell(); };
+    sel.onblur = () => closeActiveCell();
+    val.style.display = 'none';
+    td.appendChild(sel);
+    sel.focus();
+    return;
+  }
+
+  const inp = document.createElement('input');
+  inp.type = 'number';
+  inp.step = '0.01';
+  inp.className = 'mono-inp';
+  inp.value = currentText;
+  inp.onblur = async () => {
+    const d = await saveCell(id, field, inp.value);
+    if (d) updateRowDOM(id, d);
+    closeActiveCell();
+  };
+  inp.onkeydown = (e) => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') closeActiveCell(); };
+  val.style.display = 'none';
+  td.appendChild(inp);
+  inp.focus();
+  inp.select();
+}
+
+function closeActiveCell() {
+  if (!activeCell) return;
+  const inp = activeCell.querySelector('input, select');
+  if (inp) inp.remove();
+  const val = activeCell.querySelector('.ec-val');
+  if (val) val.style.display = '';
+  activeCell.classList.remove('editing');
+  activeCell = null;
+}
+
+async function saveCell(id, field, value) {
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/update', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({field: field, value: value})
+  });
+  if (resp.ok) {
+    const d = await resp.json();
+    updateSummaryCards(d);
+    return d;
+  }
+  return null;
+}
+
+function updateRowDOM(id, d) {
+  if (d.labor_cost_per_unit !== undefined) {
+    const cpuEl = document.querySelector('#cell-cpu-' + id + ' .ec-val');
+    if (cpuEl) cpuEl.textContent = '$' + parseFloat(d.labor_cost_per_unit).toFixed(2);
+  }
+  if (d.total_cost !== undefined && document.getElementById('tcost-' + id))
+    document.getElementById('tcost-' + id).textContent = '$' + d.total_cost.toFixed(2);
+  if (d.total_price !== undefined && document.getElementById('price-' + id))
+    document.getElementById('price-' + id).textContent = '$' + d.total_price.toFixed(2);
+  if (d.total_margin_pct !== undefined && document.getElementById('margin-' + id))
+    document.getElementById('margin-' + id).textContent = d.total_margin_pct.toFixed(0) + '%';
+}
+
+// ── Email quote ───────────────────────────────────────────────────
+async function emailQuote() {
+  const btn = document.getElementById('email-quote-btn');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    const resp = await fetch('/quotes/' + QID + '/email', {method: 'POST'});
+    const d = await resp.json();
+    if (resp.ok) alert('Quote emailed to ' + d.sent_to);
+    else alert(d.error || 'Could not send the email.');
+  } catch (e) {
+    alert('Could not send the email: ' + e);
+  }
+  btn.disabled = false;
+  btn.textContent = original;
+}
+
+// ── Include terms toggle ─────────────────────────────────────────
+async function toggleTerms(checked) {
+  await fetch('/quotes/' + QID + '/toggle_terms', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({include_terms: checked})
+  });
+}
+
+// ── Product picker ────────────────────────────────────────────────
+function toggleProductPicker(id) {
+  const tr = document.getElementById('pprow-' + id);
+  tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
+}
+
+// ── Restore a customer-declined optional item ──────────────────────
+async function restoreDeclined(id) {
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/restore_declined', {method: 'POST'});
+  if (resp.ok) location.reload();
+}
+
+// ── Qualifiers ────────────────────────────────────────────────────
+async function toggleQualifier(itemId, qualifierId, checked) {
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + itemId + '/qualifiers/toggle', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({qualifier_id: qualifierId, checked: checked})
+  });
+  if (!resp.ok) return;
+  const d = await resp.json();
+  const chip = document.getElementById('qual-' + itemId + '-' + qualifierId);
+  chip.classList.toggle('on', checked);
+  chip.setAttribute('onclick', 'toggleQualifier(' + itemId + ',' + qualifierId + ',' + (!checked) + ')');
+  if (document.getElementById('tcost-' + itemId)) document.getElementById('tcost-' + itemId).textContent = '$' + d.total_cost.toFixed(2);
+  if (document.getElementById('price-' + itemId)) document.getElementById('price-' + itemId).textContent = '$' + d.total_price.toFixed(2);
+  if (document.getElementById('margin-' + itemId)) document.getElementById('margin-' + itemId).textContent = d.total_margin_pct.toFixed(0) + '%';
+  updateSummaryCards(d);
+}
+
+// ── Description picker ───────────────────────────────────────────
+function toggleDescPicker(id) {
+  const tr = document.getElementById('descrow-' + id);
+  tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
+  if (tr.style.display === 'table-row') document.getElementById('desc-inp-' + id).focus();
+}
+
+async function saveDescription(id) {
+  const text = document.getElementById('desc-inp-' + id).value;
+  const d = await saveCell(id, 'description', text);
+  if (d) {
+    const bc = document.getElementById('desc-bc-' + id);
+    bc.textContent = text || '+ Add description';
+    bc.classList.toggle('empty', !text);
+  }
+  toggleDescPicker(id);
+}
+
+async function ppLoadLines(id) {
+  const mfrId = document.getElementById('pp-mfr-' + id).value;
+  const r = await fetch('/api/surface_product_lines?manufacturer_id=' + mfrId);
+  const lines = await r.json();
+  const sel = document.getElementById('pp-pl-' + id);
+  sel.innerHTML = '<option value="">— Select —</option>';
+  lines.forEach(l => sel.innerHTML += '<option value="' + l + '">' + l + '</option>');
+  document.getElementById('pp-fin-' + id).innerHTML = '<option value="">— Select product line —</option>';
+}
+
+async function ppLoadFinishes(id) {
+  const mfrId = document.getElementById('pp-mfr-' + id).value;
+  const pl = document.getElementById('pp-pl-' + id).value;
+  const r = await fetch('/api/surface_finishes?manufacturer_id=' + mfrId + '&product_line=' + encodeURIComponent(pl));
+  const fins = await r.json();
+  const sel = document.getElementById('pp-fin-' + id);
+  sel.innerHTML = '<option value="">— Select —</option>';
+  fins.forEach(f => sel.innerHTML += '<option value="' + f.product_id + '" data-rate="' + f.rate + '">' + f.finish + ' — $' + parseFloat(f.rate).toFixed(2) + '/sqft</option>');
+}
+
+async function ppSaveSurface(id) {
+  const productId = document.getElementById('pp-fin-' + id).value;
+  if (!productId) return;
+  const additiveEl = document.getElementById('pp-additive-' + id);
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/update', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({field: 'surface_product', value: productId, additive_label: additiveEl ? additiveEl.value : ''})
+  });
+  if (resp.ok) {
+    const d = await resp.json();
+    if (d.product_label) document.getElementById('bc-' + id).textContent = d.product_label;
+    document.getElementById('bc-' + id).classList.remove('empty');
+    if (d.total_price !== undefined) document.getElementById('price-' + id).textContent = '$' + d.total_price.toFixed(2);
+    if (d.total_cost !== undefined) document.getElementById('tcost-' + id).textContent = '$' + d.total_cost.toFixed(2);
+    if (d.total_margin_pct !== undefined) document.getElementById('margin-' + id).textContent = d.total_margin_pct.toFixed(0) + '%';
+    const cpuEl = document.querySelector('#cell-cpu-' + id + ' .ec-val');
+    if (cpuEl && d.labor_cost_per_unit) cpuEl.textContent = '$' + parseFloat(d.labor_cost_per_unit).toFixed(2);
+    updateSummaryCards(d);
+    toggleProductPicker(id);
+  }
+}
+
+async function ppSaveMaterial(id) {
+  const sel = document.getElementById('pp-mat-' + id);
+  const matId = sel.value;
+  const cost = sel.selectedOptions[0]?.dataset?.cost || 0;
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/update', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({field: 'material', value: matId, cost: parseFloat(cost) || 0})
+  });
+  if (resp.ok) {
+    const d = await resp.json();
+    updateSummaryCards(d);
+    toggleProductPicker(id);
+    location.reload();
+  }
+}
+
+// ── Markup stepper ────────────────────────────────────────────────
+async function adjMarkup(id, component, delta) {
+  const key = component === 'labor' ? '' : '-mat';
+  const mvEl = document.getElementById('mv' + key + '-' + id) || document.getElementById('mv-' + id);
+  const cur = parseFloat(mvEl?.textContent) || 0;
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/markup', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({markup_pct: cur + delta, component: component})
+  });
+  if (!resp.ok) return;
+  const d = await resp.json();
+  if (mvEl) mvEl.textContent = d.markup_pct.toFixed(0) + '%';
+  const marginEl = document.getElementById('margin' + (component==='labor'?'':'- mat') + '-' + id);
+  if (marginEl) marginEl.textContent = d.margin_pct.toFixed(0) + '%';
+  const priceEl = document.getElementById('price' + (component==='labor'?'':'-mat') + '-' + id);
+  if (priceEl) priceEl.textContent = '$' + d.component_price.toFixed(2);
+  if (document.getElementById('price-' + id)) document.getElementById('price-' + id).textContent = '$' + d.item_total_price.toFixed(2);
+  if (document.getElementById('margin-' + id)) document.getElementById('margin-' + id).textContent = d.item_total_margin.toFixed(0) + '%';
+  if (document.getElementById('tcost-' + id)) document.getElementById('tcost-' + id).textContent = '$' + d.item_total_cost.toFixed(2);
+  updateSummaryCards(d);
+}
+
+// ── Reorder / Delete ──────────────────────────────────────────────
+async function moveRow(id, dir) {
+  await fetch('/quotes/' + QID + '/line_items/' + id + '/reorder', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({direction: dir})
+  });
+  location.reload();
+}
+
+async function deleteItem(id) {
+  if (!confirm('Remove this line item?')) return;
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id, {method: 'DELETE'});
+  if (resp.ok) location.reload();
+}
+
+// ── Add new row ───────────────────────────────────────────────────
+function openNewRow(section) {
+  document.getElementById('new-row-tr-' + section).style.display = 'table-row';
+  document.getElementById('nr-wt-' + section).focus();
+}
+function closeNewRow(section) {
+  document.getElementById('new-row-tr-' + section).style.display = 'none';
+}
+
+async function onNrWorkType(section) {
+  const sel = document.getElementById('nr-wt-' + section);
+  const opt = sel.selectedOptions[0];
+  const wtId = sel.value;
+  const unit = opt?.dataset?.unit || 'each';
+  const defSub = opt?.dataset?.sub || '';
+  const defMarkup = opt?.dataset?.markup || 30;
+
+  // Set unit
+  const unitSel = document.getElementById('nr-unit-' + section);
+  [...unitSel.options].forEach(o => o.selected = o.value === unit);
+
+  // Set qty
+  let qty = '';
+  if (unit === 'sqft' && POOL_SQFT) qty = POOL_SQFT;
+  else if (unit === 'lf' && POOL_LF) qty = POOL_LF;
+  else qty = 1;
+  document.getElementById('nr-qty-' + section).value = qty;
+  document.getElementById('nr-cpu-' + section).value = '';
+
+  if (!wtId) return;
+
+  // Load subs
+  const r = await fetch('/api/subs_for_work_type?work_type_id=' + wtId);
+  const subs = await r.json();
+  const subSel = document.getElementById('nr-sub-' + section);
+  subSel.innerHTML = '<option value="">— None —</option>';
+  subs.forEach(s => subSel.innerHTML += '<option value="' + s.sub_id + '" ' + (s.sub_id === defSub ? 'selected' : '') + '>' + s.name + '</option>');
+
+  // Auto-fill rate for default sub
+  if (defSub) {
+    const rr = await fetch('/api/rate?sub_id=' + defSub + '&work_type_id=' + wtId);
+    const rd = await rr.json();
+    if (rd.rate !== null) {
+      document.getElementById('nr-cpu-' + section).value = rd.rate;
+      if (rd.unit) {
+        [...unitSel.options].forEach(o => o.selected = o.value === rd.unit);
+        if (rd.unit === 'each') document.getElementById('nr-qty-' + section).value = 1;
+        else if (rd.unit === 'sqft') document.getElementById('nr-qty-' + section).value = POOL_SQFT;
+        else if (rd.unit === 'lf') document.getElementById('nr-qty-' + section).value = POOL_LF;
+      }
+    }
+  }
+  calcNrPreview(section);
+}
+
+async function onNrSub(section) {
+  const wtId = document.getElementById('nr-wt-' + section).value;
+  const subId = document.getElementById('nr-sub-' + section).value;
+  if (!subId || !wtId) return;
+  const r = await fetch('/api/rate?sub_id=' + subId + '&work_type_id=' + wtId);
+  const d = await r.json();
+  if (d.rate !== null) {
+    document.getElementById('nr-cpu-' + section).value = d.rate;
+    if (d.unit) {
+      const unitSel = document.getElementById('nr-unit-' + section);
+      [...unitSel.options].forEach(o => o.selected = o.value === d.unit);
+      if (d.unit === 'each') document.getElementById('nr-qty-' + section).value = 1;
+      else if (d.unit === 'sqft') document.getElementById('nr-qty-' + section).value = POOL_SQFT;
+      else if (d.unit === 'lf') document.getElementById('nr-qty-' + section).value = POOL_LF;
+    }
+  }
+  calcNrPreview(section);
+}
+
+function calcNrPreview(section) {
+  const qty = parseFloat(document.getElementById('nr-qty-' + section).value) || 0;
+  const cpu = parseFloat(document.getElementById('nr-cpu-' + section).value) || 0;
+  const wtSel = document.getElementById('nr-wt-' + section);
+  const markup = parseFloat(wtSel.selectedOptions[0]?.dataset?.markup || 30);
+  const total = qty * cpu * (1 + markup/100);
+  const margin = markup / (100 + markup) * 100;
+  const el = document.getElementById('nr-preview-' + section);
+  if (qty && cpu) el.textContent = '$' + total.toFixed(2) + ' | ' + margin.toFixed(0) + '%';
+  else el.textContent = '';
+}
+
+async function addNrRow(section) {
+  const wtId = document.getElementById('nr-wt-' + section).value;
+  if (!wtId) { alert('Select a work type.'); return; }
+  const payload = {
+    work_type_id: wtId,
+    sub_id: document.getElementById('nr-sub-' + section).value,
+    unit: document.getElementById('nr-unit-' + section).value,
+    quantity: document.getElementById('nr-qty-' + section).value,
+    labor_cost_per_unit: document.getElementById('nr-cpu-' + section).value,
+    labor_markup_pct: document.getElementById('nr-wt-' + section).selectedOptions[0]?.dataset?.markup || 30,
+    material_cost_per_unit: 0, material_markup_pct: 30, material_min_markup: 10,
+    product_id: null, material_id: null,
+    is_optional: section === 'opt'
+  };
+  const resp = await fetch('/quotes/' + QID + '/line_items', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+  });
+  if (resp.ok) location.reload();
+}
+
+// ── Summary cards ─────────────────────────────────────────────────
+function updateSummaryCards(d) {
+  if (d.quote_total_cost !== undefined) document.getElementById('sum-cost').textContent = '$' + d.quote_total_cost.toFixed(2);
+  if (d.quote_total_price !== undefined) document.getElementById('sum-price').textContent = '$' + d.quote_total_price.toFixed(2);
+  if (d.quote_total_margin !== undefined) document.getElementById('sum-margin').textContent = d.quote_total_margin.toFixed(0) + '%';
+  if (d.quote_gross_profit !== undefined && document.getElementById('sum-gross')) document.getElementById('sum-gross').textContent = '$' + d.quote_gross_profit.toFixed(2);
+  if (d.quote_commission !== undefined && document.getElementById('sum-commission')) document.getElementById('sum-commission').textContent = '$' + d.quote_commission.toFixed(2);
+  if (d.quote_net_profit !== undefined && document.getElementById('sum-net')) document.getElementById('sum-net').textContent = '$' + d.quote_net_profit.toFixed(2);
+}
+
+// ── Payment schedule ──────────────────────────────────────────────
+function toggleSchedule() {
+  const body = document.getElementById('sched-body');
+  const chev = document.getElementById('sched-chev');
+  const open = !body.classList.contains('open');
+  body.classList.toggle('open', open);
+  chev.textContent = open ? '▲' : '▼';
+}
+
+function updateDraw(id, field, value) {
+  const draw = DRAWS.find(d => d.id === id);
+  if (!draw) return;
+  draw[field] = value;
+  if (field === 'amount') {
+    const total = {{ quote.total_price or 0 }};
+    const pctEl = document.getElementById('draw-pct-' + id);
+    if (pctEl && total > 0) pctEl.textContent = (parseFloat(value)/total*100).toFixed(0) + '%';
+    const totalAmt = DRAWS.reduce((s,d) => s + parseFloat(d.amount||0), 0);
+    const totEl = document.getElementById('sched-total');
+    if (totEl) totEl.textContent = '$' + totalAmt.toFixed(2);
+  }
+  fetch('/quotes/' + QID + '/payment_schedule/update', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({items: DRAWS})
+  });
+}
+
+async function regenSchedule() {
+  const r = await fetch('/quotes/' + QID + '/payment_schedule/regenerate', {method:'POST'});
+  if (r.ok) location.reload();
+}
+
+// ── Init surface pickers for existing products ────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  const inits = [
+    {% for item in line_items + optional_items %}
+    {% if item.work_type_id == 1 and item.get('product_id') and item.get('mfr_id') %}
+    {id:{{ item.id }}, mfrId:{{ item.get('mfr_id') }}, pl:{{ item.get('product_line_name','')|tojson }}, pid:{{ item.get('product_id') }}},
+    {% endif %}
+    {% endfor %}
+  ];
+  for (const s of inits) {
+    const mfrSel = document.getElementById('pp-mfr-' + s.id);
+    if (!mfrSel) continue;
+    [...mfrSel.options].forEach(o => { if (parseInt(o.value) === s.mfrId) o.selected = true; });
+    const r = await fetch('/api/surface_product_lines?manufacturer_id=' + s.mfrId);
+    const lines = await r.json();
+    const plSel = document.getElementById('pp-pl-' + s.id);
+    plSel.innerHTML = '<option value="">— Select —</option>';
+    lines.forEach(l => plSel.innerHTML += '<option value="' + l + '" ' + (l===s.pl?'selected':'') + '>' + l + '</option>');
+    const r2 = await fetch('/api/surface_finishes?manufacturer_id=' + s.mfrId + '&product_line=' + encodeURIComponent(s.pl));
+    const fins = await r2.json();
+    const finSel = document.getElementById('pp-fin-' + s.id);
+    finSel.innerHTML = '<option value="">— Select —</option>';
+    fins.forEach(f => finSel.innerHTML += '<option value="' + f.product_id + '" data-rate="' + f.rate + '" ' + (f.product_id===s.pid?'selected':'') + '>' + f.finish + ' — $' + parseFloat(f.rate).toFixed(2) + '/sqft</option>');
+  }
+});
+</script>
+{% endblock %}

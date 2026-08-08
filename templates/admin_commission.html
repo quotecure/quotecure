@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Commission — QuoteCure{% endblock %}
+{% block content %}
+<div class="page" style="max-width:600px">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Commission Policy</div>
+      <div class="page-subtitle">How sales commission is calculated</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Method</th><th class="right">Rate</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for p in policies %}
+          <tr>
+            <td style="font-weight:500">{{ p.name }}</td>
+            <td><span class="badge badge-blue">{{ p.method }}</span></td>
+            <td class="right mono">{{ p.rate }}%</td>
+            <td><span class="badge badge-{{ 'green' if p.active == 'Y' else 'red' }}">{{ 'Active' if p.active == 'Y' else 'Off' }}</span></td>
+            <td>
+              <form method="POST" action="/admin/commission/update/{{ p.id }}" style="display:inline-flex;gap:8px;align-items:center;">
+                <select class="form-control" name="method" style="width:auto;padding:4px 8px;font-size:12px;">
+                  <option value="pct_of_price" {{ 'selected' if p.method == 'pct_of_price' }}>% of Price</option>
+                  <option value="pct_of_margin" {{ 'selected' if p.method == 'pct_of_margin' }}>% of Margin</option>
+                </select>
+                <input class="form-control" name="rate" type="number" step="0.1" value="{{ p.rate }}" style="width:70px;padding:4px 8px;font-size:12px;">
+                <select class="form-control" name="active" style="width:auto;padding:4px 8px;font-size:12px;">
+                  <option value="Y" {{ 'selected' if p.active == 'Y' }}>Active</option>
+                  <option value="N" {{ 'selected' if p.active == 'N' }}>Off</option>
+                </select>
+                <button class="btn btn-primary btn-sm" type="submit">Save</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

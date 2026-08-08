@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — QuoteCure</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Chivo+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.login-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 40px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.login-brand {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+.login-brand span { color: #3b82f6; }
+.login-subtitle { font-size: 13px; color: #64748b; margin-bottom: 32px; }
+.form-label { display:block; font-size:11px; font-weight:600; letter-spacing:0.07em; text-transform:uppercase; color:#64748b; margin-bottom:6px; }
+.form-control {
+  width:100%; background:#0f172a; border:1px solid #334155; border-radius:8px;
+  padding:10px 14px; font-family:'DM Sans',sans-serif; font-size:14px; color:#e2e8f0;
+  margin-bottom:16px; transition:border-color 0.15s;
+}
+.form-control:focus { outline:none; border-color:#3b82f6; }
+.btn-login {
+  width:100%; background:#1d4ed8; color:white; border:none; border-radius:8px;
+  padding:12px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600;
+  cursor:pointer; transition:background 0.15s; margin-top:8px;
+}
+.btn-login:hover { background:#1e40af; }
+.error { background:#7f1d1d44; border:1px solid #7f1d1d; border-radius:8px; padding:10px 14px; font-size:13px; color:#f87171; margin-bottom:16px; }
+.default-creds { margin-top:24px; padding-top:20px; border-top:1px solid #1e293b; }
+.cred-row { display:flex; justify-content:space-between; font-size:11px; color:#475569; padding:3px 0; font-family:'Chivo Mono',monospace; }
+.cred-label { color:#334155; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="login-brand">Quote<span>Cure</span></div>
+  <div class="login-subtitle">Sign in to continue</div>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="POST">
+    <label class="form-label">Username</label>
+    <input class="form-control" name="username" required autofocus placeholder="username">
+    <label class="form-label">Password</label>
+    <input class="form-control" name="password" type="password" required placeholder="••••••••">
+    <button class="btn-login" type="submit">Sign In →</button>
+  </form>
+  <div class="default-creds">
+    <div class="cred-row"><span class="cred-label">Owner</span><span>owner / owner123</span></div>
+    <div class="cred-row"><span class="cred-label">Sales</span><span>sales / sales123</span></div>
+    <div class="cred-row"><span class="cred-label">Coordinator</span><span>coordinator / coordinator123</span></div>
+  </div>
+</div>
+</body>
+</html>

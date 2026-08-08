@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}Quotes — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Quotes</div>
+      <div class="page-subtitle">All customer quotes</div>
+    </div>
+    <a href="/quotes/new" class="btn btn-primary">+ New Quote</a>
+  </div>
+
+  <div class="card">
+    {% if quotes %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Customer</th>
+            <th>Address</th>
+            <th>Salesperson</th>
+            <th>Status</th>
+            <th class="right">Total Cost</th>
+            <th class="right">Total Price</th>
+            <th class="right">Margin</th>
+            <th>Created</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for q in quotes %}
+          <tr>
+            <td class="mono">QT-{{ '%04d'|format(q.quote_id) }}</td>
+            <td><a href="/quotes/{{ q.quote_id }}">{{ q.customer_name }}</a></td>
+            <td style="color:var(--text2)">{{ q.address or '—' }}</td>
+            <td style="color:var(--text2)">{{ q.salesperson or '—' }}</td>
+            <td><span class="badge badge-{{ 'green' if q.status == 'sent' else 'blue' if q.status == 'draft' else 'amber' }}">{{ q.status }}</span></td>
+            <td class="right mono">${{ '%.2f'|format(q.total_cost) }}</td>
+            <td class="right mono" style="font-weight:600">${{ '%.2f'|format(q.total_price) }}</td>
+            <td class="right"><span class="pill pill-margin">{{ '%.0f'|format(q.total_margin) }}%</span></td>
+            <td style="color:var(--text3); font-size:12px">{{ q.created_at[:10] }}</td>
+            <td>
+              <form method="POST" action="/quotes/{{ q.quote_id }}/delete" style="display:inline" onsubmit="return confirm('Delete this quote?')">
+                <button class="btn btn-danger btn-sm">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-state-icon">📋</div>
+      <div class="empty-state-text">No quotes yet. <a href="/quotes/new">Create your first one.</a></div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

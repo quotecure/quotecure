@@ -1,0 +1,229 @@
+{% extends 'base.html' %}
+{% block title %}Edit Details — {{ quote.customer_name }}{% endblock %}
+{% block extra_css %}
+<style>
+.section-label {
+  font-size:11px; font-weight:700; letter-spacing:0.09em; text-transform:uppercase;
+  color:var(--text3); margin:20px 0 12px; padding-bottom:8px;
+  border-bottom:1px solid var(--border);
+}
+.calc-result {
+  background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:10px 14px; font-family:'Chivo Mono',monospace; font-size:13px;
+  display:flex; justify-content:space-between; align-items:center; margin-top:4px;
+}
+.calc-result .calc-label { font-size:11px; color:var(--text3); font-family:'DM Sans',sans-serif; }
+.calc-result .calc-value { font-size:15px; font-weight:600; color:#93c5fd; }
+.switch { position:relative; display:inline-block; width:36px; height:20px; flex-shrink:0; }
+.switch input { opacity:0; width:0; height:0; }
+.slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--border); border-radius:20px; transition:0.2s; }
+.slider:before { position:absolute; content:""; height:14px; width:14px; left:3px; bottom:3px; background:white; border-radius:50%; transition:0.2s; }
+input:checked + .slider { background:var(--blue-light); }
+input:checked + .slider:before { transform:translateX(16px); }
+.toggle-row { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border2); }
+.toggle-label { font-size:13px; font-weight:500; color:var(--text); flex:1; }
+.toggle-sublabel { font-size:11px; color:var(--text3); margin-top:2px; }
+.spa-fields, .shelf-fields { display:none; margin-top:12px; }
+.spa-fields.open, .shelf-fields.open { display:block; }
+.total-surface-box {
+  background:linear-gradient(135deg,#1e3a8a,#1e40af); border:1px solid #3b82f6;
+  border-radius:var(--radius); padding:16px 20px; margin-top:20px;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.total-surface-box .ts-label { font-size:11px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:#93c5fd; }
+.total-surface-box .ts-value { font-family:'Chivo Mono',monospace; font-size:24px; font-weight:700; color:white; }
+.total-surface-box .ts-breakdown { font-size:11px; color:#bfdbfe; margin-top:3px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page" style="max-width:680px">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Edit Quote Details</div>
+      <div class="page-subtitle">{{ quote.customer_name }} — QT-{{ '%04d'|format(quote.quote_id) }}</div>
+    </div>
+    <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Quote</a>
+  </div>
+  <div class="card">
+    <div class="card-body">
+      <form method="POST">
+
+        <div class="section-label">Customer</div>
+        <div class="form-row form-row-2">
+          <div class="form-group">
+            <label class="form-label">Customer Name *</label>
+            <input class="form-control" name="customer_name" required value="{{ quote.customer_name }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Salesperson</label>
+            <input class="form-control" name="salesperson" value="{{ quote.salesperson or '' }}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Customer Email</label>
+          <input class="form-control" name="customer_email" type="email" value="{{ quote.customer_email or '' }}" placeholder="customer@email.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Address</label>
+          <input class="form-control" name="address" value="{{ quote.address or '' }}">
+        </div>
+
+        <div class="section-label">Pool Dimensions</div>
+        <div class="form-row form-row-3">
+          <div class="form-group">
+            <label class="form-label">Perimeter (lf)</label>
+            <input class="form-control" name="pool_perimeter" id="pool_perimeter" type="number" step="0.1" value="{{ quote.pool_perimeter or '' }}" oninput="recalc()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Shallow End (ft)</label>
+            <input class="form-control" name="pool_shallow" id="pool_shallow" type="number" step="0.1" value="{{ quote.pool_shallow or 3 }}" oninput="recalc()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Deep End (ft)</label>
+            <input class="form-control" name="pool_deep" id="pool_deep" type="number" step="0.1" value="{{ quote.pool_deep or 6 }}" oninput="recalc()">
+          </div>
+        </div>
+        <div class="calc-result">
+          <div>
+            <div class="calc-label">Pool Surface (perimeter × (avg depth + 0.5) × 2)</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px;" id="pool-formula">—</div>
+          </div>
+          <div class="calc-value" id="pool-sqft">— sqft</div>
+        </div>
+
+        <div class="section-label" style="margin-top:24px;">Features</div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Spa</div>
+            <div class="toggle-sublabel">Adds to surface, tile, and coping calculations</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="has_spa" name="has_spa" value="1" onchange="toggleSpa()" {{ 'checked' if quote.has_spa }}>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="spa-fields {{ 'open' if quote.has_spa }}" id="spa-fields">
+          <div class="form-row form-row-2" style="margin-top:8px;">
+            <div class="form-group">
+              <label class="form-label">Spa Perimeter (lf)</label>
+              <input class="form-control" name="spa_perimeter" id="spa_perimeter" type="number" step="0.1" value="{{ quote.spa_perimeter or '' }}" oninput="recalc()">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Spa Depth (ft)</label>
+              <input class="form-control" name="spa_depth" id="spa_depth" type="number" step="0.1" value="{{ quote.spa_depth or 3.5 }}" placeholder="3.5" oninput="recalc()">
+            </div>
+          </div>
+          <div class="calc-result">
+            <div>
+              <div class="calc-label">Spa Surface</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px;" id="spa-formula">—</div>
+            </div>
+            <div class="calc-value" id="spa-sqft">— sqft</div>
+          </div>
+        </div>
+
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Sunshelf</div>
+            <div class="toggle-sublabel">Flat shallow ledge — adds sqft to surface calculations</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="has_shelf" name="has_shelf" value="1" onchange="toggleShelf()" {{ 'checked' if quote.has_shelf }}>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="shelf-fields {{ 'open' if quote.has_shelf }}" id="shelf-fields">
+          <div class="form-row form-row-2" style="margin-top:8px;">
+            <div class="form-group">
+              <label class="form-label">Sunshelf sqft</label>
+              <input class="form-control" name="shelf_sqft_calc" id="shelf_sqft" type="number" step="0.1" value="{{ quote.shelf_sqft or '' }}" oninput="recalc()">
+            </div>
+          </div>
+        </div>
+
+        <div class="section-label" style="margin-top:24px;">Additional Tile (Steps, Benches, Swim-outs)</div>
+        <div class="form-row form-row-3">
+          <div class="form-group">
+            <label class="form-label">Steps (lf)</label>
+            <input class="form-control" name="steps_lf" id="steps_lf" type="number" step="0.1" value="{{ quote.steps_lf or '' }}" oninput="recalc()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Benches (lf)</label>
+            <input class="form-control" name="benches_lf" id="benches_lf" type="number" step="0.1" value="{{ quote.benches_lf or '' }}" oninput="recalc()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Swim-outs (lf)</label>
+            <input class="form-control" name="swimouts_lf" id="swimouts_lf" type="number" step="0.1" value="{{ quote.swimouts_lf or '' }}" oninput="recalc()">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:-4px;">Linear feet of waterline tile needed around these features — added to tile/cap tile/coping quantity, not pool surface area. Changing this does not retroactively update existing line items.</div>
+
+        <div class="total-surface-box">
+          <div>
+            <div class="ts-label">Total Surface Area</div>
+            <div class="ts-breakdown" id="total-breakdown">—</div>
+          </div>
+          <div class="ts-value" id="total-sqft">— sqft</div>
+        </div>
+
+        <input type="hidden" name="pool_sqft" id="h-pool-sqft" value="{{ quote.pool_sqft or 0 }}">
+        <input type="hidden" name="spa_sqft" id="h-spa-sqft" value="{{ quote.spa_sqft or 0 }}">
+        <input type="hidden" name="total_surface_sqft" id="h-total-sqft" value="{{ quote.total_surface_sqft or 0 }}">
+
+        <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:24px;">
+          <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">Cancel</a>
+          <button class="btn btn-primary" type="submit">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+function recalc() {
+  const perim = parseFloat(document.getElementById('pool_perimeter').value) || 0;
+  const shallow = parseFloat(document.getElementById('pool_shallow').value) || 0;
+  const deep = parseFloat(document.getElementById('pool_deep').value) || 0;
+  const avgDepth = (shallow + deep) / 2;
+  const poolSqft = perim > 0 && avgDepth > 0 ? Math.round(perim * (avgDepth + 0.5) * 2) : 0;
+  document.getElementById('pool-sqft').textContent = poolSqft > 0 ? poolSqft + ' sqft' : '— sqft';
+  document.getElementById('pool-formula').textContent = poolSqft > 0 ? `${perim} lf × ${avgDepth.toFixed(1)}' avg × 2 = ${poolSqft} sqft` : '—';
+  document.getElementById('h-pool-sqft').value = poolSqft;
+
+  let spaSqft = 0;
+  if (document.getElementById('has_spa').checked) {
+    const sPerim = parseFloat(document.getElementById('spa_perimeter').value) || 0;
+    const sDepth = parseFloat(document.getElementById('spa_depth').value) || 0;
+    spaSqft = sPerim > 0 && sDepth > 0 ? Math.round(sPerim * (sDepth + 0.5) * 2) : 0;
+    document.getElementById('spa-sqft').textContent = spaSqft > 0 ? spaSqft + ' sqft' : '— sqft';
+    document.getElementById('spa-formula').textContent = spaSqft > 0 ? `${sPerim} lf × ${sDepth}' × 2 = ${spaSqft} sqft` : '—';
+  }
+  document.getElementById('h-spa-sqft').value = spaSqft;
+
+  let shelfSqft = 0;
+  if (document.getElementById('has_shelf').checked) {
+    shelfSqft = parseFloat(document.getElementById('shelf_sqft').value) || 0;
+  }
+
+  const total = poolSqft + spaSqft + shelfSqft;
+  document.getElementById('h-total-sqft').value = total;
+  document.getElementById('total-sqft').textContent = total > 0 ? total + ' sqft' : '— sqft';
+  let parts = [];
+  if (poolSqft > 0) parts.push(`Pool: ${poolSqft} sqft`);
+  if (spaSqft > 0) parts.push(`Spa: ${spaSqft} sqft`);
+  if (shelfSqft > 0) parts.push(`Sunshelf: ${shelfSqft} sqft`);
+  document.getElementById('total-breakdown').textContent = parts.length > 0 ? parts.join(' + ') : '—';
+}
+
+function toggleSpa() {
+  document.getElementById('spa-fields').classList.toggle('open', document.getElementById('has_spa').checked);
+  recalc();
+}
+function toggleShelf() {
+  document.getElementById('shelf-fields').classList.toggle('open', document.getElementById('has_shelf').checked);
+  recalc();
+}
+
+// Run on load to show current values
+window.addEventListener('load', recalc);
+</script>
+{% endblock %}

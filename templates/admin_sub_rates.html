@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %}Sub Rates — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Sub Rates</div>
+      <div class="page-subtitle">What each sub charges per work type</div>
+    </div>
+  </div>
+  <div style="display:grid; grid-template-columns:2fr 1fr; gap:24px; align-items:start;">
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Sub</th><th>Work Type</th><th class="right">Rate</th><th>Unit</th><th>Notes</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for r in rates %}
+            <tr>
+              <td><span class="chip">{{ r.sub_name }}</span></td>
+              <td style="font-weight:500">{{ r.work_type }}</td>
+              <td class="right mono">${{ '%.2f'|format(r.rate) }}</td>
+              <td><span class="badge badge-blue">{{ r.unit }}</span></td>
+              <td style="color:var(--text3); font-size:12px">{{ r.notes or '—' }}</td>
+              <td>
+                <form method="POST" action="/admin/sub_rates/delete/{{ r.id }}" style="display:inline" onsubmit="return confirm('Delete this rate?')">
+                  <button class="btn btn-danger btn-sm">✕</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not rates %}
+            <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">No rates yet.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Add Rate</div></div>
+      <div class="card-body">
+        <form method="POST" action="/admin/sub_rates/add">
+          <div class="form-group">
+            <label class="form-label">Subcontractor</label>
+            <select class="form-control" name="sub_id" required>
+              <option value="">— Select —</option>
+              {% for s in subs %}
+              <option value="{{ s.sub_id }}">{{ s.sub_id }} — {{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Work Type</label>
+            <select class="form-control" name="work_type_id" required>
+              <option value="">— Select —</option>
+              {% for wt in work_types %}
+              <option value="{{ wt.work_type_id }}">{{ wt.work_type }} ({{ wt.unit }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Rate ($)</label>
+            <input class="form-control" name="rate" type="number" step="0.01" required placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes</label>
+            <input class="form-control" name="notes" placeholder="Optional">
+          </div>
+          <button class="btn btn-primary" type="submit">Add Rate</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

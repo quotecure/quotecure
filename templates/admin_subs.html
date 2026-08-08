@@ -1,0 +1,188 @@
+{% extends 'base.html' %}
+{% block title %}Subs — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Subcontractors</div>
+      <div class="page-subtitle">Manage subs and surface applicators</div>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+
+    <!-- General Subs -->
+    <div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><div class="card-title">General Subs</div></div>
+        {% for s in subs %}
+        <div style="border-bottom:1px solid var(--border2);">
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
+            <span class="mono" style="color:var(--text3);min-width:36px;">{{ s.sub_id }}</span>
+            <span style="font-weight:500;flex:1;">{{ s.name }}</span>
+            <span class="badge badge-{{ 'green' if s.active == 'Y' else 'red' }}">{{ 'Active' if s.active == 'Y' else 'Off' }}</span>
+            <button class="btn btn-secondary btn-sm" onclick="toggleRates('{{ s.sub_id }}')">Rates</button>
+            <form method="POST" action="/admin/subs/toggle" style="display:inline">
+              <input type="hidden" name="sub_id" value="{{ s.sub_id }}">
+              <input type="hidden" name="table" value="subs">
+              <button class="btn btn-secondary btn-sm">{{ 'Deactivate' if s.active == 'Y' else 'Activate' }}</button>
+            </form>
+          </div>
+          <!-- Inline rates panel -->
+          <div class="rates-panel" id="rates-{{ s.sub_id }}">
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;">Rates for {{ s.name }}</div>
+            {% set sub_rates = [] %}
+            {% for r in all_sub_rates %}
+              {% if r.sub_id == s.sub_id %}
+                {% set _ = sub_rates.append(r) %}
+              {% endif %}
+            {% endfor %}
+            {% if sub_rates %}
+              {% for r in sub_rates %}
+              <div class="rate-row">
+                <span style="flex:1;color:var(--text)">{{ r.work_type }}</span>
+                <span class="mono" style="color:#93c5fd">${{ '%.2f'|format(r.rate) }}</span>
+                <span class="badge badge-blue">{{ r.unit }}</span>
+                {% if r.notes %}<span style="color:var(--text3)">{{ r.notes }}</span>{% endif %}
+                <form method="POST" action="/admin/sub_rates/delete/{{ r.id }}" style="display:inline" onsubmit="return confirm('Remove?')">
+                  <button class="btn btn-danger btn-sm">✕</button>
+                </form>
+              </div>
+              {% endfor %}
+            {% else %}
+              <div style="color:var(--text3);font-size:12px;padding:4px 0;">No rates yet.</div>
+            {% endif %}
+            <!-- Add rate inline -->
+            <form method="POST" action="/admin/sub_rates/add" style="display:flex;gap:8px;align-items:flex-end;margin-top:12px;flex-wrap:wrap;">
+              <input type="hidden" name="sub_id" value="{{ s.sub_id }}">
+              <div>
+                <label class="form-label">Work Type</label>
+                <select class="form-control" name="work_type_id" style="width:220px;">
+                  {% for wt in work_types %}
+                  <option value="{{ wt.work_type_id }}">{{ wt.work_type }} ({{ wt.unit }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Rate ($)</label>
+                <input class="form-control" name="rate" type="number" step="0.01" placeholder="0.00" style="width:90px;">
+              </div>
+              <div>
+                <label class="form-label">Notes</label>
+                <input class="form-control" name="notes" placeholder="optional" style="width:120px;">
+              </div>
+              <button class="btn btn-green btn-sm" type="submit" style="margin-bottom:1px;">+ Add Rate</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+        {% if not subs %}
+        <div class="empty-state"><div class="empty-state-text">No subs yet.</div></div>
+        {% endif %}
+      </div>
+      <!-- Add sub -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Add Sub</div></div>
+        <div class="card-body">
+          <form method="POST" action="/admin/subs/add" style="display:flex;gap:12px;align-items:flex-end;">
+            <input type="hidden" name="table" value="subs">
+            <div class="form-group" style="margin:0;flex:1;">
+              <label class="form-label">Name</label>
+              <input class="form-control" name="name" required placeholder="Company name">
+            </div>
+            <button class="btn btn-primary" type="submit">Add Sub</button>
+          </form>
+          <div style="font-size:11px;color:var(--text3);margin-top:8px;">ID assigned automatically (S{{ next_sub_id }})</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Surface Applicators -->
+    <div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><div class="card-title">Surface Applicators</div></div>
+        {% for a in applicators %}
+        <div style="border-bottom:1px solid var(--border2);">
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
+            <span class="mono" style="color:var(--text3);min-width:36px;">{{ a.sub_id }}</span>
+            <span style="font-weight:500;flex:1;">{{ a.name }}</span>
+            <span class="badge badge-{{ 'green' if a.active == 'Y' else 'red' }}">{{ 'Active' if a.active == 'Y' else 'Off' }}</span>
+            <button class="btn btn-secondary btn-sm" onclick="toggleRates('app-{{ a.sub_id }}')">Products</button>
+            <form method="POST" action="/admin/subs/toggle" style="display:inline">
+              <input type="hidden" name="sub_id" value="{{ a.sub_id }}">
+              <input type="hidden" name="table" value="surface_applicators">
+              <button class="btn btn-secondary btn-sm">{{ 'Deactivate' if a.active == 'Y' else 'Activate' }}</button>
+            </form>
+          </div>
+          <!-- Inline product rates -->
+          <div class="rates-panel" id="rates-app-{{ a.sub_id }}">
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;">Products & Rates for {{ a.name }}</div>
+            {% set app_rates = [] %}
+            {% for r in all_applicator_rates %}
+              {% if r.sub_id == a.sub_id %}
+                {% set _ = app_rates.append(r) %}
+              {% endif %}
+            {% endfor %}
+            {% if app_rates %}
+              {% for r in app_rates %}
+              <div class="rate-row">
+                <span style="flex:1;color:var(--text)">{{ r.manufacturer_name }} {{ r.product_line }} – {{ r.finish }}</span>
+                <span class="mono" style="color:#93c5fd">${{ '%.2f'|format(r.rate) }}/sqft</span>
+                <form method="POST" action="/admin/surfaces/delete_rate/{{ r.id }}" style="display:inline" onsubmit="return confirm('Remove?')">
+                  <button class="btn btn-danger btn-sm">✕</button>
+                </form>
+              </div>
+              {% endfor %}
+            {% else %}
+              <div style="color:var(--text3);font-size:12px;padding:4px 0;">No products assigned yet.</div>
+            {% endif %}
+            <!-- Add product rate inline -->
+            <form method="POST" action="/admin/surfaces/add_rate" style="display:flex;gap:8px;align-items:flex-end;margin-top:12px;flex-wrap:wrap;">
+              <input type="hidden" name="sub_id" value="{{ a.sub_id }}">
+              <div>
+                <label class="form-label">Product</label>
+                <select class="form-control" name="product_id" style="width:260px;">
+                  {% for p in surface_products %}
+                  <option value="{{ p.product_id }}">{{ p.manufacturer_name }} {{ p.product_line }} – {{ p.finish }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Rate ($/sqft)</label>
+                <input class="form-control" name="rate" type="number" step="0.01" placeholder="6.65" style="width:90px;">
+              </div>
+              <button class="btn btn-green btn-sm" type="submit" style="margin-bottom:1px;">+ Add</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+        {% if not applicators %}
+        <div class="empty-state"><div class="empty-state-text">No applicators yet.</div></div>
+        {% endif %}
+      </div>
+      <!-- Add applicator -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Add Applicator</div></div>
+        <div class="card-body">
+          <form method="POST" action="/admin/subs/add" style="display:flex;gap:12px;align-items:flex-end;">
+            <input type="hidden" name="table" value="applicators">
+            <div class="form-group" style="margin:0;flex:1;">
+              <label class="form-label">Name</label>
+              <input class="form-control" name="name" required placeholder="Applicator name">
+            </div>
+            <button class="btn btn-primary" type="submit">Add Applicator</button>
+          </form>
+          <div style="font-size:11px;color:var(--text3);margin-top:8px;">ID assigned automatically (P{{ next_app_id }})</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<script>
+function toggleRates(id) {
+  const panel = document.getElementById('rates-' + id);
+  panel.classList.toggle('open');
+}
+</script>
+{% endblock %}

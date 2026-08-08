@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Access Denied — QuoteCure{% endblock %}
+{% block content %}
+<div class="page" style="max-width:500px; text-align:center; padding-top:80px;">
+  <div style="font-size:48px; margin-bottom:16px;">🔒</div>
+  <div style="font-size:20px; font-weight:700; margin-bottom:8px;">Access Denied</div>
+  <div style="color:var(--text2); margin-bottom:24px;">Your role doesn't have permission to access this page.</div>
+  <a href="/quotes" class="btn btn-secondary">← Back to Quotes</a>
+</div>
+{% endblock %}

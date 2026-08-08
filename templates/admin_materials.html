@@ -1,0 +1,230 @@
+{% extends 'base.html' %}
+{% block title %}Materials — QuoteCure{% endblock %}
+{% block extra_css %}
+<style>
+.filter-bar { display:flex; gap:12px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; }
+.count-badge { font-size:11px; color:var(--text3); margin-left:8px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Materials</div>
+      <div class="page-subtitle">Tile, pavers, and other materials with cost-per-LF calculations</div>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 340px; gap:24px; align-items:start;">
+
+    <!-- Materials table -->
+    <div>
+      <!-- Filters -->
+      <form method="GET" action="/admin/materials" class="filter-bar">
+        <div>
+          <label class="form-label">Supplier</label>
+          <select class="form-control" name="supplier_id" onchange="this.form.submit()" style="width:180px;">
+            <option value="">All Suppliers</option>
+            {% for s in suppliers %}
+            <option value="{{ s.supplier_id }}" {{ 'selected' if selected_supplier == s.supplier_id|string }}>{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Category</label>
+          <select class="form-control" name="category" onchange="this.form.submit()" style="width:200px;">
+            <option value="">All Categories</option>
+            {% for c in categories %}
+            <option value="{{ c.category }}" {{ 'selected' if selected_category == c.category }}>{{ c.category }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <span class="count-badge">{{ materials|length }} products</span>
+      </form>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Supplier</th>
+                <th>Category</th>
+                <th>Series</th>
+                <th>Code</th>
+                <th class="right">Raw Price</th>
+                <th>Unit</th>
+                <th class="right">Conv.</th>
+                <th class="right">Cost/LF</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in materials %}
+              <tr>
+                <td style="color:var(--text2);font-size:12px;">{{ m.supplier_name }}</td>
+                <td><span class="badge badge-blue" style="font-size:10px;">{{ m.category }}</span></td>
+                <td style="font-weight:500;font-size:13px;">{{ m.series }}</td>
+                <td class="mono" style="color:var(--text3);font-size:11px;">{{ m.item_code or '—' }}</td>
+                <td class="right">
+                  <form method="POST" action="/admin/materials/update_price/{{ m.material_id }}" style="display:inline-flex;gap:4px;align-items:center;">
+                    <input class="form-control mono" name="raw_price" type="number" step="0.01" value="{{ m.raw_price }}" style="width:70px;padding:3px 6px;font-size:12px;text-align:right;">
+                    <button class="btn btn-secondary btn-sm" type="submit" style="padding:3px 8px;">✓</button>
+                  </form>
+                </td>
+                <td style="font-size:11px;color:var(--text3);">{{ m.price_unit }}</td>
+                <td class="right mono" style="font-size:11px;color:var(--text3);">×{{ m.conversion_factor }}</td>
+                <td class="right"><span class="mono" style="color:#93c5fd;font-weight:600;">${{ '%.2f'|format(m.cost_per_quote_unit) }}/{{ m.quote_unit }}</span></td>
+                <td><span class="badge badge-{{ 'green' if m.active == 'Y' else 'red' }}">{{ 'Active' if m.active == 'Y' else 'Off' }}</span></td>
+                <td>
+                  <form method="POST" action="/admin/materials/toggle/{{ m.material_id }}" style="display:inline">
+                    <button class="btn btn-secondary btn-sm">{{ 'Deactivate' if m.active == 'Y' else 'Activate' }}</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+              {% if not materials %}
+              <tr><td colspan="10" class="empty-state"><div class="empty-state-text">No materials yet.</div></td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <!-- CSV Upload -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Upload Price Sheet (CSV)</div></div>
+        <div class="card-body">
+          <form method="POST" action="/admin/materials/upload_csv" enctype="multipart/form-data">
+            <div class="form-group">
+              <label class="form-label">Supplier</label>
+              <select class="form-control" name="supplier_id" required>
+                {% for s in suppliers %}
+                <option value="{{ s.supplier_id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <input class="form-control" name="category" required placeholder="e.g. Glass, Mosaic Waterline">
+            </div>
+            <div class="form-row form-row-2">
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Price Unit</label>
+                <select class="form-control" name="price_unit">
+                  <option value="per_sheet">per_sheet</option>
+                  <option value="per_sqft">per_sqft</option>
+                  <option value="per_piece">per_piece</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Conv. Factor</label>
+                <input class="form-control" name="conversion_factor" type="number" step="0.01" value="0.5" placeholder="0.5">
+              </div>
+            </div>
+            <div class="form-row form-row-2" style="margin-top:12px;">
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Quote Unit</label>
+                <select class="form-control" name="quote_unit">
+                  <option value="lf">lf</option>
+                  <option value="sqft">sqft</option>
+                  <option value="each">each</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Work Type</label>
+                <select class="form-control" name="work_type_id">
+                  <option value="">— Select —</option>
+                  {% for wt in work_types %}
+                  <option value="{{ wt.work_type_id }}">{{ wt.work_type }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <div class="form-group" style="margin-top:12px;">
+              <label class="form-label">CSV File</label>
+              <input class="form-control" name="csv_file" type="file" accept=".csv" required>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">
+              CSV needs columns: Series (or Product Name), Item Code (or Product Code), and a price column (Cost/SHEET, Cost/Sq. Ft., or Price). Updates existing by item code, adds new ones.
+            </div>
+            <button class="btn btn-primary" type="submit">Upload & Import</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Add single material -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Add Single Material</div></div>
+        <div class="card-body">
+          <form method="POST" action="/admin/materials/add">
+            <div class="form-group">
+              <label class="form-label">Supplier</label>
+              <select class="form-control" name="supplier_id" required>
+                {% for s in suppliers %}
+                <option value="{{ s.supplier_id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <input class="form-control" name="category" required placeholder="Glass, 6x6 Porcelain...">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Series Name</label>
+              <input class="form-control" name="series" required placeholder="Twilight — Royal Blue 1x2">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Item Code</label>
+              <input class="form-control" name="item_code" placeholder="GT82348B9">
+            </div>
+            <div class="form-row form-row-2">
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Raw Price ($)</label>
+                <input class="form-control" name="raw_price" type="number" step="0.01" required placeholder="15.00">
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Price Unit</label>
+                <select class="form-control" name="price_unit">
+                  <option value="per_sheet">per_sheet</option>
+                  <option value="per_sqft">per_sqft</option>
+                  <option value="per_piece">per_piece</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row form-row-2" style="margin-top:12px;">
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Conv. Factor</label>
+                <input class="form-control" name="conversion_factor" type="number" step="0.01" value="0.5">
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Quote Unit</label>
+                <select class="form-control" name="quote_unit">
+                  <option value="lf">lf</option>
+                  <option value="sqft">sqft</option>
+                  <option value="each">each</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" style="margin-top:12px;">
+              <label class="form-label">Work Type</label>
+              <select class="form-control" name="work_type_id">
+                <option value="">— Select —</option>
+                {% for wt in work_types %}
+                <option value="{{ wt.work_type_id }}">{{ wt.work_type }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <button class="btn btn-primary" type="submit">Add Material</button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

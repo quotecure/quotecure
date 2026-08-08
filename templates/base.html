@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}QuoteCure{% endblock %}</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Chivo+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+{% block extra_css %}{% endblock %}
+</head>
+<body>
+<style>
+.nav-dropdown { position: relative; display: flex; align-items: center; }
+.nav-dropdown-trigger {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+  cursor: default;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  user-select: none;
+  transition: all 0.15s;
+}
+.nav-dropdown:hover .nav-dropdown-trigger { background: var(--surface2); color: var(--text); }
+.nav-dropdown-trigger.active { background: var(--blue); color: white; }
+.nav-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  padding-top: 8px;
+  z-index: 200;
+  min-width: 190px;
+}
+.nav-dropdown-menu-inner {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  overflow: hidden;
+}
+.nav-dropdown:hover .nav-dropdown-menu { display: block; }
+.nav-dropdown-item {
+  display: block;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+  text-decoration: none;
+  transition: all 0.1s;
+}
+.nav-dropdown-item:hover { background: var(--surface2); color: var(--text); text-decoration: none; }
+.nav-dropdown-item.active { color: var(--blue-light); }
+.nav-dropdown-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+.nav-caret { font-size: 9px; opacity: 0.6; }
+</style>
+<nav class="nav">
+  <a href="/" class="nav-brand">Quote<span>Cure</span></a>
+  <div class="nav-links">
+    <a href="/quotes" class="nav-link {% if request.path.startswith('/quotes') %}active{% endif %}">Quotes</a>
+    {% if current_role and current_role.can_access_admin %}
+    <div class="nav-dropdown">
+      <span class="nav-dropdown-trigger {% if '/admin' in request.path %}active{% endif %}">
+        Admin <span class="nav-caret">▼</span>
+      </span>
+      <div class="nav-dropdown-menu">
+        <div class="nav-dropdown-menu-inner">
+        <a href="/admin/subs" class="nav-dropdown-item {% if '/admin/subs' in request.path %}active{% endif %}">Subs & Applicators</a>
+        <a href="/admin/work_types" class="nav-dropdown-item {% if '/admin/work_types' in request.path %}active{% endif %}">Work Types</a>
+        <a href="/admin/sub_rates" class="nav-dropdown-item {% if '/admin/sub_rates' in request.path %}active{% endif %}">Sub Rates</a>
+        <a href="/admin/surfaces" class="nav-dropdown-item {% if '/admin/surfaces' in request.path %}active{% endif %}">Surface Products</a>
+        <a href="/admin/materials" class="nav-dropdown-item {% if '/admin/materials' in request.path %}active{% endif %}">Materials</a>
+        <a href="/admin/qualifiers" class="nav-dropdown-item {% if '/admin/qualifiers' in request.path %}active{% endif %}">Qualifiers</a>
+        <hr class="nav-dropdown-divider">
+        <a href="/admin/quote_template" class="nav-dropdown-item {% if '/admin/quote_template' in request.path %}active{% endif %}">Quote Template</a>
+        <a href="/admin/packages" class="nav-dropdown-item {% if '/admin/packages' in request.path %}active{% endif %}">Packages</a>
+        <hr class="nav-dropdown-divider">
+        <a href="/admin/settings" class="nav-dropdown-item {% if '/admin/settings' in request.path %}active{% endif %}">Company Settings</a>
+        <div class="nav-dropdown-divider"></div>
+        <a href="/admin/commission" class="nav-dropdown-item {% if '/admin/commission' in request.path %}active{% endif %}">Commission Policy</a>
+        {% if current_role and current_role.can_edit_commission_policy %}
+        <a href="/admin/permissions" class="nav-dropdown-item {% if '/admin/permissions' in request.path %}active{% endif %}">Roles &amp; Permissions</a>
+        {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:12px;">
+    {% if current_user %}
+    <span style="font-size:12px; color:var(--text3);">
+      {{ current_user.username }}
+      <span style="color:var(--border); margin:0 4px;">·</span>
+      <span style="color:var(--text2);">{{ current_user.role_name }}</span>
+    </span>
+    <a href="/logout" class="btn btn-secondary" style="padding:5px 12px; font-size:12px;">Sign out</a>
+    {% endif %}
+  </div>
+</nav>
+{% block content %}{% endblock %}
+</body>
+</html>

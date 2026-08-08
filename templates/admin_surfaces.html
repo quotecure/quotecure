@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+{% block title %}Surfaces — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Surface Products</div>
+      <div class="page-subtitle">Manufacturers, product lines, finishes, and applicator rates</div>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:24px;">
+
+    <!-- Products table -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Products</div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Manufacturer</th><th>Line</th><th>Finish</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for p in products %}
+            <tr>
+              <td style="color:var(--text2)">{{ p.manufacturer_name }}</td>
+              <td>{{ p.product_line }}</td>
+              <td style="font-weight:500">{{ p.finish }}</td>
+              <td><span class="badge badge-{{ 'green' if p.active == 'Y' else 'red' }}">{{ 'Active' if p.active == 'Y' else 'Off' }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Applicator rates -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Applicator Rates</div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Applicator</th><th>Product</th><th class="right">Rate</th></tr></thead>
+          <tbody>
+            {% for r in rates %}
+            <tr>
+              <td><span class="chip">{{ r.applicator_name }}</span></td>
+              <td style="font-size:12px">{{ r.manufacturer_name }} {{ r.product_line }} – {{ r.finish }}</td>
+              <td class="right mono">${{ '%.2f'|format(r.rate) }}/sqft</td>
+            </tr>
+            {% endfor %}
+            {% if not rates %}
+            <tr><td colspan="3" style="text-align:center;padding:24px;color:var(--text3)">No rates yet.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px;">
+
+    <!-- Add manufacturer -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Add Manufacturer</div></div>
+      <div class="card-body">
+        <form method="POST" action="/admin/surfaces/add_manufacturer">
+          <div class="form-group">
+            <label class="form-label">Manufacturer Name</label>
+            <input class="form-control" name="manufacturer_name" required placeholder="e.g. PebbleTec">
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Add</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Add product -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Add Product</div></div>
+      <div class="card-body">
+        <form method="POST" action="/admin/surfaces/add_product">
+          <div class="form-group">
+            <label class="form-label">Manufacturer</label>
+            <select class="form-control" name="manufacturer_id" required>
+              {% for m in manufacturers %}
+              <option value="{{ m.manufacturer_id }}">{{ m.manufacturer_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Product Line</label>
+            <input class="form-control" name="product_line" required placeholder="Pebble Sheen">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Finish</label>
+            <input class="form-control" name="finish" required placeholder="White Diamonds">
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Add Product</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Add applicator rate -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Add Applicator Rate</div></div>
+      <div class="card-body">
+        <form method="POST" action="/admin/surfaces/add_rate">
+          <div class="form-group">
+            <label class="form-label">Applicator</label>
+            <select class="form-control" name="sub_id" required>
+              {% for a in applicators %}
+              <option value="{{ a.sub_id }}">{{ a.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Product</label>
+            <select class="form-control" name="product_id" required>
+              {% for p in products %}
+              <option value="{{ p.product_id }}">{{ p.manufacturer_name }} {{ p.product_line }} – {{ p.finish }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Rate ($/sqft)</label>
+            <input class="form-control" name="rate" type="number" step="0.01" required placeholder="6.65">
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Add Rate</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Surface additives -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Surface Additives</div>
+      <div style="font-size:11px;color:var(--text3);">Optional finish add-ons (glass beads, abalone) appended into the finish description — e.g. "White Diamonds with Tier I Glass". No cost impact; adjust markup on the line item if needed.</div>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+        {% for a in additives %}
+        <form method="POST" action="/admin/surface_additives/delete/{{ a.additive_id }}" style="display:inline-block;" onsubmit="return confirm('Remove this additive?')">
+          <button type="submit" class="chip" style="cursor:pointer;border:none;">{{ a.label }} ✕</button>
+        </form>
+        {% endfor %}
+        {% if not additives %}
+        <span style="color:var(--text3);font-size:12px;">No additives yet.</span>
+        {% endif %}
+      </div>
+      <form method="POST" action="/admin/surface_additives/add" style="display:flex;gap:8px;align-items:flex-end;">
+        <div class="form-group" style="margin:0;flex:1;">
+          <label class="form-label">Add Additive</label>
+          <input class="form-control" name="label" required placeholder="e.g. Tier I Glass">
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Add</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

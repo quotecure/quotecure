@@ -1,0 +1,1237 @@
+import sqlite3
+import os
+from pathlib import Path
+
+# Database lives outside the app folder so it survives app updates
+_external_db = Path.home() / 'Documents' / 'quotecure_data' / 'quotecure.db'
+_local_db = os.path.join(os.path.dirname(__file__), 'quotecure.db')
+
+if _external_db.parent.exists():
+    DB_PATH = str(_external_db)
+    print(f'Using external database: {DB_PATH}')
+else:
+    DB_PATH = _local_db
+    print(f'Using local database: {DB_PATH}')
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute('''CREATE TABLE IF NOT EXISTS subs (
+        sub_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        active TEXT DEFAULT 'Y'
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS surface_applicators (
+        sub_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        active TEXT DEFAULT 'Y'
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS work_types (
+        work_type_id INTEGER PRIMARY KEY,
+        work_type TEXT NOT NULL,
+        unit TEXT NOT NULL,
+        cost_structure TEXT NOT NULL,
+        default_markup REAL DEFAULT 30.0,
+        min_markup REAL DEFAULT 10.0,
+        min_margin REAL DEFAULT 9.1,
+        is_modifier TEXT DEFAULT 'N',
+        modified_by TEXT DEFAULT '',
+        show_on_quote TEXT DEFAULT 'Y',
+        active TEXT DEFAULT 'Y',
+        description TEXT DEFAULT ''
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS sub_rates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sub_id TEXT NOT NULL,
+        work_type_id INTEGER NOT NULL,
+        rate REAL NOT NULL,
+        unit TEXT NOT NULL,
+        notes TEXT DEFAULT ''
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS surface_manufacturers (
+        manufacturer_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        manufacturer_name TEXT NOT NULL,
+        active TEXT DEFAULT 'Y'
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS surface_products (
+        product_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        manufacturer_id INTEGER NOT NULL,
+        product_line TEXT NOT NULL,
+        finish TEXT NOT NULL,
+        active TEXT DEFAULT 'Y'
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS surface_applicator_rates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sub_id TEXT NOT NULL,
+        product_id INTEGER NOT NULL,
+        rate REAL NOT NULL,
+        unit TEXT DEFAULT 'sqft',
+        notes TEXT DEFAULT ''
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS commission_policy (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        method TEXT NOT NULL,
+        rate REAL NOT NULL,
+        active TEXT DEFAULT 'Y'
+    )''')
+
+
+    c.execute('''CREATE TABLE IF NOT EXISTS suppliers (
+        supplier_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        contact TEXT DEFAULT \'\',
+        notes TEXT DEFAULT \'\',
+        active TEXT DEFAULT \'Y\'
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS materials (
+        material_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_id INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        series TEXT NOT NULL,
+        item_code TEXT DEFAULT \'\',
+        raw_price REAL NOT NULL,
+        price_unit TEXT NOT NULL,
+        conversion_factor REAL DEFAULT 1.0,
+        quote_unit TEXT NOT NULL,
+        cost_per_quote_unit REAL NOT NULL,
+        work_type_id INTEGER,
+        active TEXT DEFAULT \'Y\'
+    )''')
+
+
+    c.execute('''CREATE TABLE IF NOT EXISTS payment_schedules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_id INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        amount REAL NOT NULL,
+        pct REAL NOT NULL,
+        sort_order INTEGER DEFAULT 0
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS company_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_name TEXT DEFAULT \'Your Company\',
+        address TEXT DEFAULT \'\',
+        phone TEXT DEFAULT \'\',
+        email TEXT DEFAULT \'\',
+        license_number TEXT DEFAULT \'\',
+        quote_validity_days INTEGER DEFAULT 30,
+        logo_path TEXT DEFAULT \'\',
+        terms_text TEXT DEFAULT \'\'
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS quotes (
+        quote_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_name TEXT NOT NULL,
+        address TEXT DEFAULT '',
+        salesperson TEXT DEFAULT '',
+        pool_perimeter REAL DEFAULT 0,
+        pool_shallow REAL DEFAULT 0,
+        pool_deep REAL DEFAULT 0,
+        pool_sqft REAL DEFAULT 0,
+        has_spa INTEGER DEFAULT 0,
+        spa_perimeter REAL DEFAULT 0,
+        spa_depth REAL DEFAULT 0,
+        spa_sqft REAL DEFAULT 0,
+        has_shelf INTEGER DEFAULT 0,
+        shelf_sqft REAL DEFAULT 0,
+        total_surface_sqft REAL DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        status TEXT DEFAULT 'draft',
+        total_cost REAL DEFAULT 0,
+        total_price REAL DEFAULT 0,
+        total_margin REAL DEFAULT 0,
+        commission REAL DEFAULT 0,
+        include_terms INTEGER DEFAULT 1,
+        steps_lf REAL DEFAULT 0,
+        benches_lf REAL DEFAULT 0,
+        swimouts_lf REAL DEFAULT 0
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS quote_line_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_id INTEGER NOT NULL,
+        work_type_id INTEGER,
+        work_type_label TEXT,
+        cost_structure TEXT DEFAULT 'labor_only',
+        sub_id TEXT DEFAULT '',
+        sub_name TEXT DEFAULT '',
+        labor_quantity REAL DEFAULT 0,
+        labor_unit TEXT DEFAULT '',
+        labor_cost_per_unit REAL DEFAULT 0,
+        labor_total_cost REAL DEFAULT 0,
+        labor_markup_pct REAL DEFAULT 30.0,
+        labor_margin_pct REAL DEFAULT 0,
+        labor_total_price REAL DEFAULT 0,
+        labor_min_markup REAL DEFAULT 10.0,
+        material_id INTEGER,
+        material_label TEXT DEFAULT '',
+        material_quantity REAL DEFAULT 0,
+        material_unit TEXT DEFAULT '',
+        material_cost_per_unit REAL DEFAULT 0,
+        material_total_cost REAL DEFAULT 0,
+        material_markup_pct REAL DEFAULT 30.0,
+        material_margin_pct REAL DEFAULT 0,
+        material_total_price REAL DEFAULT 0,
+        material_min_markup REAL DEFAULT 10.0,
+        product_id INTEGER,
+        product_label TEXT DEFAULT '',
+        total_cost REAL DEFAULT 0,
+        total_price REAL DEFAULT 0,
+        total_margin_pct REAL DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        description TEXT DEFAULT '',
+        is_optional INTEGER DEFAULT 0
+    )''')
+
+    conn.commit()
+    _seed_data(conn)
+    conn.close()
+
+def _call_init_materials():
+    conn = get_db()
+    init_materials(conn)
+    conn.close()
+
+def _seed_data(conn):
+    c = conn.cursor()
+    if c.execute("SELECT COUNT(*) FROM subs").fetchone()[0] > 0:
+        return
+
+    subs = [
+        ('S2',  'Pro Hydroblasters',            'Y'),
+        ('S3',  'G & B Flooring',               'Y'),
+        ('S4',  'Sunshine Construction (Guto)', 'Y'),
+        ('S5',  'Blue Gator Pool Preps',        'Y'),
+        ('S6',  'Osprey Pool Service',          'Y'),
+        ('S7',  'Cur-Rite Start-ups',           'Y'),
+        ('S8',  'Pool Life',                    'Y'),
+        ('S12', 'Prizma Brick Pavers',          'Y'),
+        ('S9',  'Robert',                      'Y'),
+    ]
+    c.executemany("INSERT INTO subs VALUES (?,?,?)", subs)
+
+    applicators = [
+        ('P1', 'Pebble Pros',              'Y'),
+        ('P2', 'Aquatic Surfaces',         'Y'),
+        ('P3', 'Southwest Pool Finishers', 'Y'),
+        ('P4', 'Precision Pool Finishers', 'Y'),
+    ]
+    c.executemany("INSERT INTO surface_applicators VALUES (?,?,?)", applicators)
+
+    work_types = [
+        (1,  'Surface Application',           'sqft','bundled',    35.0,15.0,13.0,'N','',      'Y','Y'),
+        (2,  'Surface Removal',               'sqft','labor_only', 25.0,10.0, 9.1,'N','',      'Y','Y'),
+        (3,  'Surface Prep',                  'sqft','labor_only', 30.0,10.0, 9.1,'N','',      'Y','Y'),
+        (4,  'Waterline Tile Installation',   'lf',  'labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (5,  'Cap Tile Installation',         'lf',  'labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (6,  'Coping Installation',           'lf',  'labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (7,  'Paver Installation',            'sqft','labor_only', 30.0,10.0, 9.1,'N','',      'Y','Y'),
+        (8,  'Paver Sealing',                 'sqft','labor_only', 25.0,10.0, 9.1,'N','',      'Y','Y'),
+        (9,  'Concrete Removal',              'sqft','labor_only', 25.0,10.0, 9.1,'N','',      'Y','Y'),
+        (10, 'Sand & Seal Application',       'sqft','labor_only', 25.0,10.0, 9.1,'N','',      'Y','Y'),
+        (11, 'Skimmer Installation',          'each','labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (12, 'Handrail Installation',         'each','labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (13, 'Light Installation',            'each','labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (14, 'Heater Installation',           'each','labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (15, 'Pump Installation',             'each','labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (16, 'Salt Cell Installation',        'each','labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (17, 'Cartridge Filter Installation', 'each','labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (18, 'Startup',                       'each','bundled',    25.0,10.0, 9.1,'N','',      'Y','Y'),
+        (19, 'Leak Detection',                'each','labor_only', 25.0,10.0, 9.1,'N','',      'Y','Y'),
+        (20, 'Drain Installation',            'each','labor_only', 30.0,15.0,13.0,'N','',      'Y','Y'),
+        (21, 'Excavation',                    'sqft','labor_only', 25.0,10.0, 9.1,'Y','7',     'Y','Y'),
+        (22, 'Site Cleanup',                  'each','labor_only', 25.0,10.0, 9.1,'N','',      'Y','Y'),
+        (23, 'River Rock Removal',            'sqft','labor_only', 25.0,10.0, 9.1,'N','',      'Y','Y'),
+        (26, 'Trash Removal',                 'each','labor_only', 25.0, 0.0, 0.0,'Y','7,9,23','N','Y'),
+        (27, 'Drain Pool',                    'each','labor_only', 25.0, 0.0, 0.0,'Y','2,23',  'Y','Y'),
+        (28, 'Tile Removal',                  'lf',  'labor_only', 25.0, 0.0, 0.0,'Y','2',     'Y','Y'),
+        (29, 'Cantilever Cut',                'lf',  'labor_only', 25.0, 0.0, 0.0,'Y','5',     'Y','Y'),
+        (30, 'Deck Drain Install',            'lf',  'labor_only', 25.0, 0.0, 0.0,'Y','7',     'Y','Y'),
+        (31, 'Spa Surface Removal',           'sqft','labor_only', 25.0, 0.0, 0.0,'Y','2',     'Y','Y'),
+        (32, 'Footers with Concrete',         'lf',  'labor_only', 25.0, 0.0, 0.0,'Y','6',     'Y','Y'),
+    ]
+    c.executemany("INSERT INTO work_types VALUES (?,?,?,?,?,?,?,?,?,?,?)", work_types)
+
+    sub_rates = [
+        # S2 — Pro Hydroblasters
+        ('S2', 2,  3.00,   'sqft', 'surface removal'),
+        ('S2', 23, 2.00,   'sqft', 'river rock removal'),
+        ('S2', 27, 150.00, 'each', 'drain pool'),
+        # S3 — G & B Flooring
+        ('S3', 2,  2.00,   'sqft', 'surface removal'),
+        ('S3', 4,  12.00,  'lf',   'waterline tile'),
+        ('S3', 5,  12.00,  'lf',   'cap tile'),
+        ('S3', 6,  12.00,  'lf',   'coping'),
+        ('S3', 7,  2.10,   'sqft', 'paver install'),
+        ('S3', 8,  2.00,   'sqft', 'paver sealing'),
+        ('S3', 9,  2.25,   'sqft', 'concrete removal'),
+        ('S3', 11, 600.00, 'each', 'skimmer install'),
+        ('S3', 20, 450.00, 'each', 'drain install'),
+        ('S3', 21, 1.00,   'sqft', 'excavation'),
+        ('S3', 27, 250.00, 'each', 'drain pool'),
+        ('S3', 28, 3.00,   'lf',   'tile removal'),
+        ('S3', 29, 3.00,   'lf',   'cantilever cut'),
+        ('S3', 30, 5.00,   'lf',   'deck drain standard'),
+        ('S3', 32, 25.00,  'lf',   'footers with concrete'),
+        # S6 — Osprey Pool Service
+        ('S6', 18, 800.00, 'each', 'startup'),
+        # S9 — Robert (1099)
+        ('S9', 3,  450.00, 'each', 'flat rate surface prep'),
+        ('S9', 11, 400.00, 'each', 'skimmer install'),
+    ]
+    c.executemany("INSERT INTO sub_rates (sub_id,work_type_id,rate,unit,notes) VALUES (?,?,?,?,?)", sub_rates)
+
+    c.execute("INSERT INTO commission_policy (name,method,rate,active) VALUES ('Default','pct_of_price',10.0,'Y')")
+    conn.commit()
+
+def init_auth(conn):
+    c = conn.cursor()
+
+    c.execute('''CREATE TABLE IF NOT EXISTS roles (
+        role_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role_name TEXT NOT NULL UNIQUE,
+        show_commission INTEGER DEFAULT 0,
+        show_margin_floors INTEGER DEFAULT 0,
+        can_override_min_markup INTEGER DEFAULT 0,
+        can_edit_commission_policy INTEGER DEFAULT 0,
+        can_access_admin INTEGER DEFAULT 0,
+        can_edit_work_types INTEGER DEFAULT 0,
+        can_edit_sub_rates INTEGER DEFAULT 0,
+        can_edit_surfaces INTEGER DEFAULT 0,
+        can_edit_subs INTEGER DEFAULT 0,
+        show_gross_profit INTEGER DEFAULT 1
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        display_name TEXT DEFAULT '',
+        role_id INTEGER NOT NULL,
+        active INTEGER DEFAULT 1
+    )''')
+
+    # Seed roles if empty
+    if c.execute("SELECT COUNT(*) FROM roles").fetchone()[0] == 0:
+        roles = [
+            # Owner — full access, no commission (they get the profit)
+            ('Owner',       0, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+            # Sales — sees commission and gross profit, no admin
+            ('Sales',       1, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+            # Coordinator — builds quotes, some admin, no commission
+            ('Coordinator', 0, 0, 0, 0, 1, 0, 1, 1, 1, 1),
+        ]
+        c.executemany("""INSERT INTO roles
+            (role_name,show_commission,show_margin_floors,can_override_min_markup,
+             can_edit_commission_policy,can_access_admin,can_edit_work_types,
+             can_edit_sub_rates,can_edit_surfaces,can_edit_subs,show_gross_profit)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""", roles)
+
+    # Seed default users if empty
+    if c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
+        import hashlib
+        def h(p): return hashlib.sha256(p.encode()).hexdigest()
+        users = [
+            ('owner',       h('owner123'),       'Owner',       1),
+            ('sales',       h('sales123'),       'Sales Rep',   2),
+            ('coordinator', h('coordinator123'), 'Coordinator', 3),
+        ]
+        c.executemany("INSERT INTO users (username,password,display_name,role_id) VALUES (?,?,?,?)", users)
+
+    conn.commit()
+
+def init_materials(conn):
+    c = conn.cursor()
+    if c.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0] > 0:
+        return
+
+    # Seed suppliers
+    suppliers = [
+        ('LUV Tile', '', 'Waterline tile supplier', 'Y'),
+        ('NPT', '', 'National Pool Tile', 'Y'),
+        ('SCP Pool Supply', '', 'Equipment and materials distributor', 'Y'),
+        ('Flagstone', '', 'Paver supplier', 'Y'),
+    ]
+    c.executemany("INSERT INTO suppliers (name,contact,notes,active) VALUES (?,?,?,?)", suppliers)
+
+    luv_id = c.execute("SELECT supplier_id FROM suppliers WHERE name='LUV Tile'").fetchone()[0]
+
+    # LUV Tile — Mosaic Waterline (per sheet, conversion 0.5 → per LF)
+    # 1 sheet = 1 sqft, cut in half = 2 LF, so cost/LF = price/2
+    mosaic = [
+        (luv_id, 'Mosaic Waterline', 'Blue Wave',       'BWE', 7.50, 'per_sheet', 0.5, 'lf', 3.75,  4, 'Y'),
+        (luv_id, 'Mosaic Waterline', 'Blue Galaxy',     'BXY', 7.50, 'per_sheet', 0.5, 'lf', 3.75,  4, 'Y'),
+        (luv_id, 'Mosaic Waterline', 'Moon Rock 1X2&2X4','MRK',7.50, 'per_sheet', 0.5, 'lf', 3.75,  4, 'Y'),
+        (luv_id, 'Mosaic Waterline', 'Nautilus',        'NA',  7.50, 'per_sheet', 0.5, 'lf', 3.75,  4, 'Y'),
+        (luv_id, 'Mosaic Waterline', 'Shark Tooth',     'SRK', 7.50, 'per_sheet', 0.5, 'lf', 3.75,  4, 'Y'),
+        (luv_id, 'Mosaic Waterline', 'Topic Isle',      'TPI', 7.50, 'per_sheet', 0.5, 'lf', 3.75,  4, 'Y'),
+        (luv_id, 'Mosaic Waterline', 'Wind Mill',       'WIN', 7.50, 'per_sheet', 0.5, 'lf', 3.75,  4, 'Y'),
+    ]
+
+    # LUV Tile — Upgrade Waterline (per sheet, same conversion)
+    upgrade = [
+        (luv_id, 'Upgrade Waterline', 'Admiral 2x3',        'ABR',    12.50, 'per_sheet', 0.5, 'lf', 6.25,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Aquarel Blue 6x6',   'AQU',    10.00, 'per_sqft',  0.5, 'lf', 5.00,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Astrum 2x2',         'AST2x2', 12.00, 'per_sheet', 0.5, 'lf', 6.00,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Cirrus Block Random','CBR',    12.50, 'per_sheet', 0.5, 'lf', 6.25,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Earthview 1x2',      'EBT',    10.50, 'per_sheet', 0.5, 'lf', 5.25,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Earthview 6x6',      'ERV6',   13.00, 'per_sqft',  0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Earthview 2x3',      'ERV',    12.00, 'per_sheet', 0.5, 'lf', 6.00,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Earthview Block',    'EBR',    11.00, 'per_sheet', 0.5, 'lf', 5.50,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Luv Mix 1x1',        'LMX',    11.00, 'per_sheet', 0.5, 'lf', 5.50,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Luv Mix Border',     'LMB',     7.50, 'per_sheet', 0.5, 'lf', 3.75,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Maui 1x2 & 2x3',    'MAI',    11.00, 'per_sheet', 0.5, 'lf', 5.50,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Moon Rock Block',    'MBR',     8.50, 'per_sheet', 0.5, 'lf', 4.25,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Nagano',             'NGO',     8.00, 'per_sheet', 0.5, 'lf', 4.00,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Onyx Block Random',  'OBR',    15.00, 'per_sheet', 0.5, 'lf', 7.50,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Rattlesnake',        'RSS',     8.50, 'per_sheet', 0.5, 'lf', 4.25,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Reef 1x2,2x2,2x3',  'REF',    11.00, 'per_sheet', 0.5, 'lf', 5.50,  4, 'Y'),
+        (luv_id, 'Upgrade Waterline', 'Reef 6611 & 7676',   'REF6',   13.00, 'per_sheet', 0.5, 'lf', 6.50,  4, 'Y'),
+    ]
+
+    # LUV Tile — 6x6 Waterline Porcelain (per sqft, conversion 0.5 → per LF)
+    porcelain_6x6 = [
+        (luv_id, '6x6 Porcelain', '6x6 6674/6620/6685', '6x6A',  7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', '6x6 60/83/87',       '6x6B',  5.50, 'per_sqft', 0.5, 'lf', 2.75,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Abyss',              'ABS',   6.50, 'per_sqft', 0.5, 'lf', 3.25,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Admiral',            'ADM',   6.50, 'per_sqft', 0.5, 'lf', 3.25,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Amalfi',             'AMF',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Amazonia',           'AMZ',   5.50, 'per_sqft', 0.5, 'lf', 2.75,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Antico',             'ANT',   6.50, 'per_sqft', 0.5, 'lf', 3.25,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Aruba',              'ARB',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Asian',              'ASN',   5.00, 'per_sqft', 0.5, 'lf', 2.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Astrum',             'AST',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Bali 6x6',          'BLI',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Barbados',           'BAR',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Bay',                'BAY',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Capri',              'CAP',   6.50, 'per_sqft', 0.5, 'lf', 3.25,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Cirrus',             'CIR',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Cloud Blue',         'CLD',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Crackle',            'CRA',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Crystal',            'CRY',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Coral Sea',          'CSA',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Deep',               'DEP',   6.50, 'per_sqft', 0.5, 'lf', 3.25,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Euro',               'EUR',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Emporio',            'EMP',   6.50, 'per_sqft', 0.5, 'lf', 3.25,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Isola',              'ISO',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Jupiter',            'JPT',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Key West',           'KEY',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Martinique',         'MRT',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Murano Pavone',      'MUR',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Onyx',               'ONX',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Persian',            'PER',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Rain Drop',          'RDR',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Seabrook Island',    'SBI',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Spanish Deco',       'SDO',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Summerland Oasis',   'SMO',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Sea Mount',          'SMT',   6.50, 'per_sqft', 0.5, 'lf', 3.25,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Tortuga',            'TOR',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+        (luv_id, '6x6 Porcelain', 'Tropical Ocean',     'TRO',   7.00, 'per_sqft', 0.5, 'lf', 3.50,  4, 'Y'),
+    ]
+
+    # LUV Glass tiles — selected from pages 3-13 (per sqft, conversion 0.5 → per LF)
+    glass = [
+        # Crystal Series
+        (luv_id, 'Glass', 'Crystal — Aqua Blend',              'GC82348T2',  13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal — Black Charcoal Gray Taupe','GC82348K1', 13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal — Turquoise Blue Blend',    'GC82348T1',  13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal — Turquoise Cobalt Blue',   'GC82348B3',  13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        # Crystal Waters
+        (luv_id, 'Glass', 'Crystal Waters — Deep Sea 1x1',     'CW811B4',    13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal Waters — Deep Sea 1x2',     'CW812B4',    13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal Waters — Lagoon 1x1',       'CW811K6',    13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal Waters — Lagoon 1x2',       'CW812K6',    13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal Waters — Surf 1x1',         'CW811B5',    13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal Waters — Surf 1x2',         'CW812B5',    13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal Waters — Gulf Stream 1x1',  'CW811B6',    13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Crystal Waters — Gulf Stream 1x2',  'CW812B6',    13.00, 'per_sqft', 0.5, 'lf', 6.50,  4, 'Y'),
+        # Dimension
+        (luv_id, 'Glass', 'Dimension — Cirrus Blue',           'TZ824B2',    21.00, 'per_sqft', 0.5, 'lf', 10.50, 4, 'Y'),
+        (luv_id, 'Glass', 'Dimension — Dusk',                  'TZ824K1',    21.00, 'per_sqft', 0.5, 'lf', 10.50, 4, 'Y'),
+        (luv_id, 'Glass', 'Dimension — Morning Fog',           'TZ824B1',    21.00, 'per_sqft', 0.5, 'lf', 10.50, 4, 'Y'),
+        # Galaxy
+        (luv_id, 'Glass', 'Galaxy — Aquamarine 1x1',           'GG82323T9',  16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Galaxy — Aquamarine 1x2',           'GG82348T9',  16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Galaxy — Blue 1x1',                 'GG82323B17', 16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Galaxy — Blue 1x2',                 'GG82348B17', 16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Galaxy — Blue Blend 1x1',           'GG82323B18', 16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Galaxy — Blue Blend 1x2',           'GG82348B18', 16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Galaxy — Slate Blend 1x1',          'GG82323K9',  16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Galaxy — Slate Blend 1x2',          'GG82348K9',  16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        # Moonscape
+        (luv_id, 'Glass', 'Moonscape — Black 2x6',             'MS826K1',    16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Moonscape — Blue 2x6',              'MS826B1',    16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Moonscape — Gray 2x6',              'MS826K7',    16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Moonscape — Steel Blue 2x6',        'MS826B2',    16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Moonscape — Turquoise 2x6',         'MS826T3',    16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Moonscape — White 2x6',             'MS826W2',    16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        # Signature
+        (luv_id, 'Glass', 'Signature — Blue',                  'SS82323B1',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Signature — Arctic Blue',           'SS82323B2',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Signature — Black',                 'SS82323K1',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Signature — Bright White',          'SS82323W1',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Signature — Gray',                  'SS82323K2',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Signature — Gunmetal Blue',         'SS82323B8',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Signature — Lapis Blue',            'SS82323B3',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Signature — Shadow Blue',           'SS82323B7',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        # Twilight
+        (luv_id, 'Glass', 'Twilight — Azure 1x1',              'GT82323B12', 15.00, 'per_sqft', 0.5, 'lf', 7.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Twilight — Azure 1x2',              'GT82348B12', 15.00, 'per_sqft', 0.5, 'lf', 7.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Twilight — Black 1x1',              'GT82323K5',  15.00, 'per_sqft', 0.5, 'lf', 7.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Twilight — Black 1x2',              'GT82348K5',  15.00, 'per_sqft', 0.5, 'lf', 7.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Twilight — Royal Blue 1x1',         'GT82323B9',  15.00, 'per_sqft', 0.5, 'lf', 7.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Twilight — Royal Blue 1x2',         'GT82348B9',  15.00, 'per_sqft', 0.5, 'lf', 7.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Twilight — Turquoise 1x1',          'GT82323T4',  15.00, 'per_sqft', 0.5, 'lf', 7.50,  4, 'Y'),
+        (luv_id, 'Glass', 'Twilight — Turquoise 1x2',          'GT82348T4',  15.00, 'per_sqft', 0.5, 'lf', 7.50,  4, 'Y'),
+        # Watercolors
+        (luv_id, 'Glass', 'Watercolors — Aqua Blend 1x2',      'GW82348T5',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Watercolors — Blue Blend 1x2',      'GW82348B10', 14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Watercolors — Caribbean Blue 1x2',  'GW82348B11', 14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Watercolors — Seafoam Blend 1x2',   'GW82348T10', 14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Watercolors — Steel Blue Gray 1x2', 'GW82348B9',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        # Subway
+        (luv_id, 'Glass', 'Subway — Black',                    'GS84896K3',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Subway — Blue Gray',                'GS84896K2',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Subway — Shadow Blue',              'GS84896B7',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Subway — Stratus Aqua',             'GS84896T7',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Subway — Stratus Blue',             'GS84896B1',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Subway — Stratus Gray',             'GS84896B2',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Subway — Stratus White',            'GS84896W1',  14.00, 'per_sqft', 0.5, 'lf', 7.00,  4, 'Y'),
+        # Avalon
+        (luv_id, 'Glass', 'Avalon — Blue',                     'AV8MXB22',   16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Avalon — Gray',                     'AV8MXK10',   16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Avalon — Seafoam',                  'AV8MXT8',    16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        # Coastal Sands
+        (luv_id, 'Glass', 'Coastal Sands — Aquamarine',        'CS8LT15',    16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+        (luv_id, 'Glass', 'Coastal Sands — Tidal Blue',        'CS8LB14',    16.00, 'per_sqft', 0.5, 'lf', 8.00,  4, 'Y'),
+    ]
+
+    all_materials = mosaic + upgrade + porcelain_6x6 + glass
+    c.executemany("""INSERT INTO materials
+        (supplier_id,category,series,item_code,raw_price,price_unit,conversion_factor,
+         quote_unit,cost_per_quote_unit,work_type_id,active)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)""", all_materials)
+
+    conn.commit()
+    print(f"Seeded {len(all_materials)} LUV Tile materials")
+
+def init_company_settings(conn):
+    c = conn.cursor()
+    if c.execute("SELECT COUNT(*) FROM company_settings").fetchone()[0] == 0:
+        c.execute("""INSERT INTO company_settings
+            (company_name, address, phone, email, license_number, quote_validity_days)
+            VALUES ('Your Company', '', '', '', '', 30)""")
+        conn.commit()
+
+def generate_payment_schedule(conn, quote_id, total_price):
+    """Auto-generate payment schedule based on total price rules."""
+    c = conn.cursor()
+    c.execute("DELETE FROM payment_schedules WHERE quote_id=?", (quote_id,))
+    if total_price <= 0:
+        conn.commit()
+        return
+    if total_price < 10000:
+        draws = [
+            ('Due at Signing', round(total_price * 0.5, 2), 50.0, 0),
+            ('Due at Completion', round(total_price * 0.5, 2), 50.0, 1),
+        ]
+    else:
+        draws = [
+            ('Due at Signing',           round(total_price * 0.10, 2), 10.0, 0),
+            ('Due at Commencement',      round(total_price * 0.40, 2), 40.0, 1),
+            ('Due at Milestone',         round(total_price * 0.40, 2), 40.0, 2),
+            ('Due at Surface Install',   round(total_price * 0.10, 2), 10.0, 3),
+        ]
+        # Fix rounding so draws add up exactly
+        total_draws = sum(d[1] for d in draws)
+        diff = round(total_price - total_draws, 2)
+        if diff != 0:
+            draws[-1] = (draws[-1][0], round(draws[-1][1] + diff, 2), draws[-1][2], draws[-1][3])
+    c.executemany(
+        "INSERT INTO payment_schedules (quote_id,label,amount,pct,sort_order) VALUES (?,?,?,?,?)",
+        [(quote_id, d[0], d[1], d[2], d[3]) for d in draws]
+    )
+    conn.commit()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MIGRATION SYSTEM — safe schema upgrades without wiping data
+# ══════════════════════════════════════════════════════════════════════════════
+MIGRATIONS = []
+
+def migration(fn):
+    MIGRATIONS.append(fn)
+    return fn
+
+def run_migrations(conn):
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS schema_migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        applied_at TEXT DEFAULT (datetime('now'))
+    )""")
+    conn.commit()
+    applied = {r[0] for r in c.execute("SELECT name FROM schema_migrations").fetchall()}
+    for fn in MIGRATIONS:
+        if fn.__name__ not in applied:
+            print(f'Running migration: {fn.__name__}')
+            fn(conn)
+            c.execute("INSERT INTO schema_migrations (name) VALUES (?)", (fn.__name__,))
+            conn.commit()
+
+@migration
+def add_payment_schedules(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS payment_schedules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_id INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        amount REAL NOT NULL,
+        pct REAL NOT NULL,
+        sort_order INTEGER DEFAULT 0
+    )""")
+
+@migration
+def add_company_settings(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS company_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_name TEXT DEFAULT 'Your Company',
+        address TEXT DEFAULT '',
+        phone TEXT DEFAULT '',
+        email TEXT DEFAULT '',
+        license_number TEXT DEFAULT '',
+        quote_validity_days INTEGER DEFAULT 30,
+        logo_path TEXT DEFAULT ''
+    )""")
+
+@migration
+def add_suppliers_and_materials(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS suppliers (
+        supplier_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        contact TEXT DEFAULT '',
+        notes TEXT DEFAULT '',
+        active TEXT DEFAULT 'Y'
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS materials (
+        material_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_id INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        series TEXT NOT NULL,
+        item_code TEXT DEFAULT '',
+        raw_price REAL NOT NULL,
+        price_unit TEXT NOT NULL,
+        conversion_factor REAL DEFAULT 1.0,
+        quote_unit TEXT NOT NULL,
+        cost_per_quote_unit REAL NOT NULL,
+        work_type_id INTEGER,
+        active TEXT DEFAULT 'Y'
+    )""")
+
+@migration
+def add_line_item_split_columns(conn):
+    """Add labor/material split columns to quote_line_items if missing."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    new_cols = [
+        ('cost_structure', "TEXT DEFAULT 'labor_only'"),
+        ('labor_quantity', 'REAL DEFAULT 0'),
+        ('labor_unit', "TEXT DEFAULT ''"),
+        ('labor_cost_per_unit', 'REAL DEFAULT 0'),
+        ('labor_total_cost', 'REAL DEFAULT 0'),
+        ('labor_markup_pct', 'REAL DEFAULT 30.0'),
+        ('labor_margin_pct', 'REAL DEFAULT 0'),
+        ('labor_total_price', 'REAL DEFAULT 0'),
+        ('labor_min_markup', 'REAL DEFAULT 10.0'),
+        ('material_id', 'INTEGER'),
+        ('material_label', "TEXT DEFAULT ''"),
+        ('material_quantity', 'REAL DEFAULT 0'),
+        ('material_unit', "TEXT DEFAULT ''"),
+        ('material_cost_per_unit', 'REAL DEFAULT 0'),
+        ('material_total_cost', 'REAL DEFAULT 0'),
+        ('material_markup_pct', 'REAL DEFAULT 30.0'),
+        ('material_margin_pct', 'REAL DEFAULT 0'),
+        ('material_total_price', 'REAL DEFAULT 0'),
+        ('material_min_markup', 'REAL DEFAULT 10.0'),
+        ('total_margin_pct', 'REAL DEFAULT 0'),
+    ]
+    for col_name, col_def in new_cols:
+        if col_name not in cols:
+            conn.execute(f"ALTER TABLE quote_line_items ADD COLUMN {col_name} {col_def}")
+    # Migrate existing rows if old columns exist
+    old_cols = {r[1] for r in conn.execute('PRAGMA table_info(quote_line_items)').fetchall()}
+    if 'quantity' in old_cols:
+        conn.execute("""UPDATE quote_line_items SET
+            labor_quantity = COALESCE(quantity, 0),
+            labor_unit = COALESCE(unit, ''),
+            labor_cost_per_unit = COALESCE(cost_per_unit, 0),
+            labor_total_cost = COALESCE(total_cost, 0),
+            labor_markup_pct = COALESCE(markup_pct, 30),
+            labor_margin_pct = COALESCE(margin_pct, 0),
+            labor_total_price = COALESCE(total_price, 0),
+            labor_min_markup = COALESCE(min_markup, 10),
+            total_margin_pct = COALESCE(margin_pct, 0)
+            WHERE labor_quantity = 0 AND COALESCE(quantity, 0) > 0""")
+
+@migration
+def add_display_name_to_users(conn):
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if 'users' not in tables:
+        return
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if 'display_name' not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT ''")
+
+
+@migration
+def add_quote_template_and_defaults(conn):
+    """Add default sub/material to work_types and quote template table."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(work_types)").fetchall()}
+    if 'default_sub_id' not in cols:
+        conn.execute("ALTER TABLE work_types ADD COLUMN default_sub_id TEXT DEFAULT ''")
+    if 'default_material_id' not in cols:
+        conn.execute("ALTER TABLE work_types ADD COLUMN default_material_id INTEGER")
+
+    conn.execute("""CREATE TABLE IF NOT EXISTS quote_template (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        work_type_id INTEGER NOT NULL,
+        sort_order INTEGER DEFAULT 0,
+        active TEXT DEFAULT 'Y'
+    )""")
+
+    # Seed template if empty
+    if conn.execute("SELECT COUNT(*) FROM quote_template").fetchone()[0] == 0:
+        items = [(2,1),(11,2),(4,3),(3,4),(1,5),(18,6)]
+        conn.executemany("INSERT INTO quote_template (work_type_id,sort_order,active) VALUES (?,?,'Y')", items)
+
+    # Set default subs
+    defaults = {1:'P1', 2:'S2', 3:'S9', 4:'S3', 5:'S3', 6:'S3', 11:'S9', 18:'S6'}
+    for wt_id, sub_id in defaults.items():
+        conn.execute("UPDATE work_types SET default_sub_id=? WHERE work_type_id=?", (sub_id, wt_id))
+    # Skimmer: 150% markup, no default sub, $200 part material
+    conn.execute("UPDATE work_types SET default_markup=150.0, default_sub_id='' WHERE work_type_id=11")
+    sup = conn.execute("SELECT supplier_id FROM suppliers WHERE name='SCP Pool Supply'").fetchone()
+    if sup:
+        existing_mat = conn.execute("SELECT material_id FROM materials WHERE series='Skimmer' AND work_type_id=11").fetchone()
+        if not existing_mat:
+            conn.execute(
+                "INSERT INTO materials (supplier_id, category, series, item_code, raw_price, "
+                "price_unit, conversion_factor, quote_unit, cost_per_quote_unit, work_type_id, active) "
+                "VALUES (?, 'Equipment', 'Skimmer', 'SKM-STD', 200.00, 'per_each', 1.0, 'each', 200.00, 11, 'Y')",
+                (sup['supplier_id'],))
+            mat_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        else:
+            mat_id = existing_mat['material_id']
+        conn.execute("UPDATE work_types SET default_material_id=? WHERE work_type_id=11", (mat_id,))
+
+
+@migration
+def add_packages(conn):
+    """Renovation package tiers (Refresh / Signature / Resort) — a named, pre-priced starting point for a new quote."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS packages (
+        package_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        badge TEXT DEFAULT '',
+        price_range_label TEXT DEFAULT '',
+        life_expectancy_label TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        color TEXT DEFAULT '#3b82f6',
+        sort_order INTEGER DEFAULT 0,
+        active TEXT DEFAULT 'Y'
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS package_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        package_id INTEGER NOT NULL,
+        work_type_id INTEGER NOT NULL,
+        sort_order INTEGER DEFAULT 0,
+        default_sub_id TEXT DEFAULT '',
+        default_material_id INTEGER,
+        active TEXT DEFAULT 'Y',
+        is_optional INTEGER DEFAULT 0
+    )""")
+
+    if conn.execute("SELECT COUNT(*) FROM packages").fetchone()[0] > 0:
+        return
+
+    packages = [
+        # name, badge, price_range, life_expectancy, description, color, sort_order
+        ('Refresh', 'SMART VALUE', '$10,000–$15,000', '7–10 years',
+         'A clean, beautiful update focused on the essentials.', '#d6c7a8', 1),
+        ('Signature', 'MOST POPULAR', '$15,000–$25,000', '10–20 years',
+         'Our balanced renovation: upgraded materials, style and performance.', '#7dd3e8', 2),
+        ('Resort', 'PREMIUM', '$25,000–$35,000+', '20+ years',
+         'A high-end transformation designed around a backyard-resort look.', '#2563a8', 3),
+    ]
+    pkg_ids = {}
+    for name, badge, price_range, life, desc, color, sort_order in packages:
+        conn.execute("""INSERT INTO packages (name,badge,price_range_label,life_expectancy_label,description,color,sort_order,active)
+                        VALUES (?,?,?,?,?,?,?,'Y')""", (name, badge, price_range, life, desc, color, sort_order))
+        pkg_ids[name] = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # (work_type_id, default_sub_id, default_material_id, sort_order)
+    # Materials: 26=6x6 Porcelain "60/83/87", 2=Mosaic Waterline "Blue Galaxy", 118=Glass "Avalon - Blue", 123=Skimmer part
+    # Surface products: 39=Marquis Bluestone, 21=StoneScapes Aqua Cool, 6=PebbleTec French Grey
+    refresh_items = [
+        (28, 'S3', None, 1),   # Tile Removal
+        (5, 'S3', 26, 2),      # Cap Tile Installation - 6x6 Porcelain
+        (4, 'S3', 26, 3),      # Waterline Tile Installation - 6x6 Porcelain
+        (11, '', 123, 4),      # Skimmer Installation
+        (3, 'S9', None, 5),    # Surface Prep
+        (1, 'P1', 39, 6),      # Surface Application - Marquis Bluestone
+        (18, 'S6', None, 7),   # Startup
+    ]
+    signature_items = [
+        (2, 'S2', None, 1),    # Surface Removal
+        (5, 'S3', 2, 2),       # Cap Tile Installation - Mosaic Waterline
+        (4, 'S3', 2, 3),       # Waterline Tile Installation - Mosaic Waterline
+        (11, '', 123, 4),      # Skimmer Installation
+        (3, 'S9', None, 5),    # Surface Prep
+        (1, 'P1', 21, 6),      # Surface Application - StoneScapes Aqua Cool
+        (13, '', None, 7),     # Light Installation (no sub rate set up yet)
+        (18, 'S6', None, 8),   # Startup
+    ]
+    resort_items = [
+        (2, 'S2', None, 1),    # Surface Removal
+        (6, 'S3', None, 2),    # Coping Installation (instead of Cap Tile)
+        (4, 'S3', 118, 3),     # Waterline Tile Installation - Glass
+        (11, '', 123, 4),      # Skimmer Installation
+        (3, 'S9', None, 5),    # Surface Prep
+        (1, 'P1', 6, 6),       # Surface Application - PebbleTec French Grey
+        (13, '', None, 7),     # Light Installation (no sub rate set up yet)
+        (18, 'S6', None, 8),   # Startup
+    ]
+    for name, items in [('Refresh', refresh_items), ('Signature', signature_items), ('Resort', resort_items)]:
+        for wt_id, sub_id, mat_id, sort_order in items:
+            conn.execute("""INSERT INTO package_items (package_id,work_type_id,sort_order,default_sub_id,default_material_id,active)
+                            VALUES (?,?,?,?,?,'Y')""", (pkg_ids[name], wt_id, sort_order, sub_id, mat_id))
+
+
+@migration
+def add_light_fixtures(conn):
+    """Light Installation catalog: manufacturer x (Pool/Spa/Nicheless - White/Color LED) x cord length.
+    Full permutation seeded as selectable options; only J&J 50' has real pricing today —
+    the rest are placeholders ($0) to fill in via Admin > Materials as they come up."""
+    manufacturers = ['J&J', 'Jandy', 'Pentair', 'Hayward']
+    supplier_ids = {}
+    for name in manufacturers:
+        row = conn.execute("SELECT supplier_id FROM suppliers WHERE name=?", (name,)).fetchone()
+        if row:
+            supplier_ids[name] = row[0]
+        else:
+            conn.execute("INSERT INTO suppliers (name,contact,notes,active) VALUES (?,?,?,'Y')",
+                         (name, '', 'Pool/spa light manufacturer'))
+            supplier_ids[name] = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    categories = ['Pool - White LED', 'Pool - Color LED', 'Spa - White LED', 'Spa - Color LED', 'Nicheless - Color LED']
+    cord_lengths = ['50ft', '100ft', '150ft']
+    real_prices = {
+        ('J&J', 'Pool - White LED', '50ft'): 900.0,
+        ('J&J', 'Pool - Color LED', '50ft'): 1000.0,
+    }
+
+    light_material_ids = {}
+    for mfr in manufacturers:
+        for cat in categories:
+            for cord in cord_lengths:
+                series = f"{cat} - {cord}"
+                existing = conn.execute(
+                    "SELECT material_id FROM materials WHERE supplier_id=? AND category=? AND series=? AND work_type_id=13",
+                    (supplier_ids[mfr], cat, series)
+                ).fetchone()
+                if existing:
+                    light_material_ids[(mfr, cat, cord)] = existing[0]
+                    continue
+                price = real_prices.get((mfr, cat, cord), 0.0)
+                conn.execute("""INSERT INTO materials (supplier_id,category,series,item_code,raw_price,
+                              price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,active)
+                              VALUES (?,?,?,?,?,?,?,?,?,?,'Y')""",
+                             (supplier_ids[mfr], cat, series, '', price, 'per_each', 1.0, 'each', price, 13))
+                light_material_ids[(mfr, cat, cord)] = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Default labor rate: Robert (S9), $100/each
+    existing_rate = conn.execute("SELECT id FROM sub_rates WHERE sub_id='S9' AND work_type_id=13").fetchone()
+    if not existing_rate:
+        conn.execute("INSERT INTO sub_rates (sub_id,work_type_id,rate,unit,notes) VALUES ('S9',13,100.0,'each','light installation')")
+
+    # Package defaults: Refresh -> White 50', Signature/Resort -> Color 50' (all J&J)
+    white_id = light_material_ids[('J&J', 'Pool - White LED', '50ft')]
+    color_id = light_material_ids[('J&J', 'Pool - Color LED', '50ft')]
+
+    refresh = conn.execute("SELECT package_id FROM packages WHERE name='Refresh'").fetchone()
+    signature = conn.execute("SELECT package_id FROM packages WHERE name='Signature'").fetchone()
+    resort = conn.execute("SELECT package_id FROM packages WHERE name='Resort'").fetchone()
+
+    if refresh:
+        has_light = conn.execute("SELECT id FROM package_items WHERE package_id=? AND work_type_id=13", (refresh[0],)).fetchone()
+        if not has_light:
+            next_sort = conn.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM package_items WHERE package_id=?", (refresh[0],)).fetchone()[0]
+            conn.execute("""INSERT INTO package_items (package_id,work_type_id,sort_order,default_sub_id,default_material_id,active)
+                          VALUES (?,13,?,'S9',?,'Y')""", (refresh[0], next_sort, white_id))
+        else:
+            conn.execute("UPDATE package_items SET default_sub_id='S9',default_material_id=? WHERE id=?", (white_id, has_light[0]))
+
+    for pkg in (signature, resort):
+        if pkg:
+            item = conn.execute("SELECT id FROM package_items WHERE package_id=? AND work_type_id=13", (pkg[0],)).fetchone()
+            if item:
+                conn.execute("UPDATE package_items SET default_sub_id='S9',default_material_id=? WHERE id=?", (color_id, item[0]))
+
+
+@migration
+def add_email_quote(conn):
+    """Customer email on the quote, and Gmail App Password creds for sending it."""
+    q_cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'customer_email' not in q_cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN customer_email TEXT DEFAULT ''")
+    cs_cols = {r[1] for r in conn.execute("PRAGMA table_info(company_settings)").fetchall()}
+    if 'gmail_address' not in cs_cols:
+        conn.execute("ALTER TABLE company_settings ADD COLUMN gmail_address TEXT DEFAULT ''")
+    if 'gmail_app_password' not in cs_cols:
+        conn.execute("ALTER TABLE company_settings ADD COLUMN gmail_app_password TEXT DEFAULT ''")
+
+
+@migration
+def add_steps_benches_swimouts(conn):
+    """Extra tile linear footage for steps, benches, and swim-outs, feeding waterline tile / cap tile / coping quantity."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    for col in ('steps_lf', 'benches_lf', 'swimouts_lf'):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE quotes ADD COLUMN {col} REAL DEFAULT 0")
+
+
+@migration
+def add_optional_item_decisions(conn):
+    """Customer decline/include decisions on optional line items, made from the quote preview screen."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'is_declined' not in cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN is_declined INTEGER DEFAULT 0")
+
+
+@migration
+def add_signature(conn):
+    """Customer e-signature captured on the quote preview screen."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'signature_data' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN signature_data TEXT DEFAULT ''")
+    if 'signed_at' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN signed_at TEXT DEFAULT ''")
+    if 'signed_name' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN signed_name TEXT DEFAULT ''")
+
+
+@migration
+def add_qualifiers(conn):
+    """Admin-defined flat-cost add-ons per work type (e.g. 'Remove Tile' on Surface Removal)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS qualifiers (
+        qualifier_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        work_type_id INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        amount REAL NOT NULL DEFAULT 0,
+        active TEXT DEFAULT 'Y'
+    )""")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'qualifiers_json' not in cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN qualifiers_json TEXT DEFAULT '[]'")
+    if 'qualifiers_total_cost' not in cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN qualifiers_total_cost REAL DEFAULT 0")
+
+
+@migration
+def add_surface_additives(conn):
+    """Admin-defined list of surface additive labels (glass beads, abalone) appended into the finish description."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS surface_additives (
+        additive_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT NOT NULL,
+        active TEXT DEFAULT 'Y'
+    )""")
+
+
+@migration
+def add_optional_line_items(conn):
+    """Line items that show a price but don't count toward the quote total (upsells/add-ons)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'is_optional' not in cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN is_optional INTEGER DEFAULT 0")
+
+
+@migration
+def add_terms_and_conditions(conn):
+    """Generic terms & conditions text (company-wide) plus a per-quote include toggle."""
+    cs_cols = {r[1] for r in conn.execute("PRAGMA table_info(company_settings)").fetchall()}
+    if 'terms_text' not in cs_cols:
+        conn.execute("ALTER TABLE company_settings ADD COLUMN terms_text TEXT DEFAULT ''")
+
+    q_cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'include_terms' not in q_cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN include_terms INTEGER DEFAULT 1")
+
+
+@migration
+def add_line_item_descriptions(conn):
+    """Default scope-of-work text per work type, editable per line item, flows into the PDF."""
+    wt_cols = {r[1] for r in conn.execute("PRAGMA table_info(work_types)").fetchall()}
+    if 'description' not in wt_cols:
+        conn.execute("ALTER TABLE work_types ADD COLUMN description TEXT DEFAULT ''")
+
+    li_cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'description' not in li_cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN description TEXT DEFAULT ''")
+
+    defaults = {
+        1: 'Apply new pool interior surface finish per selected product and color.',
+        2: 'Remove existing pool interior surface finish down to structural shell.',
+        3: 'Prep pool surface for new finish application, including minor patching as needed.',
+        4: 'Install new waterline tile along pool perimeter.',
+        11: 'Furnish and install new skimmer.',
+        18: 'Startup and balance pool chemistry after resurfacing.',
+    }
+    for wt_id, text in defaults.items():
+        row = conn.execute("SELECT description FROM work_types WHERE work_type_id=?", (wt_id,)).fetchone()
+        if row and not row[0]:
+            conn.execute("UPDATE work_types SET description=? WHERE work_type_id=?", (text, wt_id))
+
+
+@migration
+def add_package_optional_items(conn):
+    """Package items can now be optional (land in the quote's Optional Add-Ons section instead
+    of the main scope/total). Also updates the light defaults: Refresh drops its light from the
+    main scope but offers J&J White 50' as an optional add-on; Signature switches to White 50';
+    Resort stays Color 50'. Adds Salt Cell as an optional add-on on all three packages."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(package_items)").fetchall()}
+    if 'is_optional' not in cols:
+        conn.execute("ALTER TABLE package_items ADD COLUMN is_optional INTEGER DEFAULT 0")
+
+    def material_id(category):
+        row = conn.execute(
+            "SELECT material_id FROM materials WHERE work_type_id=13 AND category=? AND series LIKE ?",
+            (category, category + '%50ft')
+        ).fetchone()
+        return row[0] if row else None
+
+    white_id = material_id('Pool - White LED')
+    color_id = material_id('Pool - Color LED')
+
+    packages = {r[0]: r[1] for r in conn.execute("SELECT name, package_id FROM packages").fetchall()}
+
+    if white_id and 'Signature' in packages:
+        item = conn.execute("SELECT id FROM package_items WHERE package_id=? AND work_type_id=13",
+                            (packages['Signature'],)).fetchone()
+        if item:
+            conn.execute("UPDATE package_items SET default_material_id=?,is_optional=0 WHERE id=?", (white_id, item[0]))
+
+    if color_id and 'Resort' in packages:
+        item = conn.execute("SELECT id FROM package_items WHERE package_id=? AND work_type_id=13",
+                            (packages['Resort'],)).fetchone()
+        if item:
+            conn.execute("UPDATE package_items SET default_material_id=?,is_optional=0 WHERE id=?", (color_id, item[0]))
+
+    if white_id and 'Refresh' in packages:
+        item = conn.execute("SELECT id FROM package_items WHERE package_id=? AND work_type_id=13",
+                            (packages['Refresh'],)).fetchone()
+        if item:
+            conn.execute("UPDATE package_items SET default_material_id=?,is_optional=1 WHERE id=?", (white_id, item[0]))
+
+    # Salt Cell (work_type_id=16) as an optional add-on on all three packages
+    for pkg_name, pkg_id in packages.items():
+        existing = conn.execute("SELECT id FROM package_items WHERE package_id=? AND work_type_id=16", (pkg_id,)).fetchone()
+        if not existing:
+            next_sort = conn.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM package_items WHERE package_id=?", (pkg_id,)).fetchone()[0]
+            conn.execute("""INSERT INTO package_items (package_id,work_type_id,sort_order,default_sub_id,default_material_id,active,is_optional)
+                          VALUES (?,16,?,'',NULL,'Y',1)""", (pkg_id, next_sort))
+
+
+def init_pebble_pros_surfaces(conn):
+    """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
+    c = conn.cursor()
+
+    # Ensure Pebble Pros applicator exists
+    if not c.execute("SELECT 1 FROM surface_applicators WHERE sub_id='P1'").fetchone():
+        c.execute("INSERT INTO surface_applicators (sub_id,name,active) VALUES ('P1','Pebble Pros','Y')")
+
+    # Ensure manufacturers exist
+    manufacturers = [
+        ('PebbleTec', 'Y'),
+        ('StoneScapes', 'Y'),
+        ('Marquis (Premix Marbletite)', 'Y'),
+        ('WetEdge', 'Y'),
+    ]
+    for name, active in manufacturers:
+        if not c.execute("SELECT 1 FROM surface_manufacturers WHERE manufacturer_name=?", (name,)).fetchone():
+            c.execute("INSERT INTO surface_manufacturers (manufacturer_name,active) VALUES (?,?)", (name, active))
+
+    def get_mfr(name):
+        return c.execute("SELECT manufacturer_id FROM surface_manufacturers WHERE manufacturer_name=?", (name,)).fetchone()[0]
+
+    def add_product_with_rate(mfr_name, product_line, finish, tier, rate, spa_6x6, spa_7x7):
+        mfr_id = get_mfr(mfr_name)
+        existing = c.execute("SELECT product_id FROM surface_products WHERE manufacturer_id=? AND product_line=? AND finish=?",
+                             (mfr_id, product_line, finish)).fetchone()
+        if existing:
+            product_id = existing[0]
+        else:
+            c.execute("INSERT INTO surface_products (manufacturer_id,product_line,finish,active) VALUES (?,?,?,'Y')",
+                      (mfr_id, product_line, finish))
+            product_id = c.lastrowid
+        # Upsert rate for Pebble Pros
+        existing_rate = c.execute("SELECT id FROM surface_applicator_rates WHERE sub_id='P1' AND product_id=?",
+                                  (product_id,)).fetchone()
+        if not existing_rate:
+            c.execute("INSERT INTO surface_applicator_rates (sub_id,product_id,rate,unit,notes) VALUES ('P1',?,?,?,?)",
+                      (product_id, rate, 'sqft', f'{tier} | 6x6 spa: ${spa_6x6} | 7x7 spa: ${spa_7x7}'))
+
+    # ── PebbleSheen ────────────────────────────────────────────────────────────
+    pebble_sheen = [
+        ('Standard', 'White Crystal',   5.65, 1000, 1100),
+        ('Standard', 'Blue Granite',    6.65, 1000, 1100),
+        ('Standard', 'White Diamonds',  6.65, 1000, 1100),
+        ('Standard', 'Desert Gold',     6.65, 1000, 1100),
+        ('Upgrade',  'Bordeaux',        7.00, 1100, 1200),
+        ('Upgrade',  'French Grey',     7.00, 1100, 1200),
+        ('Upgrade',  'Irish Mist',      7.00, 1100, 1200),
+        ('Premium',  'Black Onyx',      8.60, 1200, 1350),
+        ('Premium',  'Blue Surf',       8.60, 1200, 1350),
+        ('Premium',  'Aqua Blue',       8.60, 1200, 1350),
+        ('Premium',  'Black Eclipse',   8.60, 1200, 1350),
+        ('Premium',  'Arctic White',    9.50, 1400, 1500),
+        ('Premium',  'Cool Blue',       9.50, 1400, 1500),
+        ('Premium',  'Ocean Blue',      8.60, 1200, 1350),
+        ('Premium',  'Prism Blue',      8.60, 1200, 1350),
+        ('Premium',  'Seafoam Green',   8.60, 1200, 1350),
+        ('Premium',  'Slate Blue',      8.60, 1200, 1350),
+        ('Premium',  'Turtle Bay',      8.60, 1200, 1350),
+    ]
+    for tier, finish, rate, spa6, spa7 in pebble_sheen:
+        add_product_with_rate('PebbleTec', 'Pebble Sheen', finish, tier, rate, spa6, spa7)
+
+    # ── StoneScapes ───────────────────────────────────────────────────────────
+    stonescapes = [
+        ('Standard', 'Natural White',    5.75,  975, 1100),
+        ('Standard', 'Natural Blue',     6.00,  975, 1100),
+        ('Standard', 'Aqua Cool',        5.75,  975, 1100),
+        ('Standard', 'Salt & Pepper',    5.75,  975, 1100),
+        ('Upgrade',  'Caribbean Blue',   6.65, 1000, 1100),
+        ('Upgrade',  'Sand',             6.65, 1000, 1100),
+        ('Upgrade',  'Tahoe',            6.65, 1000, 1100),
+        ('Upgrade',  'Irish Mist',       6.65, 1000, 1100),
+        ('Upgrade',  'French Gray',      6.65, 1000, 1100),
+        ('Premium',  'Bright White',     7.00, 1150, 1250),
+        ('Premium',  'Aqua White',       8.05, 1200, 1300),
+        ('Premium',  'Lake Tekapo',      8.05, 1200, 1300),
+        ('Premium',  'Kenai Gray',       8.05, 1200, 1300),
+        ('Premium',  'Rubicon Bay',      8.05, 1200, 1300),
+        ('Premium',  'Black',            8.60, 1300, 1400),
+        ('Premium',  'Cameroon',         8.60, 1300, 1400),
+        ('Premium',  'Emerald',          8.60, 1300, 1400),
+        ('Premium',  'Midnight Blue',    8.60, 1300, 1400),
+        ('Premium',  'Tropics Blue',     8.60, 1300, 1400),
+        ('Premium',  'Astuto',          10.25, 1450, 1550),
+    ]
+    for tier, finish, rate, spa6, spa7 in stonescapes:
+        add_product_with_rate('StoneScapes', 'StoneScapes', finish, tier, rate, spa6, spa7)
+
+    # ── Marquis (Premix Marbletite) ───────────────────────────────────────────
+    marquis = [
+        ('Quartz Base', 'Bluestone',           4.65,  730,  830),
+        ('Quartz Base', 'Marina',              4.65,  730,  830),
+        ('Quartz Base', 'Pool Quartz',         4.65,  730,  830),
+        ('Quartz Base', 'Oyster',              4.65,  730,  830),
+        ('Quartz Base', 'Natural',             4.65,  730,  830),
+        ('Quartz Base', 'Bluestone with Black',4.82,  760,  860),
+        ('Quartz Base', 'Marina with Black',   4.82,  760,  860),
+        ('Quartz Base', 'Miami Blue',          4.82,  760,  860),
+        ('Quartz Base', 'Emerald Isle',        5.48,  840,  940),
+        ('Quartz Base', 'Pewter',              5.48,  840,  940),
+        ('Quartz Base', 'Charcoal',            5.48,  840,  940),
+        ('Quartz Base', 'Azure',               5.48,  840,  940),
+        ('Quartz Base', 'Dune',                5.48,  840,  940),
+        ('Quartz Base', 'Sapphire',            5.99,  975, 1075),
+        ('Quartz Base', 'St. Thomas',          5.99,  975, 1075),
+        ('Quartz Base', 'Maui',                5.99,  975, 1075),
+        ('Quartz Base', 'Tahiti',              5.99,  975, 1075),
+        ('Quartz Base', 'Midnight Blue',       5.99,  975, 1075),
+        ('Quartz Base', 'Antigua',             6.75, 1030, 1130),
+        ('Quartz Base', 'Tahoe',               6.75, 1030, 1130),
+        ('Quartz Base', 'Tropical Blue',       6.75, 1030, 1130),
+        ('Quartz Base', 'Panama',              6.75, 1030, 1130),
+    ]
+    for tier, finish, rate, spa6, spa7 in marquis:
+        add_product_with_rate('Marquis (Premix Marbletite)', 'Marquis', finish, tier, rate, spa6, spa7)
+
+    # ── WetEdge Signature Matrix ──────────────────────────────────────────────
+    wetedge = [
+        ('Standard', 'Gulf White',      5.25,  900, 1000),
+        ('Standard', 'Coastal Blue',    5.95,  925, 1025),
+        ('Standard', 'Gold',            5.95,  925, 1025),
+        ('Standard', 'Caribbean',       5.95,  925, 1025),
+        ('Standard', 'Tahoe',           5.95,  925, 1025),
+        ('Upgrade',  'Picasso Blue',    6.60, 1050, 1150),
+        ('Upgrade',  'Cadet Blue',      6.60, 1050, 1150),
+        ('Upgrade',  'Plum',            6.60, 1050, 1150),
+        ('Upgrade',  'Summer Sky',      6.60, 1050, 1150),
+        ('Upgrade',  'Brilliant Blue',  6.60, 1050, 1150),
+        ('Upgrade',  'Turtle Beach',    6.60, 1050, 1150),
+        ('Premium',  'Crystal Blue',    8.15, 1200, 1300),
+        ('Premium',  'Slate',           8.15, 1200, 1300),
+        ('Premium',  'Black',           8.15, 1200, 1300),
+        ('Premium',  'Sage',            8.15, 1200, 1300),
+        ('Premium',  'Aqua',            8.70, 1250, 1350),
+        ('Premium',  'Blue',            8.70, 1250, 1350),
+        ('Premium',  'Black Magic',     8.70, 1250, 1350),
+        ('Premium',  'Bali Blue',       8.70, 1250, 1350),
+        ('Premium',  'Laguna Blue',     8.70, 1250, 1350),
+        ('Premium',  'Emerald',         8.70, 1250, 1350),
+        ('Premium',  'Midnight',        8.70, 1250, 1350),
+        ('Premium',  'Tropical',        8.70, 1250, 1350),
+    ]
+    for tier, finish, rate, spa6, spa7 in wetedge:
+        add_product_with_rate('WetEdge', 'Signature Matrix', finish, tier, rate, spa6, spa7)
+
+    # Default Surface Application finish: PebbleTec Pebble Sheen White Diamonds
+    wt_default = c.execute("SELECT default_material_id FROM work_types WHERE work_type_id=1").fetchone()
+    if wt_default and not wt_default[0]:
+        default_finish = c.execute(
+            "SELECT sp.product_id FROM surface_products sp "
+            "JOIN surface_manufacturers sm ON sp.manufacturer_id=sm.manufacturer_id "
+            "WHERE sm.manufacturer_name='PebbleTec' AND sp.product_line='Pebble Sheen' AND sp.finish='White Diamonds'"
+        ).fetchone()
+        if default_finish:
+            c.execute("UPDATE work_types SET default_material_id=? WHERE work_type_id=1", (default_finish[0],))
+
+    conn.commit()
+    total = len(pebble_sheen) + len(stonescapes) + len(marquis) + len(wetedge)
+    print(f'Seeded {total} Pebble Pros surface products across 4 product lines')
+
+def init_skimmer_material(conn):
+    """Seed skimmer material and set work type defaults. Run after suppliers are seeded."""
+    c = conn.cursor()
+    sup = c.execute("SELECT supplier_id FROM suppliers WHERE name='SCP Pool Supply'").fetchone()
+    if not sup:
+        return
+    existing = c.execute("SELECT material_id FROM materials WHERE series='Skimmer' AND work_type_id=11").fetchone()
+    if not existing:
+        c.execute(
+            "INSERT INTO materials (supplier_id, category, series, item_code, raw_price, "
+            "price_unit, conversion_factor, quote_unit, cost_per_quote_unit, work_type_id, active) "
+            "VALUES (?, 'Equipment', 'Skimmer', 'SKM-STD', 200.00, 'per_each', 1.0, 'each', 200.00, 11, 'Y')",
+            (sup['supplier_id'],))
+        mat_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+        print(f'Skimmer material seeded (id={mat_id})')
+    else:
+        mat_id = existing['material_id']
+    c.execute("UPDATE work_types SET default_material_id=?, default_markup=150.0, default_sub_id='' WHERE work_type_id=11",
+              (mat_id,))
+    conn.commit()

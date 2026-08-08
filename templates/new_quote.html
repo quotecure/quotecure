@@ -1,0 +1,355 @@
+{% extends 'base.html' %}
+{% block title %}New Quote — QuoteCure{% endblock %}
+{% block extra_css %}
+<style>
+.section-label {
+  font-size:11px; font-weight:700; letter-spacing:0.09em; text-transform:uppercase;
+  color:var(--text3); margin:20px 0 12px; padding-bottom:8px;
+  border-bottom:1px solid var(--border);
+}
+.calc-result {
+  background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:10px 14px; font-family:'Chivo Mono',monospace; font-size:13px;
+  display:flex; justify-content:space-between; align-items:center; margin-top:4px;
+}
+.calc-result .calc-label { font-size:11px; color:var(--text3); font-family:'DM Sans',sans-serif; }
+.calc-result .calc-value { font-size:15px; font-weight:600; color:#93c5fd; }
+.calc-result .calc-value.green { color:#4ade80; }
+
+.toggle-row {
+  display:flex; align-items:center; gap:12px;
+  padding:12px 0; border-bottom:1px solid var(--border2);
+}
+.toggle-label { font-size:13px; font-weight:500; color:var(--text); flex:1; }
+.toggle-sublabel { font-size:11px; color:var(--text3); margin-top:2px; }
+
+/* Toggle switch */
+.switch { position:relative; display:inline-block; width:36px; height:20px; flex-shrink:0; }
+.switch input { opacity:0; width:0; height:0; }
+.slider {
+  position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0;
+  background:var(--border); border-radius:20px; transition:0.2s;
+}
+.slider:before {
+  position:absolute; content:""; height:14px; width:14px; left:3px; bottom:3px;
+  background:white; border-radius:50%; transition:0.2s;
+}
+input:checked + .slider { background:var(--blue-light); }
+input:checked + .slider:before { transform:translateX(16px); }
+
+.spa-fields, .shelf-fields { display:none; margin-top:12px; }
+.spa-fields.open, .shelf-fields.open { display:block; }
+
+.total-surface-box {
+  background:linear-gradient(135deg,#1e3a8a,#1e40af);
+  border:1px solid #3b82f6;
+  border-radius:var(--radius);
+  padding:16px 20px;
+  margin-top:20px;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.total-surface-box .ts-label { font-size:11px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:#93c5fd; }
+.total-surface-box .ts-value { font-family:'Chivo Mono',monospace; font-size:24px; font-weight:700; color:white; }
+.total-surface-box .ts-breakdown { font-size:11px; color:#bfdbfe; margin-top:3px; }
+
+.quote-layout { display:grid; grid-template-columns:680px 1fr; gap:24px; align-items:start; }
+.pkg-col { position:sticky; top:72px; min-width:280px; }
+.pkg-grid { display:flex; flex-direction:column; gap:14px; }
+.pkg-select-card {
+  border-radius:var(--radius); padding:18px 20px; color:#0f172a;
+  display:flex; flex-direction:column; gap:5px;
+  box-shadow:0 4px 16px rgba(0,0,0,0.25);
+}
+.pkg-select-badge { font-size:10px; font-weight:700; letter-spacing:0.09em; text-transform:uppercase; opacity:0.7; }
+.pkg-select-name { font-size:20px; font-weight:800; }
+.pkg-select-price { font-family:'Chivo Mono',monospace; font-size:18px; font-weight:700; margin-top:1px; transition:opacity 0.15s; }
+.pkg-select-price.loading { opacity: 0.5; }
+.pkg-select-life { font-size:11px; font-weight:600; opacity:0.75; }
+.pkg-select-desc { font-size:12px; opacity:0.85; margin-top:2px; line-height:1.4; }
+.pkg-select-btn {
+  margin-top:10px; background:#0f172a; color:white; border:none; border-radius:var(--radius-sm);
+  padding:9px 16px; font-weight:600; font-size:13px; cursor:pointer;
+}
+.pkg-select-btn:hover { background:#1e293b; }
+@media (max-width: 1080px) {
+  .quote-layout { grid-template-columns:1fr; }
+  .pkg-col { position:static; }
+}
+</style>
+{% endblock %}
+{% block content %}
+<div class="page" style="max-width:1180px">
+  <div class="page-header">
+    <div>
+      <div class="page-title">New Quote</div>
+      <div class="page-subtitle">Customer info and pool dimensions</div>
+    </div>
+  </div>
+  <div class="quote-layout">
+  <div class="card" style="max-width:680px">
+    <div class="card-body">
+      <form method="POST" id="quote-form">
+
+        <!-- Customer -->
+        <div class="section-label">Customer</div>
+        <div class="form-row form-row-2">
+          <div class="form-group">
+            <label class="form-label">Customer Name *</label>
+            <input class="form-control" name="customer_name" required placeholder="Smith Residence">
+          </div>
+          <div class="form-group">
+            <input type="hidden" name="salesperson" value="{{ salesperson_name }}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Customer Email</label>
+          <input class="form-control" name="customer_email" type="email" placeholder="customer@email.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Address</label>
+          <input class="form-control" name="address" placeholder="1234 Palm Dr, Tampa, FL">
+        </div>
+
+        <!-- Pool dimensions -->
+        <div class="section-label">Pool Dimensions</div>
+        <div class="form-row form-row-3">
+          <div class="form-group">
+            <label class="form-label">Perimeter (lf)</label>
+            <input class="form-control" name="pool_perimeter" id="pool_perimeter" type="number" step="0.1" placeholder="80" oninput="recalc()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Shallow End (ft)</label>
+            <input class="form-control" name="pool_shallow" id="pool_shallow" type="number" step="0.1" placeholder="3.5" value="3.5" oninput="recalc()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Deep End (ft)</label>
+            <input class="form-control" name="pool_deep" id="pool_deep" type="number" step="0.1" placeholder="6" value="6" oninput="recalc()">
+          </div>
+        </div>
+        <div class="calc-result">
+          <div>
+            <div class="calc-label">Pool Surface (perimeter × (avg depth + 0.5) × 2)</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px;" id="pool-formula">—</div>
+          </div>
+          <div class="calc-value" id="pool-sqft">— sqft</div>
+        </div>
+
+        <!-- Spa toggle -->
+        <div class="section-label" style="margin-top:24px;">Features</div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Spa</div>
+            <div class="toggle-sublabel">Adds to surface, tile, and coping calculations</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="has_spa" name="has_spa" value="1" onchange="toggleSpa()">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="spa-fields" id="spa-fields">
+          <div class="form-row form-row-2" style="margin-top:8px;">
+            <div class="form-group">
+              <label class="form-label">Spa Perimeter (lf)</label>
+              <input class="form-control" name="spa_perimeter" id="spa_perimeter" type="number" step="0.1" placeholder="25" value="25" oninput="recalc()">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Spa Depth (ft)</label>
+              <input class="form-control" name="spa_depth" id="spa_depth" type="number" step="0.1" placeholder="3.5" value="3.5" oninput="recalc()">
+            </div>
+          </div>
+          <div class="calc-result">
+            <div>
+              <div class="calc-label">Spa Surface (spa perimeter × depth × 2)</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px;" id="spa-formula">—</div>
+            </div>
+            <div class="calc-value" id="spa-sqft">— sqft</div>
+          </div>
+        </div>
+
+        <!-- Sunshelf toggle -->
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Sunshelf</div>
+            <div class="toggle-sublabel">Flat shallow ledge — adds sqft to surface calculations</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="has_shelf" name="has_shelf" value="1" onchange="toggleShelf()">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="shelf-fields" id="shelf-fields">
+          <div class="form-row form-row-2" style="margin-top:8px;">
+            <div class="form-group">
+              <label class="form-label">Sunshelf sqft</label>
+              <input class="form-control" name="shelf_sqft" id="shelf_sqft" type="number" step="0.1" placeholder="20" value="20" oninput="recalc()">
+            </div>
+            <div class="form-group" style="display:flex;align-items:flex-end;">
+              <div style="font-size:12px;color:var(--text3);padding-bottom:8px;">Entered directly — shelf is too shallow for depth formula</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Steps / benches / swim-outs -->
+        <div class="section-label" style="margin-top:24px;">Additional Tile (Steps, Benches, Swim-outs)</div>
+        <div class="form-row form-row-3">
+          <div class="form-group">
+            <label class="form-label">Steps (lf)</label>
+            <input class="form-control" name="steps_lf" id="steps_lf" type="number" step="0.1" placeholder="0" oninput="recalc()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Benches (lf)</label>
+            <input class="form-control" name="benches_lf" id="benches_lf" type="number" step="0.1" placeholder="0" oninput="recalc()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Swim-outs (lf)</label>
+            <input class="form-control" name="swimouts_lf" id="swimouts_lf" type="number" step="0.1" placeholder="0" oninput="recalc()">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:-4px;">Linear feet of waterline tile needed around these features — added to tile/cap tile/coping quantity, not pool surface area.</div>
+
+        <!-- Total surface summary -->
+        <div class="total-surface-box" id="total-box">
+          <div>
+            <div class="ts-label">Total Surface Area</div>
+            <div class="ts-breakdown" id="total-breakdown">Enter dimensions above</div>
+          </div>
+          <div class="ts-value" id="total-sqft">— sqft</div>
+        </div>
+
+        <!-- Hidden computed fields passed to server -->
+        <input type="hidden" name="pool_sqft" id="h-pool-sqft" value="0">
+        <input type="hidden" name="spa_sqft" id="h-spa-sqft" value="0">
+        <input type="hidden" name="shelf_sqft_calc" id="h-shelf-sqft" value="0">
+        <input type="hidden" name="total_surface_sqft" id="h-total-sqft" value="0">
+        <input type="hidden" name="package_id" id="h-package-id" value="">
+
+        <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:24px;">
+          <a href="/quotes" class="btn btn-secondary">Cancel</a>
+          <button class="btn btn-primary" type="submit">Create Blank Quote →</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if packages %}
+  <div class="pkg-col">
+    <div class="section-label" style="margin-top:0;">Renovation Packages</div>
+    <div class="pkg-grid">
+      {% for pkg in packages %}
+      <div class="pkg-select-card" style="background:{{ pkg.color }};">
+        <div class="pkg-select-badge">{{ pkg.badge }}</div>
+        <div class="pkg-select-name">{{ pkg.name }}</div>
+        <div class="pkg-select-price" id="pkg-price-{{ pkg.package_id }}">{{ pkg.price_range_label }}</div>
+        <div class="pkg-select-life">Life expectancy: {{ pkg.life_expectancy_label }}</div>
+        <div class="pkg-select-desc">{{ pkg.description }}</div>
+        <button type="button" class="btn pkg-select-btn" onclick="selectPackage({{ pkg.package_id }})">Select {{ pkg.name }} →</button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  </div>
+</div>
+
+<script>
+function recalc() {
+  const perim = parseFloat(document.getElementById('pool_perimeter').value) || 0;
+  const shallow = parseFloat(document.getElementById('pool_shallow').value) || 0;
+  const deep = parseFloat(document.getElementById('pool_deep').value) || 0;
+  const avgDepth = (shallow + deep) / 2;
+  const poolSqft = perim > 0 && avgDepth > 0 ? Math.round(perim * (avgDepth + 0.5) * 2) : 0;
+
+  document.getElementById('pool-sqft').textContent = poolSqft > 0 ? poolSqft + ' sqft' : '— sqft';
+  document.getElementById('pool-formula').textContent = poolSqft > 0
+    ? `${perim} lf × (${avgDepth.toFixed(1)}' avg + 0.5') × 2 = ${poolSqft} sqft` : '—';
+  document.getElementById('h-pool-sqft').value = poolSqft;
+
+  // Spa
+  let spaSqft = 0;
+  if (document.getElementById('has_spa').checked) {
+    const sPerim = parseFloat(document.getElementById('spa_perimeter').value) || 0;
+    const sDepth = parseFloat(document.getElementById('spa_depth').value) || 0;
+    spaSqft = sPerim > 0 && sDepth > 0 ? Math.round(sPerim * (sDepth + 0.5) * 2) : 0;
+    document.getElementById('spa-sqft').textContent = spaSqft > 0 ? spaSqft + ' sqft' : '— sqft';
+    document.getElementById('spa-formula').textContent = spaSqft > 0
+      ? `${sPerim} lf × (${sDepth}' + 0.5') × 2 = ${spaSqft} sqft` : '—';
+  }
+  document.getElementById('h-spa-sqft').value = spaSqft;
+
+  // Sunshelf
+  let shelfSqft = 0;
+  if (document.getElementById('has_shelf').checked) {
+    shelfSqft = parseFloat(document.getElementById('shelf_sqft').value) || 0;
+  }
+  document.getElementById('h-shelf-sqft').value = shelfSqft;
+
+  // Total
+  const total = poolSqft + spaSqft + shelfSqft;
+  document.getElementById('h-total-sqft').value = total;
+  document.getElementById('total-sqft').textContent = total > 0 ? total + ' sqft' : '— sqft';
+
+  // Breakdown
+  let parts = [];
+  if (poolSqft > 0) parts.push(`Pool: ${poolSqft} sqft`);
+  if (spaSqft > 0) parts.push(`Spa: ${spaSqft} sqft`);
+  if (shelfSqft > 0) parts.push(`Sunshelf: ${shelfSqft} sqft`);
+  document.getElementById('total-breakdown').textContent = parts.length > 0 ? parts.join(' + ') : 'Enter dimensions above';
+
+  estimatePackages();
+}
+
+function toggleSpa() {
+  const open = document.getElementById('has_spa').checked;
+  document.getElementById('spa-fields').classList.toggle('open', open);
+  recalc();
+}
+
+function toggleShelf() {
+  const open = document.getElementById('has_shelf').checked;
+  document.getElementById('shelf-fields').classList.toggle('open', open);
+  recalc();
+}
+
+// ── Live package pricing ────────────────────────────────────────
+const PACKAGE_PRICE_LABELS = {};
+document.querySelectorAll('.pkg-select-price').forEach(el => {
+  PACKAGE_PRICE_LABELS[el.id] = el.textContent;
+});
+
+let estimateTimer = null;
+function estimatePackages() {
+  clearTimeout(estimateTimer);
+  const perim = parseFloat(document.getElementById('pool_perimeter').value) || 0;
+  if (!perim) return; // nothing entered yet — keep showing the marketing range
+  estimateTimer = setTimeout(async () => {
+    document.querySelectorAll('.pkg-select-price').forEach(el => el.classList.add('loading'));
+    const payload = {
+      pool_perimeter: perim,
+      has_spa: document.getElementById('has_spa').checked,
+      spa_perimeter: parseFloat(document.getElementById('spa_perimeter').value) || 0,
+      has_shelf: document.getElementById('has_shelf').checked,
+      steps_lf: parseFloat(document.getElementById('steps_lf').value) || 0,
+      benches_lf: parseFloat(document.getElementById('benches_lf').value) || 0,
+      swimouts_lf: parseFloat(document.getElementById('swimouts_lf').value) || 0,
+      total_surface_sqft: parseFloat(document.getElementById('h-total-sqft').value) || 0,
+    };
+    try {
+      const r = await fetch('/api/estimate_packages', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+      });
+      const totals = await r.json();
+      for (const [pkgId, total] of Object.entries(totals)) {
+        const el = document.getElementById('pkg-price-' + pkgId);
+        if (el) el.textContent = '$' + total.toLocaleString(undefined, {maximumFractionDigits: 0});
+      }
+    } catch (e) { /* leave existing display on failure */ }
+    document.querySelectorAll('.pkg-select-price').forEach(el => el.classList.remove('loading'));
+  }, 400);
+}
+
+function selectPackage(id) {
+  document.getElementById('h-package-id').value = id;
+  document.getElementById('quote-form').submit();
+}
+</script>
+{% endblock %}

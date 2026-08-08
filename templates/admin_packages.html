@@ -1,0 +1,174 @@
+{% extends 'base.html' %}
+{% block title %}Packages — QuoteCure{% endblock %}
+{% block extra_css %}
+<style>
+.pkg-card { border-radius: var(--radius); overflow: hidden; margin-bottom: 24px; border: 1px solid var(--border); }
+.pkg-header { padding: 18px 20px; }
+.pkg-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; }
+.pkg-name { font-size: 20px; font-weight: 700; margin-top: 2px; }
+.pkg-meta { font-size: 12px; margin-top: 6px; opacity: 0.85; }
+.pkg-body { background: var(--surface); padding: 16px 20px; }
+.pp-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: end; margin-top: 14px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Packages</div>
+      <div class="page-subtitle">Pre-priced renovation tiers (Refresh / Signature / Resort) shown on the New Quote screen</div>
+    </div>
+  </div>
+
+  {% for pw in packages_with_items %}
+  {% set pkg = pw.pkg %}
+  <div class="pkg-card">
+    <div class="pkg-header" style="background:{{ pkg.color }};color:#0f172a;">
+      <div class="pkg-badge">{{ pkg.badge }}</div>
+      <div class="pkg-name">{{ pkg.name }}</div>
+      <div class="pkg-meta">{{ pkg.price_range_label }} &middot; {{ pkg.life_expectancy_label }}</div>
+    </div>
+    <div class="pkg-body">
+      <!-- Metadata edit -->
+      <form method="POST" action="/admin/packages/{{ pkg.package_id }}/edit" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border2);">
+        <div style="flex:1;min-width:120px;">
+          <label class="form-label">Name</label>
+          <input class="form-control" name="name" value="{{ pkg.name }}">
+        </div>
+        <div style="flex:1;min-width:120px;">
+          <label class="form-label">Badge</label>
+          <input class="form-control" name="badge" value="{{ pkg.badge }}">
+        </div>
+        <div style="flex:1;min-width:140px;">
+          <label class="form-label">Price Range</label>
+          <input class="form-control" name="price_range_label" value="{{ pkg.price_range_label }}">
+        </div>
+        <div style="flex:1;min-width:120px;">
+          <label class="form-label">Life Expectancy</label>
+          <input class="form-control" name="life_expectancy_label" value="{{ pkg.life_expectancy_label }}">
+        </div>
+        <div style="flex:2;min-width:220px;">
+          <label class="form-label">Description</label>
+          <input class="form-control" name="description" value="{{ pkg.description }}">
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Save</button>
+      </form>
+
+      <!-- Items table -->
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Order</th><th>Work Type</th><th>Sub</th><th>Material / Finish</th><th>Section</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for item in pw.line_items %}
+            <tr>
+              <td class="mono" style="color:var(--text3);">{{ item.sort_order }}</td>
+              <td style="font-weight:500;">{{ item.work_type }}</td>
+              <td>{% if item.sub_name %}<span class="chip">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</td>
+              <td>
+                {% if item.product_finish %}{{ item.manufacturer_name }} – {{ item.product_finish }}
+                {% elif item.material_series %}{{ item.material_series }}
+                {% else %}<span style="color:var(--text3);">—</span>{% endif %}
+              </td>
+              <td>
+                <form method="POST" action="/admin/packages/items/{{ item.id }}/toggle_optional">
+                  <button class="badge badge-{{ 'amber' if item.is_optional else 'blue' }}" style="border:none;cursor:pointer;">{{ 'Optional' if item.is_optional else 'Main scope' }}</button>
+                </form>
+              </td>
+              <td><span class="badge badge-{{ 'green' if item.active == 'Y' else 'red' }}">{{ 'Active' if item.active == 'Y' else 'Off' }}</span></td>
+              <td>
+                <form method="POST" action="/admin/packages/items/{{ item.id }}/toggle">
+                  <button class="btn btn-secondary btn-sm">{{ 'Remove' if item.active == 'Y' else 'Add Back' }}</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not pw.line_items %}
+            <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3);">No items yet.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Add item -->
+      <form method="POST" action="/admin/packages/{{ pkg.package_id }}/items/add" class="pkg-add-form" data-pkg="{{ pkg.package_id }}">
+        <div class="pp-grid">
+          <div>
+            <label class="nr-label">Work Type</label>
+            <select class="nr-input pkg-wt" name="work_type_id">
+              <option value="">— Select —</option>
+              {% for wt in work_types %}
+              <option value="{{ wt.work_type_id }}">{{ wt.work_type }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="nr-label">Sub</label>
+            <select class="nr-input pkg-sub" name="sub_id">
+              <option value="">— None —</option>
+            </select>
+          </div>
+          <div>
+            <label class="nr-label">Manufacturer <span style="opacity:.6;">(finish only)</span></label>
+            <select class="nr-input pkg-mfr"><option value="">—</option></select>
+          </div>
+          <div>
+            <label class="nr-label">Material / Finish</label>
+            <select class="nr-input pkg-material" name="material_id"><option value="">— None —</option></select>
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Add</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--text2);cursor:pointer;user-select:none;">
+          <input type="checkbox" name="is_optional" value="1">
+          Add to Optional Add-Ons instead of the main scope
+        </label>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<script>
+document.querySelectorAll('.pkg-add-form').forEach(form => {
+  const wtSel = form.querySelector('.pkg-wt');
+  const subSel = form.querySelector('.pkg-sub');
+  const mfrSel = form.querySelector('.pkg-mfr');
+  const matSel = form.querySelector('.pkg-material');
+
+  wtSel.addEventListener('change', async () => {
+    const wtId = wtSel.value;
+    subSel.innerHTML = '<option value="">— None —</option>';
+    mfrSel.innerHTML = '<option value="">—</option>';
+    matSel.innerHTML = '<option value="">— None —</option>';
+    if (!wtId) return;
+
+    const r = await fetch('/api/subs_for_work_type?work_type_id=' + wtId);
+    const subs = await r.json();
+    subs.forEach(s => subSel.innerHTML += '<option value="' + s.sub_id + '">' + s.name + '</option>');
+
+    if (wtId === '1') {
+      const mr = await fetch('/api/surface_manufacturers');
+      const mfrs = await mr.json();
+      mfrs.forEach(m => mfrSel.innerHTML += '<option value="' + m.id + '">' + m.name + '</option>');
+    } else {
+      const mr = await fetch('/api/materials_for_work_type?work_type_id=' + wtId);
+      const mats = await mr.json();
+      mats.forEach(m => matSel.innerHTML += '<option value="' + m.material_id + '">' + m.label + '</option>');
+    }
+  });
+
+  mfrSel.addEventListener('change', async () => {
+    matSel.innerHTML = '<option value="">— None —</option>';
+    if (!mfrSel.value) return;
+    const subId = subSel.value;
+    const r = await fetch('/api/surface_product_lines?manufacturer_id=' + mfrSel.value + '&sub_id=' + subId);
+    const lines = await r.json();
+    for (const line of lines) {
+      const fr = await fetch('/api/surface_finishes?manufacturer_id=' + mfrSel.value + '&product_line=' + encodeURIComponent(line) + '&sub_id=' + subId);
+      const finishes = await fr.json();
+      finishes.forEach(f => matSel.innerHTML += '<option value="' + f.product_id + '">' + line + ' – ' + f.finish + '</option>');
+    }
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block title %}Quote Template — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Quote Template</div>
+      <div class="page-subtitle">These line items auto-populate on every new quote</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:start;">
+
+    <!-- Template items -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Default Line Items</div></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Work Type</th>
+              <th>Default Sub</th>
+              <th>Unit</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in template_items %}
+            <tr>
+              <td class="mono" style="color:var(--text3);">{{ item.sort_order }}</td>
+              <td style="font-weight:500;">{{ item.work_type }}</td>
+              <td>{% if item.default_sub_name %}<span class="chip">{{ item.default_sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</td>
+              <td class="mono" style="color:var(--text3);">{{ item.unit }}</td>
+              <td><span class="badge badge-{{ 'green' if item.active == 'Y' else 'red' }}">{{ 'Active' if item.active == 'Y' else 'Off' }}</span></td>
+              <td>
+                <form method="POST" action="/admin/quote_template/toggle/{{ item.id }}" style="display:inline;">
+                  <button class="btn btn-secondary btn-sm">{{ 'Remove' if item.active == 'Y' else 'Add Back' }}</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <!-- Default subs per work type -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Default Subs</div></div>
+        <div class="card-body">
+          <form method="POST" action="/admin/quote_template/defaults">
+            {% for wt in work_types %}
+            <div style="margin-bottom:12px;">
+              <label class="form-label">{{ wt.work_type }}</label>
+              <select class="form-control ci" name="default_sub_{{ wt.work_type_id }}">
+                <option value="">— None —</option>
+                {% for sub in subs %}
+                <option value="{{ sub.sub_id }}" {{ 'selected' if wt.default_sub_id == sub.sub_id }}>{{ sub.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% endfor %}
+            <button class="btn btn-primary" type="submit" style="margin-top:8px;">Save Defaults</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Add work type to template -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Add to Template</div></div>
+        <div class="card-body">
+          <form method="POST" action="/admin/quote_template/add">
+            <div class="form-group">
+              <label class="form-label">Work Type</label>
+              <select class="form-control" name="work_type_id" required>
+                <option value="">— Select —</option>
+                {% for wt in all_work_types %}
+                <option value="{{ wt.work_type_id }}">{{ wt.work_type }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Sort Order</label>
+              <input class="form-control" name="sort_order" type="number" value="{{ template_items|length + 1 }}">
+            </div>
+            <button class="btn btn-primary" type="submit">Add to Template</button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}Qualifiers — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Qualifiers</div>
+      <div class="page-subtitle">Flat-cost add-ons for a work type (e.g. "Remove Tile" on Surface Removal)</div>
+    </div>
+  </div>
+  <div style="display:grid; grid-template-columns:2fr 1fr; gap:24px; align-items:start;">
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Work Type</th><th>Label</th><th class="right">Amount</th><th>Status</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for q in qualifiers %}
+            <tr id="row-{{ q.qualifier_id }}" class="{% if q.active != 'Y' %}edit-row{% endif %}">
+              <td>{{ q.work_type }}</td>
+              <td style="font-weight:500">{{ q.label }}</td>
+              <td class="right mono">${{ '%.2f'|format(q.amount) }}</td>
+              <td><span class="badge badge-{{ 'green' if q.active == 'Y' else 'red' }}">{{ 'Active' if q.active == 'Y' else 'Off' }}</span></td>
+              <td><button class="btn btn-secondary btn-sm" onclick="toggleEdit({{ q.qualifier_id }})">Edit</button></td>
+            </tr>
+            <tr class="edit-form" id="edit-{{ q.qualifier_id }}">
+              <td colspan="5" style="padding:16px 20px; background:var(--surface2); border-bottom:2px solid var(--blue);">
+                <form method="POST" action="/admin/qualifiers/edit/{{ q.qualifier_id }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+                  <div>
+                    <label class="form-label">Label</label>
+                    <input class="form-control" name="label" value="{{ q.label }}" style="width:200px;">
+                  </div>
+                  <div>
+                    <label class="form-label">Amount</label>
+                    <input class="form-control" name="amount" type="number" step="0.01" value="{{ q.amount }}" style="width:110px;">
+                  </div>
+                  <div>
+                    <label class="form-label">Status</label>
+                    <select class="form-control" name="active" style="width:100px;">
+                      <option value="Y" {{ 'selected' if q.active == 'Y' }}>Active</option>
+                      <option value="N" {{ 'selected' if q.active == 'N' }}>Inactive</option>
+                    </select>
+                  </div>
+                  <div style="display:flex;gap:8px;">
+                    <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="toggleEdit({{ q.qualifier_id }})">Cancel</button>
+                  </div>
+                </form>
+                <form method="POST" action="/admin/qualifiers/delete/{{ q.qualifier_id }}" onsubmit="return confirm('Delete this qualifier?')" style="display:inline-block;margin-top:8px;">
+                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not qualifiers %}
+            <tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text3);">No qualifiers yet.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Add Qualifier</div></div>
+      <div class="card-body">
+        <form method="POST" action="/admin/qualifiers/add">
+          <div class="form-group">
+            <label class="form-label">Work Type</label>
+            <select class="form-control" name="work_type_id" required>
+              {% for wt in work_types %}
+              <option value="{{ wt.work_type_id }}">{{ wt.work_type }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Label</label>
+            <input class="form-control" name="label" required placeholder="e.g. Remove Tile">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Amount</label>
+            <input class="form-control" name="amount" type="number" step="0.01" value="0" required>
+          </div>
+          <button class="btn btn-primary" type="submit" style="margin-top:4px;">Add Qualifier</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function toggleEdit(id) {
+  const row = document.getElementById('edit-' + id);
+  row.classList.toggle('open');
+}
+</script>
+{% endblock %}

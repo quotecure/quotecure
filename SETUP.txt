@@ -1,0 +1,115 @@
+# QuoteCure — Setup Instructions
+
+## What this is
+A local web app that runs on your computer and opens in your browser.
+No internet required after setup. Your data stays on your machine.
+
+---
+
+## Step 1 — Install Python
+
+1. Go to https://www.python.org/downloads/
+2. Click the big yellow "Download Python" button
+3. Run the installer
+4. **IMPORTANT:** Check the box that says "Add Python to PATH" before clicking Install
+5. Click Install Now and wait for it to finish
+
+To verify it worked: open Terminal (Mac) or Command Prompt (Windows) and type:
+   python3 --version
+You should see something like: Python 3.12.x
+
+---
+
+## Step 2 — Install Flask
+
+In Terminal / Command Prompt, type:
+   pip3 install flask
+
+Wait for it to finish. You'll see a success message.
+
+---
+
+## Step 3 — Put the files somewhere easy
+
+Create a folder on your Desktop called: quotecure
+Copy all the files you received into that folder.
+The folder should contain:
+   app.py
+   database.py
+   templates/  (folder with all the .html files)
+
+---
+
+## Step 4 — Run the app
+
+In Terminal / Command Prompt:
+
+Mac:
+   cd ~/Desktop/quotecure
+   python3 app.py
+
+Windows:
+   cd C:\Users\YourName\Desktop\quotecure
+   python app.py
+
+You'll see something like:
+   * Running on http://127.0.0.1:5000
+
+---
+
+## Step 5 — Open in your browser
+
+Open Chrome (or any browser) and go to:
+   http://localhost:5000
+
+That's it. The app is running.
+
+---
+
+## Every time you want to use it
+
+1. Open Terminal / Command Prompt
+2. Navigate to the quotecure folder (Step 4)
+3. Run python3 app.py
+4. Go to http://localhost:5000 in your browser
+5. When done, press Ctrl+C in Terminal to stop it
+
+---
+
+## Your data
+
+Everything is stored in a file called quotecure.db in your quotecure folder.
+Back this file up occasionally — it contains all your subs, rates, and quotes.
+
+---
+
+## What's already in the app
+
+Subs: Pro Hydroblasters, G&B Flooring, Sunshine Construction, Blue Gator,
+      Osprey Pool Service, Cur-Rite Start-ups, Pool Life, Prizma Brick Pavers
+
+Surface Applicators: Pebble Pros, Aquatic Surfaces, Southwest Pool Finishers,
+                     Precision Pool Finishers
+
+Work Types: All 30 work types we designed (surface, tile, coping, equipment, etc.)
+
+Sub Rates: S2 (Pro Hydroblasters) — Surface Removal $3/sqft,
+                                     River Rock Removal $2/sqft,
+                                     Drain Pool $150/each
+
+Surface Products: PebbleTec (Pebble Sheen, Original, Pebble Essence),
+                  Stonescapes (Mini Pebble, Aqua Blue)
+
+Applicator Rates: Pebble Pros rates for 5 PebbleTec products
+
+---
+
+## Next steps in the app
+
+1. Go to Sub Rates and add rates for S3 through S12
+2. Go to Surfaces and add applicator rates for P2, P3, P4
+3. Go to Quotes and build your first test quote
+
+---
+
+Questions? Bring them back to Claude.

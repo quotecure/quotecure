@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% block title %}Company Settings — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Company Settings</div>
+      <div class="page-subtitle">This information appears on customer-facing quotes</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:24px;align-items:start;">
+    <div class="card">
+      <div class="card-body">
+        <form method="POST" action="/admin/settings">
+          <div class="form-group">
+            <label class="form-label">Company Name</label>
+            <input class="form-control" name="company_name" value="{{ settings.company_name or '' }}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Address</label>
+            <input class="form-control" name="address" value="{{ settings.address or '' }}" placeholder="123 Main St, Tampa, FL 33601">
+          </div>
+          <div class="form-row form-row-2">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Phone</label>
+              <input class="form-control" name="phone" value="{{ settings.phone or '' }}" placeholder="(813) 555-0100">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Email</label>
+              <input class="form-control" name="email" value="{{ settings.email or '' }}" placeholder="quotes@yourcompany.com">
+            </div>
+          </div>
+          <div class="form-row form-row-2" style="margin-top:16px;">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">License Number</label>
+              <input class="form-control" name="license_number" value="{{ settings.license_number or '' }}" placeholder="CPC1234567">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Quote Valid For (days)</label>
+              <input class="form-control" name="quote_validity_days" type="number" value="{{ settings.quote_validity_days or 30 }}">
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:16px;">
+            <label class="form-label">Terms &amp; Conditions</label>
+            <textarea class="form-control" name="terms_text" rows="10" style="width:100%;resize:vertical;font-family:inherit;" placeholder="Standard contract terms shown on quotes when 'Include Terms' is on.">{{ settings.terms_text or '' }}</textarea>
+            <div style="font-size:11px;color:var(--text3);margin-top:6px;">Shown on the customer PDF when a quote has "Include Terms" turned on. Plain text — blank lines become paragraph breaks.</div>
+          </div>
+          <div style="margin-top:24px;">
+            <button class="btn btn-primary" type="submit">Save Settings</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Logo -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Company Logo</div></div>
+      <div class="card-body">
+        {% if settings and settings.logo_path %}
+        <div style="text-align:center;margin-bottom:16px;padding:12px;background:var(--bg);border-radius:6px;border:1px solid var(--border);">
+          <img src="{{ settings.logo_path }}" style="max-width:200px;max-height:80px;object-fit:contain;">
+        </div>
+        <form method="POST" action="/admin/settings/remove_logo" style="margin-bottom:16px;">
+          <button class="btn btn-danger btn-sm" type="submit">Remove Logo</button>
+        </form>
+        {% else %}
+        <div style="text-align:center;padding:24px;background:var(--bg);border:2px dashed var(--border);border-radius:6px;margin-bottom:16px;color:var(--text3);">
+          No logo uploaded
+        </div>
+        {% endif %}
+        <form method="POST" action="/admin/settings/upload_logo" enctype="multipart/form-data">
+          <div class="form-group">
+            <label class="form-label">Upload Logo</label>
+            <input class="form-control" name="logo" type="file" accept="image/png,image/jpeg,image/svg+xml">
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">PNG, JPG, or SVG. Recommended: transparent background, wide format.</div>
+          <button class="btn btn-primary" type="submit">Upload</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Email sending -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Email Quotes (Gmail)</div></div>
+      <div class="card-body">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:14px;">
+          Sends quotes as a PDF from your own Gmail account. Requires a Gmail
+          <strong>App Password</strong> (not your regular password) — turn on 2-Step Verification at
+          <span class="mono">myaccount.google.com/security</span>, then generate one at
+          <span class="mono">myaccount.google.com/apppasswords</span>.
+        </div>
+        <form method="POST" action="/admin/settings/email_config">
+          <div class="form-group">
+            <label class="form-label">Gmail Address</label>
+            <input class="form-control" name="gmail_address" type="email" value="{{ settings.gmail_address or '' }}" placeholder="you@gmail.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">App Password</label>
+            <input class="form-control" name="gmail_app_password" type="password" placeholder="{{ '••••••••••••••••' if settings and settings.gmail_app_password else '16-character app password' }}" autocomplete="new-password">
+            <div style="font-size:11px;color:var(--text3);margin-top:6px;">Leave blank to keep the current one.</div>
+          </div>
+          <button class="btn btn-primary" type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

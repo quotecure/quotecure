@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% block title %}Permissions — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Roles & Permissions</div>
+      <div class="page-subtitle">Control what each role can see and do</div>
+    </div>
+  </div>
+
+  <!-- Permissions Matrix -->
+  <div class="card" style="margin-bottom:24px;">
+    <div class="card-header"><div class="card-title">Permission Matrix</div></div>
+    <div class="table-wrap">
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th style="min-width:220px;">Feature</th>
+            {% for role in roles %}
+            <th class="role-col">
+              <div style="font-weight:700;color:var(--text)">{{ role.role_name }}</div>
+            </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Quote visibility -->
+          <tr class="feature-group"><td colspan="{{ roles|length + 1 }}">Quote Builder — What They See</td></tr>
+          {% set features = [
+            ('show_gross_profit', 'Gross Profit'),
+            ('show_commission', 'Sales Commission'),
+            ('show_margin_floors', 'Markup Floor Indicators'),
+          ] %}
+          {% for perm, label in features %}
+          <tr>
+            <td>{{ label }}</td>
+            {% for role in roles %}
+            <td>
+              <form method="POST" action="/admin/permissions/update_role" id="form-{{ role.role_id }}-{{ perm }}">
+                <input type="hidden" name="role_id" value="{{ role.role_id }}">
+                {% set all_perms = ['show_commission','show_margin_floors','can_override_min_markup','can_edit_commission_policy','can_access_admin','can_edit_work_types','can_edit_sub_rates','can_edit_surfaces','can_edit_subs','show_gross_profit'] %}
+                {% for p in all_perms %}
+                {% if p != perm %}
+                <input type="hidden" name="{{ p }}" value="{{ role[p] }}">
+                {% endif %}
+                {% endfor %}
+                <input class="perm-check" type="checkbox" name="{{ perm }}" value="1"
+                  {{ 'checked' if role[perm] else '' }}
+                  onchange="this.form.submit()"
+                  {{ 'disabled' if role.role_name == 'Owner' and perm in ['show_gross_profit'] else '' }}>
+              </form>
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+
+          <!-- Pricing control -->
+          <tr class="feature-group"><td colspan="{{ roles|length + 1 }}">Pricing Control</td></tr>
+          {% set features2 = [
+            ('can_override_min_markup', 'Override Minimum Markup'),
+          ] %}
+          {% for perm, label in features2 %}
+          <tr>
+            <td>{{ label }}</td>
+            {% for role in roles %}
+            <td>
+              <form method="POST" action="/admin/permissions/update_role">
+                <input type="hidden" name="role_id" value="{{ role.role_id }}">
+                {% set all_perms = ['show_commission','show_margin_floors','can_override_min_markup','can_edit_commission_policy','can_access_admin','can_edit_work_types','can_edit_sub_rates','can_edit_surfaces','can_edit_subs','show_gross_profit'] %}
+                {% for p in all_perms %}
+                {% if p != perm %}
+                <input type="hidden" name="{{ p }}" value="{{ role[p] }}">
+                {% endif %}
+                {% endfor %}
+                <input class="perm-check" type="checkbox" name="{{ perm }}" value="1"
+                  {{ 'checked' if role[perm] else '' }}
+                  onchange="this.form.submit()">
+              </form>
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+
+          <!-- Admin access -->
+          <tr class="feature-group"><td colspan="{{ roles|length + 1 }}">Admin Access</td></tr>
+          {% set features3 = [
+            ('can_access_admin', 'Access Admin Section'),
+            ('can_edit_subs', 'Manage Subs & Applicators'),
+            ('can_edit_sub_rates', 'Manage Sub Rates'),
+            ('can_edit_surfaces', 'Manage Surface Products'),
+            ('can_edit_work_types', 'Manage Work Types'),
+            ('can_edit_commission_policy', 'Manage Commission & Permissions'),
+          ] %}
+          {% for perm, label in features3 %}
+          <tr>
+            <td>{{ label }}</td>
+            {% for role in roles %}
+            <td>
+              <form method="POST" action="/admin/permissions/update_role">
+                <input type="hidden" name="role_id" value="{{ role.role_id }}">
+                {% set all_perms = ['show_commission','show_margin_floors','can_override_min_markup','can_edit_commission_policy','can_access_admin','can_edit_work_types','can_edit_sub_rates','can_edit_surfaces','can_edit_subs','show_gross_profit'] %}
+                {% for p in all_perms %}
+                {% if p != perm %}
+                <input type="hidden" name="{{ p }}" value="{{ role[p] }}">
+                {% endif %}
+                {% endfor %}
+                <input class="perm-check" type="checkbox" name="{{ perm }}" value="1"
+                  {{ 'checked' if role[perm] else '' }}
+                  onchange="this.form.submit()"
+                  {{ 'disabled' if role.role_name == "Owner" else "" }}>
+              </form>
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Users & Passwords -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">Users & Passwords</div></div>
+    <div class="card-body">
+      {% for user in users %}
+      <div style="display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--border2);flex-wrap:wrap;">
+        <div style="min-width:120px;">
+          <div style="font-weight:600">{{ user.username }}</div>
+          <div style="font-size:11px;color:var(--text3)">{{ user.role_name }}</div>
+        </div>
+        <form method="POST" action="/admin/permissions/update_display_name" style="display:flex;gap:8px;align-items:center;">
+          <input type="hidden" name="user_id" value="{{ user.user_id }}">
+          <input class="form-control" name="display_name" type="text" placeholder="Display name" value="{{ user.display_name or '' }}" style="width:180px;margin:0;">
+          <button class="btn btn-secondary btn-sm" type="submit">Save</button>
+        </form>
+        <form method="POST" action="/admin/permissions/change_password" style="display:flex;gap:8px;align-items:center;">
+          <input type="hidden" name="user_id" value="{{ user.user_id }}">
+          <input class="form-control" name="new_password" type="password" placeholder="New password" style="width:180px;margin:0;">
+          <button class="btn btn-secondary btn-sm" type="submit">Update</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
