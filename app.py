@@ -1,19 +1,26 @@
 import json
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, g
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-from database import init_db, init_auth, init_materials, init_company_settings, generate_payment_schedule, run_migrations, init_pebble_pros_surfaces, init_skimmer_material, get_db, DB_PATH
+from database import init_db, init_auth, init_materials, init_company_settings, generate_payment_schedule, run_migrations, init_pebble_pros_surfaces, init_skimmer_material, get_db
 from line_item_logic import build_line_item, calc_component
 import hashlib
 
 app = Flask(__name__)
 
+# Local secrets folder (used only for local-dev file fallbacks — production sets SECRET_KEY via env var)
+_secrets_dir = Path.home() / 'Documents' / 'quotecure_data'
+
 def _load_secret_key():
     env_key = os.environ.get('SECRET_KEY')
     if env_key:
         return env_key
-    key_path = os.path.join(os.path.dirname(DB_PATH), '.secret_key')
+    _secrets_dir.mkdir(parents=True, exist_ok=True)
+    key_path = _secrets_dir / '.secret_key'
     if os.path.exists(key_path):
         with open(key_path) as f:
             return f.read().strip()
@@ -304,7 +311,7 @@ def new_quote():
                     float(request.form.get('swimouts_lf',0) or 0),
                     request.form.get('customer_email','').strip()))
         db.commit()
-        qid = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+        qid = db.execute("SELECT lastval()").fetchone()[0]
 
         # Auto-populate line items — from a selected package, or the default quote template
         quote = dict(db.execute("SELECT * FROM quotes WHERE quote_id=?", (qid,)).fetchone())
@@ -1772,5 +1779,5 @@ def delete_surface_additive(additive_id):
 
 if __name__ == '__main__':
     init_db()
-    debug = os.environ.get('FLASK_DEBUG', '1') == '1'
+    debug = os.environ.get('FLASK_DEBUG', '0') == '1'
     app.run(debug=debug, port=int(os.environ.get('PORT', 5000)))
