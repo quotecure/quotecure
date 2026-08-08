@@ -1214,14 +1214,6 @@ def _send_quote_email(to_email, subject, body_text, pdf_bytes, quote_id, gmail_a
         server.login(gmail_address, gmail_app_password)
         server.sendmail(gmail_address, [to_email], msg.as_string())
 
-@app.route('/debug/test_pdf')
-@login_required
-def debug_test_pdf():
-    from flask import Response
-    html = "<html><body><h1>Chromium test</h1><p>If you can read this, Playwright/Chromium works on Render.</p></body></html>"
-    pdf_bytes = _generate_quote_pdf_bytes(html)
-    return Response(pdf_bytes, mimetype='application/pdf')
-
 @app.route('/quotes/<int:quote_id>/email', methods=['POST'])
 @login_required
 def email_quote(quote_id):
