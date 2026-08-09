@@ -90,6 +90,10 @@ input:checked + .slider:before { transform:translateX(16px); }
           </div>
           <div class="calc-value" id="pool-sqft">— sqft</div>
         </div>
+        <div class="form-group" style="margin-top:8px;">
+          <label class="form-label">Water Surface Area (sqft) <span style="opacity:.6;">(optional — only needed for applicators like Southwest Pool Finishers that price off flat water surface, not the formula above)</span></label>
+          <input class="form-control" name="water_surface_sqft" id="water_surface_sqft" type="number" step="0.1" value="{{ quote.water_surface_sqft or '' }}">
+        </div>
 
         <div class="section-label" style="margin-top:24px;">Features</div>
         <div class="toggle-row">

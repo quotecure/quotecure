@@ -291,8 +291,8 @@ def new_quote():
                       pool_perimeter,pool_shallow,pool_deep,pool_sqft,
                       has_spa,spa_perimeter,spa_depth,spa_sqft,
                       has_shelf,shelf_sqft,total_surface_sqft,
-                      steps_lf,benches_lf,swimouts_lf,customer_email)
-                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      steps_lf,benches_lf,swimouts_lf,customer_email,water_surface_sqft)
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (request.form['customer_name'], request.form.get('address',''),
                     request.form.get('salesperson',''),
                     float(request.form.get('pool_perimeter',0) or 0),
@@ -309,7 +309,8 @@ def new_quote():
                     float(request.form.get('steps_lf',0) or 0),
                     float(request.form.get('benches_lf',0) or 0),
                     float(request.form.get('swimouts_lf',0) or 0),
-                    request.form.get('customer_email','').strip()))
+                    request.form.get('customer_email','').strip(),
+                    float(request.form.get('water_surface_sqft',0) or 0)))
         db.commit()
         qid = db.execute("SELECT lastval()").fetchone()[0]
 
@@ -414,7 +415,7 @@ def edit_quote_details(quote_id):
                       pool_perimeter=?,pool_shallow=?,pool_deep=?,pool_sqft=?,
                       has_spa=?,spa_perimeter=?,spa_depth=?,spa_sqft=?,
                       has_shelf=?,shelf_sqft=?,total_surface_sqft=?,
-                      steps_lf=?,benches_lf=?,swimouts_lf=?,customer_email=?
+                      steps_lf=?,benches_lf=?,swimouts_lf=?,customer_email=?,water_surface_sqft=?
                       WHERE quote_id=?""",
                    (request.form['customer_name'], request.form.get('address',''),
                     request.form.get('salesperson',''),
@@ -433,6 +434,7 @@ def edit_quote_details(quote_id):
                     float(request.form.get('benches_lf',0) or 0),
                     float(request.form.get('swimouts_lf',0) or 0),
                     request.form.get('customer_email','').strip(),
+                    float(request.form.get('water_surface_sqft',0) or 0),
                     quote_id))
         db.commit()
         return redirect(url_for('edit_quote', quote_id=quote_id))
@@ -875,9 +877,12 @@ def add_product():
 @require_permission('can_edit_surfaces')
 def add_applicator_rate():
     db = get_db()
-    db.execute("INSERT INTO surface_applicator_rates (sub_id,product_id,rate,notes) VALUES (?,?,?,?)",
+    db.execute("""INSERT INTO surface_applicator_rates (sub_id,product_id,rate,notes,min_sqft,min_spa_price)
+                  VALUES (?,?,?,?,?,?)""",
                (request.form['sub_id'], request.form['product_id'],
-                float(request.form['rate']), request.form.get('notes','')))
+                float(request.form['rate']), request.form.get('notes',''),
+                float(request.form.get('min_sqft', 0) or 0),
+                float(request.form.get('min_spa_price', 0) or 0)))
     db.commit()
     return redirect(url_for('admin_surfaces'))
 
@@ -1643,26 +1648,49 @@ def update_line_item(quote_id, item_id):
     elif field == 'surface_product':
         product_id = value
         sub_id = data.get('sub_id') or row['sub_id']
-        p = db.execute("""SELECT sar.rate, sp.finish, sm.manufacturer_name, sp.product_line
+        p = db.execute("""SELECT sar.rate, sar.min_sqft, sp.finish, sm.manufacturer_name, sp.product_line
                           FROM surface_applicator_rates sar
                           JOIN surface_products sp ON sar.product_id=sp.product_id
                           JOIN surface_manufacturers sm ON sp.manufacturer_id=sm.manufacturer_id
                           WHERE sar.product_id=? AND sar.sub_id=?""", (product_id, sub_id)).fetchone()
+        applicator = db.execute("SELECT * FROM surface_applicators WHERE sub_id=?", (sub_id,)).fetchone()
         if p:
             from line_item_logic import calc_component
-            qty = float(row['labor_quantity'])
-            cpu = float(p['rate'])
+
+            # Most applicators price off the wetted/expanded area already stored on the line
+            # item (labor_quantity). A few (e.g. Southwest Pool Finishers) price off the flat
+            # water surface area instead, entered separately on the quote.
+            if applicator and applicator['uses_water_surface_area']:
+                quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+                actual_qty = float(quote['water_surface_sqft'] or 0)
+            else:
+                actual_qty = float(row['labor_quantity'])
+
+            min_sqft = float(p['min_sqft'] or 0)
+            effective_qty = max(actual_qty, min_sqft) if min_sqft else actual_qty
+            base_cost = effective_qty * float(p['rate'])
+
+            depth_surcharge_cost = 0.0
+            if applicator and applicator['depth_surcharge_per_sqft_per_ft']:
+                quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+                threshold = float(applicator['depth_surcharge_threshold_ft'] or 0)
+                depth_over = max(0.0, float(quote['pool_deep'] or 0) - threshold)
+                depth_surcharge_cost = actual_qty * float(applicator['depth_surcharge_per_sqft_per_ft']) * depth_over
+
+            combined_cost = base_cost + depth_surcharge_cost
+            cpu = round(combined_cost / actual_qty, 4) if actual_qty else float(p['rate'])
+
             markup = float(row['labor_markup_pct'])
             min_m = float(row['labor_min_markup'])
-            l_cost, l_price, l_margin = calc_component(cpu, qty, markup, min_m, can_override)
+            l_cost, l_price, l_margin = calc_component(cpu, actual_qty, markup, min_m, can_override)
             label = f"{p['manufacturer_name']} {p['product_line']} – {p['finish']}"
             additive_label = data.get('additive_label', '')
             if additive_label:
                 label += f" with {additive_label}"
             db.execute("""UPDATE quote_line_items SET product_id=?,product_label=?,
-                          labor_cost_per_unit=?,labor_total_cost=?,labor_total_price=?,
+                          labor_quantity=?,labor_cost_per_unit=?,labor_total_cost=?,labor_total_price=?,
                           labor_margin_pct=?,total_cost=?,total_price=?,total_margin_pct=? WHERE id=?""",
-                       (product_id, label, cpu, l_cost, l_price, l_margin,
+                       (product_id, label, actual_qty, cpu, l_cost, l_price, l_margin,
                         l_cost, l_price, l_margin, item_id))
 
     if field != 'description':
@@ -1674,6 +1702,7 @@ def update_line_item(quote_id, item_id):
     gross = float(q['total_price']) - float(q['total_cost'])
     commission = float(q['commission'])
     return jsonify({
+        'labor_quantity': float(updated['labor_quantity'] or 0),
         'labor_total_price': float(updated['labor_total_price']),
         'labor_cost_per_unit': float(updated['labor_cost_per_unit'] or 0),
         'total_margin_pct': float(updated['total_margin_pct']),

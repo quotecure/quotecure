@@ -783,6 +783,8 @@ async function ppSaveSurface(id) {
     if (d.total_margin_pct !== undefined) document.getElementById('margin-' + id).textContent = d.total_margin_pct.toFixed(0) + '%';
     const cpuEl = document.querySelector('#cell-cpu-' + id + ' .ec-val');
     if (cpuEl && d.labor_cost_per_unit) cpuEl.textContent = '$' + parseFloat(d.labor_cost_per_unit).toFixed(2);
+    const qtyEl = document.querySelector('#cell-qty-' + id + ' .ec-val');
+    if (qtyEl && d.labor_quantity !== undefined) qtyEl.textContent = d.labor_quantity;
     updateSummaryCards(d);
     toggleProductPicker(id);
   }

@@ -121,6 +121,14 @@
             <label class="form-label">Rate ($/sqft)</label>
             <input class="form-control" name="rate" type="number" step="0.01" required placeholder="6.65">
           </div>
+          <div class="form-group">
+            <label class="form-label">Minimum Sqft <span style="opacity:.6;">(job billed as this many sqft if smaller — leave 0 if no minimum)</span></label>
+            <input class="form-control" name="min_sqft" type="number" step="1" placeholder="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Minimum Spa Price <span style="opacity:.6;">(leave 0 if not applicable)</span></label>
+            <input class="form-control" name="min_spa_price" type="number" step="0.01" placeholder="0">
+          </div>
           <button class="btn btn-primary btn-sm" type="submit">Add Rate</button>
         </form>
       </div>

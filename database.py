@@ -1078,6 +1078,30 @@ def add_material_tax(conn):
         conn.execute("ALTER TABLE quote_line_items ADD COLUMN tax_included INTEGER DEFAULT 0")
 
 
+@migration
+def add_water_surface_pricing(conn):
+    """Some surface applicators (e.g. Southwest Pool Finishers) price off flat water-surface
+    area instead of the wetted/expanded area (perimeter x (avg depth+0.5) x 2) everyone else
+    uses, plus a per-product minimum-sqft charge floor and a per-applicator deep-pool surcharge."""
+    q_cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'water_surface_sqft' not in q_cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN water_surface_sqft REAL DEFAULT 0")
+
+    sa_cols = {r[1] for r in conn.execute("PRAGMA table_info(surface_applicators)").fetchall()}
+    if 'uses_water_surface_area' not in sa_cols:
+        conn.execute("ALTER TABLE surface_applicators ADD COLUMN uses_water_surface_area INTEGER DEFAULT 0")
+    if 'depth_surcharge_per_sqft_per_ft' not in sa_cols:
+        conn.execute("ALTER TABLE surface_applicators ADD COLUMN depth_surcharge_per_sqft_per_ft REAL DEFAULT 0")
+    if 'depth_surcharge_threshold_ft' not in sa_cols:
+        conn.execute("ALTER TABLE surface_applicators ADD COLUMN depth_surcharge_threshold_ft REAL DEFAULT 6")
+
+    sar_cols = {r[1] for r in conn.execute("PRAGMA table_info(surface_applicator_rates)").fetchall()}
+    if 'min_sqft' not in sar_cols:
+        conn.execute("ALTER TABLE surface_applicator_rates ADD COLUMN min_sqft REAL DEFAULT 0")
+    if 'min_spa_price' not in sar_cols:
+        conn.execute("ALTER TABLE surface_applicator_rates ADD COLUMN min_spa_price REAL DEFAULT 0")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
