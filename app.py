@@ -590,10 +590,22 @@ def _rollup_item_totals(db, item_id):
     qualifiers, using the item's labor markup to price the qualifier cost. Call after any edit
     that changes labor/material components or qualifiers. Returns (total_cost, total_price, total_margin)."""
     row = db.execute("SELECT * FROM quote_line_items WHERE id=?", (item_id,)).fetchone()
-    q_cost = float(row['qualifiers_total_cost'] or 0)
-    q_price = round(q_cost * (1 + float(row['labor_markup_pct'] or 0) / 100), 2)
-    total_cost = round(float(row['labor_total_cost'] or 0) + float(row['material_total_cost'] or 0) + q_cost, 2)
-    total_price = round(float(row['labor_total_price'] or 0) + float(row['material_total_price'] or 0) + q_price, 2)
+    quals = json.loads(row['qualifiers_json'] or '[]')
+    pass_through_ids = {r['qualifier_id'] for r in db.execute(
+        "SELECT qualifier_id FROM qualifiers WHERE is_freight=1").fetchall()}
+    markup_cost = sum(q['amount'] for q in quals if q['id'] not in pass_through_ids)
+    pass_through_cost = sum(q['amount'] for q in quals if q['id'] in pass_through_ids)
+    q_price = round(markup_cost * (1 + float(row['labor_markup_pct'] or 0) / 100), 2) + round(pass_through_cost, 2)
+    q_cost = round(markup_cost + pass_through_cost, 2)
+
+    tax_cost = 0.0
+    if row['tax_included']:
+        settings = db.execute("SELECT tax_rate_pct FROM company_settings WHERE id=1").fetchone()
+        rate = float(settings['tax_rate_pct'] or 0) if settings and settings['tax_rate_pct'] is not None else 0
+        tax_cost = round(float(row['material_total_cost'] or 0) * rate / 100, 2)
+
+    total_cost = round(float(row['labor_total_cost'] or 0) + float(row['material_total_cost'] or 0) + q_cost + tax_cost, 2)
+    total_price = round(float(row['labor_total_price'] or 0) + float(row['material_total_price'] or 0) + q_price + tax_cost, 2)
     total_margin = round(((total_price - total_cost) / total_price * 100) if total_price else 0, 1)
     db.execute("UPDATE quote_line_items SET total_cost=?,total_price=?,total_margin_pct=? WHERE id=?",
                (total_cost, total_price, total_margin, item_id))
@@ -1130,12 +1142,13 @@ def admin_settings():
     db = get_db()
     if request.method == 'POST':
         db.execute("""UPDATE company_settings SET company_name=?,address=?,phone=?,email=?,
-                      license_number=?,quote_validity_days=?,terms_text=? WHERE id=1""",
+                      license_number=?,quote_validity_days=?,terms_text=?,tax_rate_pct=? WHERE id=1""",
                    (request.form['company_name'], request.form.get('address',''),
                     request.form.get('phone',''), request.form.get('email',''),
                     request.form.get('license_number',''),
                     int(request.form.get('quote_validity_days', 30)),
-                    request.form.get('terms_text','')))
+                    request.form.get('terms_text',''),
+                    float(request.form.get('tax_rate_pct', 7.0) or 0)))
         db.commit()
         return redirect(url_for('admin_settings'))
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
@@ -1703,6 +1716,7 @@ def toggle_qualifier(quote_id, item_id):
 
     # Freight can only be charged once per quote — checking it here clears it from
     # any other line item on this same quote.
+    other_item_cleared = False
     if checked and qrow and qrow['is_freight']:
         other_items = db.execute(
             "SELECT id, qualifiers_json FROM quote_line_items WHERE quote_id=? AND id!=?",
@@ -1721,6 +1735,7 @@ def toggle_qualifier(quote_id, item_id):
                 db.execute("UPDATE quote_line_items SET qualifiers_json=?,qualifiers_total_cost=? WHERE id=?",
                            (json.dumps(filtered), filtered_cost, other['id']))
                 _rollup_item_totals(db, other['id'])
+                other_item_cleared = True
 
     db.commit()
     _recalc_quote(db, quote_id)
@@ -1729,6 +1744,36 @@ def toggle_qualifier(quote_id, item_id):
     commission = float(q['commission'])
     return jsonify({
         'qualifiers': quals,
+        'total_cost': total_cost,
+        'total_price': total_price,
+        'total_margin_pct': total_margin,
+        'reload': other_item_cleared,
+        'quote_total_cost': float(q['total_cost']),
+        'quote_total_price': float(q['total_price']),
+        'quote_total_margin': float(q['total_margin']),
+        'quote_gross_profit': round(gross, 2),
+        'quote_commission': round(commission, 2),
+        'quote_net_profit': round(gross - commission, 2),
+    })
+
+@app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/tax/toggle', methods=['POST'])
+@login_required
+def toggle_tax(quote_id, item_id):
+    db = get_db()
+    data = request.json
+    checked = bool(data.get('checked'))
+    row = db.execute("SELECT id FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    db.execute("UPDATE quote_line_items SET tax_included=? WHERE id=?", (1 if checked else 0, item_id))
+    total_cost, total_price, total_margin = _rollup_item_totals(db, item_id)
+    db.commit()
+    _recalc_quote(db, quote_id)
+    q = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    gross = float(q['total_price']) - float(q['total_cost'])
+    commission = float(q['commission'])
+    return jsonify({
+        'tax_included': checked,
         'total_cost': total_cost,
         'total_price': total_price,
         'total_margin_pct': total_margin,

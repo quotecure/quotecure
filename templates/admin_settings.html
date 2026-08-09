@@ -39,6 +39,10 @@
               <label class="form-label">Quote Valid For (days)</label>
               <input class="form-control" name="quote_validity_days" type="number" value="{{ settings.quote_validity_days or 30 }}">
             </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Material Tax Rate (%)</label>
+              <input class="form-control" name="tax_rate_pct" type="number" step="0.01" value="{{ settings.tax_rate_pct if settings.tax_rate_pct is not none else 7.0 }}">
+            </div>
           </div>
           <div class="form-group" style="margin-top:16px;">
             <label class="form-label">Terms &amp; Conditions</label>

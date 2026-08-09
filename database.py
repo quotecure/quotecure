@@ -1065,6 +1065,19 @@ def add_freight_qualifier(conn):
             )
 
 
+@migration
+def add_material_tax(conn):
+    """Sales tax as a % of material cost, toggled per line item (Paver/Coping) — not a flat
+    qualifier since it needs to scale with the actual material cost, not a fixed dollar amount."""
+    cs_cols = {r[1] for r in conn.execute("PRAGMA table_info(company_settings)").fetchall()}
+    if 'tax_rate_pct' not in cs_cols:
+        conn.execute("ALTER TABLE company_settings ADD COLUMN tax_rate_pct REAL DEFAULT 7.0")
+
+    li_cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'tax_included' not in li_cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN tax_included INTEGER DEFAULT 0")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

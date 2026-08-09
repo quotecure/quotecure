@@ -199,7 +199,7 @@
             {{ item.description or '+ Add description' }}
           </div>
           {% set wt_quals = qualifiers_by_wt.get(item.work_type_id, []) %}
-          {% if wt_quals %}
+          {% if wt_quals or item.work_type_id in (6, 7) %}
           <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;">
             {% for ql in wt_quals %}
             {% set applied = ql.qualifier_id in item.applied_qualifier_ids %}
@@ -209,6 +209,13 @@
               {{ ql.label }} (+${{ '%.0f'|format(ql.amount) }})
             </span>
             {% endfor %}
+            {% if item.work_type_id in (6, 7) %}
+            <span class="qual-chip {% if item.tax_included %}on{% endif %}"
+                  id="tax-{{ item.id }}"
+                  onclick="toggleTax({{ item.id }}, {{ (not item.tax_included)|tojson }})">
+              Tax
+            </span>
+            {% endif %}
           </div>
           {% endif %}
         </td>
@@ -695,9 +702,26 @@ async function toggleQualifier(itemId, qualifierId, checked) {
   });
   if (!resp.ok) return;
   const d = await resp.json();
+  if (d.reload) { location.reload(); return; }
   const chip = document.getElementById('qual-' + itemId + '-' + qualifierId);
   chip.classList.toggle('on', checked);
   chip.setAttribute('onclick', 'toggleQualifier(' + itemId + ',' + qualifierId + ',' + (!checked) + ')');
+  if (document.getElementById('tcost-' + itemId)) document.getElementById('tcost-' + itemId).textContent = '$' + d.total_cost.toFixed(2);
+  if (document.getElementById('price-' + itemId)) document.getElementById('price-' + itemId).textContent = '$' + d.total_price.toFixed(2);
+  if (document.getElementById('margin-' + itemId)) document.getElementById('margin-' + itemId).textContent = d.total_margin_pct.toFixed(0) + '%';
+  updateSummaryCards(d);
+}
+
+async function toggleTax(itemId, checked) {
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + itemId + '/tax/toggle', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({checked: checked})
+  });
+  if (!resp.ok) return;
+  const d = await resp.json();
+  const chip = document.getElementById('tax-' + itemId);
+  chip.classList.toggle('on', checked);
+  chip.setAttribute('onclick', 'toggleTax(' + itemId + ',' + (!checked) + ')');
   if (document.getElementById('tcost-' + itemId)) document.getElementById('tcost-' + itemId).textContent = '$' + d.total_cost.toFixed(2);
   if (document.getElementById('price-' + itemId)) document.getElementById('price-' + itemId).textContent = '$' + d.total_price.toFixed(2);
   if (document.getElementById('margin-' + itemId)) document.getElementById('margin-' + itemId).textContent = d.total_margin_pct.toFixed(0) + '%';
