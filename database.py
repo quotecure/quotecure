@@ -1046,6 +1046,25 @@ def add_package_optional_items(conn):
                           VALUES (?,16,?,'',NULL,'Y',1)""", (pkg_id, next_sort))
 
 
+@migration
+def add_freight_qualifier(conn):
+    """Freight as a special qualifier: flagged is_freight so the toggle route can enforce
+    at most one freight charge per quote, whether it lands on the Coping or Paver line."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(qualifiers)").fetchall()}
+    if 'is_freight' not in cols:
+        conn.execute("ALTER TABLE qualifiers ADD COLUMN is_freight INTEGER DEFAULT 0")
+
+    for wt_id in (6, 7):  # Coping Installation, Paver Installation
+        existing = conn.execute(
+            "SELECT qualifier_id FROM qualifiers WHERE work_type_id=? AND is_freight=1", (wt_id,)
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO qualifiers (work_type_id,label,amount,active,is_freight) VALUES (?,?,?,?,?)",
+                (wt_id, 'Freight', 300.0, 'Y', 1)
+            )
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

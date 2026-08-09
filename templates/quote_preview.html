@@ -143,7 +143,6 @@
           {% if item.description %}<div class="item-desc">{{ item.description }}</div>{% endif %}
           {% if item.product_label %}<div class="item-desc">{{ item.product_label }}</div>{% endif %}
           {% if item.material_label %}<div class="item-desc">Material: {{ item.material_label }}</div>{% endif %}
-          {% for ql in item.qualifiers %}<div class="item-desc">+ {{ ql.label }} (${{ '%.2f'|format(ql.amount) }})</div>{% endfor %}
         </td>
         <td class="right">${{ '%.2f'|format(item.total_price) }}</td>
       </tr>
@@ -183,7 +182,6 @@
           {% if item.description %}<div class="item-desc">{{ item.description }}</div>{% endif %}
           {% if item.product_label %}<div class="item-desc">{{ item.product_label }}</div>{% endif %}
           {% if item.material_label %}<div class="item-desc">Material: {{ item.material_label }}</div>{% endif %}
-          {% for ql in item.qualifiers %}<div class="item-desc">+ {{ ql.label }} (${{ '%.2f'|format(ql.amount) }})</div>{% endfor %}
         </td>
         <td class="right">
           <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">

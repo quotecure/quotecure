@@ -1692,14 +1692,36 @@ def toggle_qualifier(quote_id, item_id):
         return jsonify({'error': 'Not found'}), 404
     quals = json.loads(row['qualifiers_json'] or '[]')
     quals = [q for q in quals if q['id'] != qualifier_id]
+    qrow = db.execute("SELECT * FROM qualifiers WHERE qualifier_id=?", (qualifier_id,)).fetchone()
     if checked:
-        qrow = db.execute("SELECT * FROM qualifiers WHERE qualifier_id=?", (qualifier_id,)).fetchone()
         if qrow:
             quals.append({'id': qualifier_id, 'label': qrow['label'], 'amount': float(qrow['amount'])})
     qualifiers_total_cost = round(sum(q['amount'] for q in quals), 2)
     db.execute("UPDATE quote_line_items SET qualifiers_json=?,qualifiers_total_cost=? WHERE id=?",
                (json.dumps(quals), qualifiers_total_cost, item_id))
     total_cost, total_price, total_margin = _rollup_item_totals(db, item_id)
+
+    # Freight can only be charged once per quote — checking it here clears it from
+    # any other line item on this same quote.
+    if checked and qrow and qrow['is_freight']:
+        other_items = db.execute(
+            "SELECT id, qualifiers_json FROM quote_line_items WHERE quote_id=? AND id!=?",
+            (quote_id, item_id)
+        ).fetchall()
+        for other in other_items:
+            other_quals = json.loads(other['qualifiers_json'] or '[]')
+            other_freight_ids = {q['id'] for q in other_quals} & {
+                r['qualifier_id'] for r in db.execute(
+                    "SELECT qualifier_id FROM qualifiers WHERE is_freight=1"
+                ).fetchall()
+            }
+            if other_freight_ids:
+                filtered = [q for q in other_quals if q['id'] not in other_freight_ids]
+                filtered_cost = round(sum(q['amount'] for q in filtered), 2)
+                db.execute("UPDATE quote_line_items SET qualifiers_json=?,qualifiers_total_cost=? WHERE id=?",
+                           (json.dumps(filtered), filtered_cost, other['id']))
+                _rollup_item_totals(db, other['id'])
+
     db.commit()
     _recalc_quote(db, quote_id)
     q = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
