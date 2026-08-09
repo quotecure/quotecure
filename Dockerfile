@@ -12,4 +12,4 @@ RUN playwright install --with-deps chromium
 
 COPY . .
 
-CMD gunicorn app:app --bind 0.0.0.0:$PORT
+CMD gunicorn app:app --bind 0.0.0.0:$PORT --timeout 150

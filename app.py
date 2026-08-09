@@ -31,6 +31,16 @@ def _load_secret_key():
 
 app.secret_key = _load_secret_key()
 
+def _load_gemini_key():
+    env_key = os.environ.get('GEMINI_API_KEY')
+    if env_key:
+        return env_key
+    key_path = _secrets_dir / '.gemini_key'
+    if os.path.exists(key_path):
+        with open(key_path) as f:
+            return f.read().strip()
+    return None
+
 def hash_pw(p):
     """New password hashes use werkzeug's salted PBKDF2. check_pw() below still
     accepts the old unsalted-SHA256 hashes and transparently upgrades them on login."""
@@ -1203,6 +1213,81 @@ def _quote_preview_html(quote_id):
 def quote_preview(quote_id):
     return _quote_preview_html(quote_id)
 
+def _build_visualization_prompt(db, quote_id):
+    """Compose the Gemini prompt from this quote's actual selected materials, so the
+    rendering reflects what's really being quoted rather than generic nice materials."""
+    items = db.execute(
+        "SELECT work_type_id, product_label, material_label FROM quote_line_items "
+        "WHERE quote_id=? AND COALESCE(is_declined,0)=0", (quote_id,)
+    ).fetchall()
+
+    materials = {}
+    for item in items:
+        label = (item['product_label'] or item['material_label'] or '').strip()
+        if not label:
+            continue
+        wt_id = item['work_type_id']
+        if wt_id == 1:
+            materials['surface'] = label
+        elif wt_id in (4, 5) and 'tile' not in materials:
+            materials['tile'] = label
+        elif wt_id == 6:
+            materials['coping'] = label
+        elif wt_id == 7:
+            materials['pavers'] = label
+
+    lines = []
+    if 'surface' in materials:
+        lines.append(f"Pool interior surface finish: {materials['surface']}.")
+    if 'tile' in materials:
+        lines.append(f"Waterline tile band, roughly 6 inches tall around the pool perimeter at the top edge: {materials['tile']}.")
+    if 'coping' in materials:
+        lines.append(f"Pool coping (the cap/edge material right at the pool's rim): {materials['coping']}.")
+    if 'pavers' in materials:
+        lines.append(f"Deck pavers surrounding the pool: {materials['pavers']}.")
+    if not lines:
+        lines.append("Clean, refreshed pool surface, tile, and coping in tasteful modern colors.")
+    renovation_text = '\n'.join(f"{i+1}. {line}" for i, line in enumerate(lines))
+
+    return (
+        "This is a photo of a residential pool, taken from a fixed camera position.\n\n"
+        "Generate an ARCHITECTURAL RENDERING / ILLUSTRATION of this exact same pool renovated — NOT a "
+        "photorealistic photo. Style: clean 3D architectural visualization / concept rendering, similar "
+        "to what a pool designer would present to a client — smooth shading, simplified but accurate "
+        "materials, slightly stylized lighting, clearly a rendering rather than a real photograph.\n\n"
+        "Keep the exact same pool shape, footprint, steps/tanning ledge layout, and camera angle/perspective "
+        "as the source photo. Keep the house, landscaping, and other background elements recognizable "
+        "but rendered in the same illustrated style.\n\n"
+        f"Renovate with:\n{renovation_text}\n\n"
+        "The pool is FULL, at normal operating water level — this is the single most important change "
+        "to get right. A full pool's water line sits just below the coping, with only the top one or two "
+        "rows of waterline tile peeking above the water's surface — almost the entire tile band is "
+        "SUBMERGED and visible only as a faint band under the water, not as dry tile in open air. The water "
+        "surface itself must be far higher in the frame than the source photo's water line — this is a big, "
+        "obvious compositional change, not a subtle one. Water is clear, bright turquoise-blue, with a "
+        "visible reflective surface, no algae or debris.\n\n"
+        "Do not change the pool's shape, size, or the steps/ledge layout. Do not add elements that aren't "
+        "requested (no umbrellas, furniture, or people)."
+    )
+
+
+def _generate_visualization_image(photo_bytes, mime_type, prompt):
+    from google import genai
+    from google.genai import types
+    api_key = _load_gemini_key()
+    if not api_key:
+        raise RuntimeError("Gemini API key isn't configured — add GEMINI_API_KEY in Admin or as an environment variable.")
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-3-pro-image",
+        contents=[types.Part.from_bytes(data=photo_bytes, mime_type=mime_type), prompt],
+    )
+    for part in response.candidates[0].content.parts:
+        if part.inline_data:
+            return part.inline_data.data, part.inline_data.mime_type
+    return None, None
+
+
 def _generate_quote_pdf_bytes(html):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -1231,6 +1316,73 @@ def _send_quote_email(to_email, subject, body_text, pdf_bytes, quote_id, gmail_a
         server.starttls()
         server.login(gmail_address, gmail_app_password)
         server.sendmail(gmail_address, [to_email], msg.as_string())
+
+@app.route('/quotes/<int:quote_id>/visualize', methods=['GET'])
+@login_required
+def quote_visualize(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return redirect(url_for('quotes_list'))
+    visualizations = db.execute(
+        "SELECT * FROM quote_visualizations WHERE quote_id=? ORDER BY id DESC", (quote_id,)
+    ).fetchall()
+    return render_template('quote_visualize.html', quote=quote, visualizations=visualizations)
+
+@app.route('/quotes/<int:quote_id>/visualize/generate', methods=['POST'])
+@login_required
+def generate_visualization(quote_id):
+    import base64
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return jsonify({'error': 'Quote not found'}), 404
+
+    file = request.files.get('photo')
+    if not file or not file.filename:
+        return jsonify({'error': 'No photo uploaded'}), 400
+
+    photo_bytes = file.read()
+    mime_type = file.mimetype or 'image/jpeg'
+    original_b64 = f"data:{mime_type};base64,{base64.b64encode(photo_bytes).decode()}"
+    prompt = _build_visualization_prompt(db, quote_id)
+
+    db.execute(
+        "INSERT INTO quote_visualizations (quote_id,original_image,prompt_used,status) VALUES (?,?,?,'generating')",
+        (quote_id, original_b64, prompt)
+    )
+    db.commit()
+    viz_id = db.execute("SELECT lastval()").fetchone()[0]
+
+    try:
+        img_bytes, out_mime = _generate_visualization_image(photo_bytes, mime_type, prompt)
+        if img_bytes:
+            generated_b64 = f"data:{out_mime};base64,{base64.b64encode(img_bytes).decode()}"
+            db.execute("UPDATE quote_visualizations SET generated_image=?,status='done' WHERE id=?",
+                       (generated_b64, viz_id))
+        else:
+            db.execute("UPDATE quote_visualizations SET status='error',error_message=? WHERE id=?",
+                       ('No image was returned by the model.', viz_id))
+    except Exception as e:
+        db.execute("UPDATE quote_visualizations SET status='error',error_message=? WHERE id=?",
+                   (str(e), viz_id))
+    db.commit()
+
+    result = db.execute("SELECT * FROM quote_visualizations WHERE id=?", (viz_id,)).fetchone()
+    return jsonify({
+        'id': result['id'],
+        'status': result['status'],
+        'generated_image': result['generated_image'],
+        'error_message': result['error_message'],
+    })
+
+@app.route('/quotes/<int:quote_id>/visualize/<int:viz_id>/delete', methods=['POST'])
+@login_required
+def delete_visualization(quote_id, viz_id):
+    db = get_db()
+    db.execute("DELETE FROM quote_visualizations WHERE id=? AND quote_id=?", (viz_id, quote_id))
+    db.commit()
+    return jsonify({'success': True})
 
 @app.route('/quotes/<int:quote_id>/email', methods=['POST'])
 @login_required
