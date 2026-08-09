@@ -1112,6 +1112,7 @@ def add_quote_visualizations(conn):
         original_image TEXT NOT NULL,
         generated_image TEXT,
         prompt_used TEXT DEFAULT '',
+        package_label TEXT DEFAULT '',
         status TEXT DEFAULT 'pending',
         error_message TEXT DEFAULT '',
         created_at TEXT DEFAULT (now()::text)

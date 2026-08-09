@@ -1213,9 +1213,8 @@ def _quote_preview_html(quote_id):
 def quote_preview(quote_id):
     return _quote_preview_html(quote_id)
 
-def _build_visualization_prompt(db, quote_id):
-    """Compose the Gemini prompt from this quote's actual selected materials, so the
-    rendering reflects what's really being quoted rather than generic nice materials."""
+def _resolve_materials_from_quote(db, quote_id):
+    """Materials currently selected on this quote's actual line items."""
     items = db.execute(
         "SELECT work_type_id, product_label, material_label FROM quote_line_items "
         "WHERE quote_id=? AND COALESCE(is_declined,0)=0", (quote_id,)
@@ -1235,6 +1234,46 @@ def _build_visualization_prompt(db, quote_id):
             materials['coping'] = label
         elif wt_id == 7:
             materials['pavers'] = label
+    return materials
+
+
+def _resolve_materials_from_package(db, package_id):
+    """A package tier's default materials (e.g. Refresh/Signature/Resort), regardless of
+    what's actually on the quote — lets staff preview 'what would this tier look like'."""
+    items = db.execute(
+        "SELECT pi.*, wt.work_type, wt.unit, wt.cost_structure, wt.default_markup, wt.min_markup, wt.description "
+        "FROM package_items pi JOIN work_types wt ON pi.work_type_id=wt.work_type_id "
+        "WHERE pi.package_id=? AND pi.active='Y'", (package_id,)
+    ).fetchall()
+    dims = {'pool_perimeter': 80, 'has_spa': False, 'has_shelf': False,
+            'steps_lf': 0, 'benches_lf': 0, 'swimouts_lf': 0, 'total_surface_sqft': 400}
+
+    materials = {}
+    for item in items:
+        wt_id = item['work_type_id']
+        p = _compute_line_item_pricing(db, dict(item), item['default_sub_id'], item['default_material_id'], dims, can_override=False)
+        label = (p['product_label'] or p['material_label'] or '').strip()
+        if not label:
+            continue
+        if wt_id == 1:
+            materials['surface'] = label
+        elif wt_id in (4, 5) and 'tile' not in materials:
+            materials['tile'] = label
+        elif wt_id == 6:
+            materials['coping'] = label
+        elif wt_id == 7:
+            materials['pavers'] = label
+    return materials
+
+
+def _build_visualization_prompt(db, quote_id, package_id=None):
+    """Compose the Gemini prompt from either the quote's actual selected materials, or a
+    specific package tier's defaults if package_id is given — so staff can preview what a
+    tier would look like even before the customer has committed to it."""
+    if package_id:
+        materials = _resolve_materials_from_package(db, package_id)
+    else:
+        materials = _resolve_materials_from_quote(db, quote_id)
 
     lines = []
     if 'surface' in materials:
@@ -1327,7 +1366,8 @@ def quote_visualize(quote_id):
     visualizations = db.execute(
         "SELECT * FROM quote_visualizations WHERE quote_id=? ORDER BY id DESC", (quote_id,)
     ).fetchall()
-    return render_template('quote_visualize.html', quote=quote, visualizations=visualizations)
+    packages = db.execute("SELECT package_id, name FROM packages WHERE active='Y' ORDER BY sort_order").fetchall()
+    return render_template('quote_visualize.html', quote=quote, visualizations=visualizations, packages=packages)
 
 @app.route('/quotes/<int:quote_id>/visualize/generate', methods=['POST'])
 @login_required
@@ -1342,14 +1382,20 @@ def generate_visualization(quote_id):
     if not file or not file.filename:
         return jsonify({'error': 'No photo uploaded'}), 400
 
+    package_id = request.form.get('package_id') or None
+    package_label = ''
+    if package_id:
+        pkg = db.execute("SELECT name FROM packages WHERE package_id=?", (package_id,)).fetchone()
+        package_label = pkg['name'] if pkg else ''
+
     photo_bytes = file.read()
     mime_type = file.mimetype or 'image/jpeg'
     original_b64 = f"data:{mime_type};base64,{base64.b64encode(photo_bytes).decode()}"
-    prompt = _build_visualization_prompt(db, quote_id)
+    prompt = _build_visualization_prompt(db, quote_id, package_id)
 
     db.execute(
-        "INSERT INTO quote_visualizations (quote_id,original_image,prompt_used,status) VALUES (?,?,?,'generating')",
-        (quote_id, original_b64, prompt)
+        "INSERT INTO quote_visualizations (quote_id,original_image,prompt_used,package_label,status) VALUES (?,?,?,?,'generating')",
+        (quote_id, original_b64, prompt, package_label)
     )
     db.commit()
     viz_id = db.execute("SELECT lastval()").fetchone()[0]
@@ -1373,6 +1419,7 @@ def generate_visualization(quote_id):
         'id': result['id'],
         'status': result['status'],
         'generated_image': result['generated_image'],
+        'package_label': result['package_label'],
         'error_message': result['error_message'],
     })
 

@@ -40,6 +40,15 @@
           </div>
           <img id="viz-photo-preview" class="viz-preview-img" style="display:none;">
         </div>
+        <div class="form-group" style="margin-top:16px;">
+          <label class="form-label">Materials to show</label>
+          <select class="form-control" id="viz-package-select">
+            <option value="">Current quote selections</option>
+            {% for pkg in packages %}
+            <option value="{{ pkg.package_id }}">{{ pkg.name }} tier defaults</option>
+            {% endfor %}
+          </select>
+        </div>
         <div style="margin-top:16px;text-align:center;">
           <button type="submit" class="btn btn-primary" id="viz-generate-btn" style="display:none;">✨ Generate Rendering</button>
         </div>
@@ -51,6 +60,7 @@
       </div>
       <div class="viz-error" id="viz-error" style="display:none;"></div>
 
+      <div id="viz-result-label" style="display:none;text-align:center;font-size:12px;color:var(--text3);margin-top:8px;"></div>
       <div class="viz-pair" id="viz-result-pair" style="display:none;">
         <div class="viz-pair-col">
           <div class="viz-pair-label">Before</div>
@@ -68,7 +78,7 @@
   <div class="section-label" style="margin-top:28px;">Previous Renderings</div>
   {% for v in visualizations %}
   <div class="viz-history-item">
-    <div class="viz-history-date">{{ v.created_at[:16] }} — {{ v.status }}</div>
+    <div class="viz-history-date">{{ v.created_at[:16] }} — {{ v.package_label + ' tier' if v.package_label else 'Current quote selections' }} — {{ v.status }}</div>
     {% if v.status == 'done' %}
     <div class="viz-pair">
       <div class="viz-pair-col">
@@ -123,6 +133,8 @@ document.getElementById('viz-form').addEventListener('submit', async (e) => {
 
   const formData = new FormData();
   formData.append('photo', selectedFile);
+  const packageId = document.getElementById('viz-package-select').value;
+  if (packageId) formData.append('package_id', packageId);
 
   try {
     const resp = await fetch('/quotes/' + QID + '/visualize/generate', { method: 'POST', body: formData });
@@ -134,6 +146,9 @@ document.getElementById('viz-form').addEventListener('submit', async (e) => {
       document.getElementById('viz-result-original').src = previewImg.src;
       document.getElementById('viz-result-generated').src = d.generated_image;
       document.getElementById('viz-result-pair').style.display = 'grid';
+      const labelEl = document.getElementById('viz-result-label');
+      labelEl.textContent = d.package_label ? d.package_label + ' tier defaults' : 'Current quote selections';
+      labelEl.style.display = 'block';
     } else {
       document.getElementById('viz-error').textContent = d.error_message || 'Something went wrong generating this.';
       document.getElementById('viz-error').style.display = 'block';
