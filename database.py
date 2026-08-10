@@ -1119,6 +1119,23 @@ def add_quote_visualizations(conn):
     )""")
 
 
+@migration
+def add_package_tile_threshold(conn):
+    """Upper $/lf price bound for a package's eligible waterline tile — Refresh gets tiles
+    priced at or below its threshold, Signature gets tiles between its own and Refresh's
+    threshold, Resort gets everything above Signature's (unbounded, threshold left NULL)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(packages)").fetchall()}
+    if 'tile_price_threshold' not in cols:
+        conn.execute("ALTER TABLE packages ADD COLUMN tile_price_threshold REAL")
+
+    # Sensible starting defaults based on the current LUV Tile price spread ($2.50-$10.50/lf);
+    # editable per package in Admin from here on.
+    defaults = {'Refresh': 4.00, 'Signature': 7.00}
+    for name, threshold in defaults.items():
+        conn.execute("UPDATE packages SET tile_price_threshold=? WHERE name=? AND tile_price_threshold IS NULL",
+                     (threshold, name))
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

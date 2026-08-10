@@ -1656,6 +1656,7 @@ def admin_packages():
     db = get_db()
     packages = db.execute("SELECT * FROM packages ORDER BY sort_order").fetchall()
     packages_with_items = []
+    prev_threshold = None
     for pkg in packages:
         items = db.execute("""
             SELECT pi.*, wt.work_type, wt.unit,
@@ -1672,7 +1673,23 @@ def admin_packages():
             WHERE pi.package_id=?
             ORDER BY pi.sort_order
         """, (pkg['package_id'],)).fetchall()
-        packages_with_items.append({'pkg': pkg, 'line_items': items})
+
+        # Eligible waterline tile: priced above the previous tier's threshold, at or below
+        # this tier's own threshold (or unbounded above if this tier has no threshold set).
+        upper = pkg['tile_price_threshold']
+        tile_query = "SELECT material_id, category, series, cost_per_quote_unit FROM materials WHERE work_type_id=4 AND active='Y'"
+        params = []
+        if prev_threshold is not None:
+            tile_query += " AND cost_per_quote_unit > ?"
+            params.append(prev_threshold)
+        if upper is not None:
+            tile_query += " AND cost_per_quote_unit <= ?"
+            params.append(upper)
+        tile_query += " ORDER BY cost_per_quote_unit"
+        eligible_tiles = db.execute(tile_query, tuple(params)).fetchall()
+        prev_threshold = upper
+
+        packages_with_items.append({'pkg': pkg, 'line_items': items, 'eligible_tiles': eligible_tiles})
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
     return render_template('admin_packages.html', packages_with_items=packages_with_items, work_types=work_types)
 
@@ -1680,11 +1697,12 @@ def admin_packages():
 @require_permission('can_access_admin')
 def edit_package(package_id):
     db = get_db()
-    db.execute("""UPDATE packages SET name=?,badge=?,price_range_label=?,life_expectancy_label=?,description=?
+    threshold = request.form.get('tile_price_threshold', '').strip()
+    db.execute("""UPDATE packages SET name=?,badge=?,price_range_label=?,life_expectancy_label=?,description=?,tile_price_threshold=?
                   WHERE package_id=?""",
                (request.form['name'], request.form.get('badge',''),
                 request.form.get('price_range_label',''), request.form.get('life_expectancy_label',''),
-                request.form.get('description',''), package_id))
+                request.form.get('description',''), float(threshold) if threshold else None, package_id))
     db.commit()
     return redirect(url_for('admin_packages'))
 

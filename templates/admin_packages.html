@@ -51,6 +51,10 @@
           <label class="form-label">Description</label>
           <input class="form-control" name="description" value="{{ pkg.description }}">
         </div>
+        <div style="flex:1;min-width:160px;">
+          <label class="form-label">Tile Price Ceiling ($/lf) <span style="opacity:.6;">(blank = no ceiling)</span></label>
+          <input class="form-control" name="tile_price_threshold" type="number" step="0.01" value="{{ pkg.tile_price_threshold if pkg.tile_price_threshold is not none else '' }}">
+        </div>
         <button class="btn btn-primary btn-sm" type="submit">Save</button>
       </form>
 
@@ -89,6 +93,22 @@
             {% endif %}
           </tbody>
         </table>
+      </div>
+
+      <!-- Eligible waterline tile for this tier -->
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border2);">
+        <div class="section-label" style="margin:0 0 8px;">
+          Eligible Waterline Tile ({{ pw.eligible_tiles|length }})
+        </div>
+        {% if pw.eligible_tiles %}
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          {% for t in pw.eligible_tiles %}
+          <span class="chip" style="font-size:11px;">{{ t.category }} – {{ t.series }} (${{ '%.2f'|format(t.cost_per_quote_unit) }}/lf)</span>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div style="color:var(--text3);font-size:12px;">No tile currently falls in this price range.</div>
+        {% endif %}
       </div>
 
       <!-- Add item -->
