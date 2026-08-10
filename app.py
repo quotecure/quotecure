@@ -262,6 +262,28 @@ def _insert_line_item_from_pricing(db, qid, p, sort_order, is_optional=0):
          p['total_cost'], p['total_price'], p['total_margin'], sort_order, p['description'], is_optional)
     )
 
+def _eligible_tiles_for_package(db, package_id):
+    """Waterline tile priced above the previous tier's threshold (by sort_order), at or
+    below this tier's own threshold -- unbounded above if this tier has no threshold set."""
+    pkg = db.execute("SELECT * FROM packages WHERE package_id=?", (package_id,)).fetchone()
+    if not pkg:
+        return []
+    prev_threshold = db.execute(
+        "SELECT MAX(tile_price_threshold) FROM packages WHERE sort_order < ?", (pkg['sort_order'],)
+    ).fetchone()[0]
+    upper = pkg['tile_price_threshold']
+    tile_query = ("SELECT material_id, category, series, cost_per_quote_unit, product_url "
+                   "FROM materials WHERE work_type_id=4 AND active='Y'")
+    params = []
+    if prev_threshold is not None:
+        tile_query += " AND cost_per_quote_unit > ?"
+        params.append(prev_threshold)
+    if upper is not None:
+        tile_query += " AND cost_per_quote_unit <= ?"
+        params.append(upper)
+    tile_query += " ORDER BY category, series"
+    return db.execute(tile_query, tuple(params)).fetchall()
+
 @app.route('/api/estimate_packages', methods=['POST'])
 @login_required
 def estimate_packages():
@@ -350,10 +372,63 @@ def new_quote():
             _insert_line_item_from_pricing(db, qid, p, i, is_optional=1 if wt['is_optional'] else 0)
         db.commit()
         _recalc_quote(db, qid)
+        if package_id:
+            return redirect(url_for('select_materials', quote_id=qid, package_id=package_id))
         return redirect(url_for('edit_quote', quote_id=qid))
     salesperson_name = g.user['display_name'] if g.user and g.user['display_name'] else ''
     packages = get_db().execute("SELECT * FROM packages WHERE active='Y' ORDER BY sort_order").fetchall()
     return render_template('new_quote.html', salesperson_name=salesperson_name, packages=packages)
+
+@app.route('/quotes/<int:quote_id>/select_materials')
+@login_required
+def select_materials(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return redirect(url_for('quotes_list'))
+    package_id = request.args.get('package_id')
+    package = db.execute("SELECT * FROM packages WHERE package_id=?", (package_id,)).fetchone() if package_id else None
+    tile_item = db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND work_type_id=4", (quote_id,)
+    ).fetchone()
+    eligible_tiles = _eligible_tiles_for_package(db, package_id) if package_id else []
+    return render_template('select_materials.html', quote=quote, package=package,
+                           tile_item=tile_item, eligible_tiles=eligible_tiles)
+
+@app.route('/quotes/<int:quote_id>/select_materials/tile', methods=['POST'])
+@login_required
+def select_material_tile(quote_id):
+    db = get_db()
+    item_id = request.form.get('item_id')
+    material_id = request.form.get('material_id')
+    row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
+    if not row:
+        return redirect(url_for('select_materials', quote_id=quote_id))
+    m = db.execute("SELECT series, category FROM materials WHERE material_id=?", (material_id,)).fetchone()
+    if m:
+        label = f"{m['category']} — {m['series']}"
+        can_override = bool(g.role and g.role['can_override_min_markup'])
+        mat_row = db.execute("SELECT cost_per_quote_unit FROM materials WHERE material_id=?", (material_id,)).fetchone()
+        mat_cpu = float(mat_row['cost_per_quote_unit']) if mat_row else 0.0
+        qty = float(row['labor_quantity'])
+        markup = float(row['labor_markup_pct'])
+        min_m = float(row['material_min_markup'] or 10)
+        m_cost, m_price, m_margin = calc_component(mat_cpu, qty, markup, min_m, can_override)
+        l_cost = float(row['labor_total_cost'])
+        l_price = float(row['labor_total_price'])
+        total_cost = round(l_cost + m_cost, 2)
+        total_price = round(l_price + m_price, 2)
+        total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
+        db.execute("""UPDATE quote_line_items SET
+                      material_id=?, material_label=?, material_cost_per_unit=?,
+                      material_total_cost=?, material_total_price=?, material_margin_pct=?,
+                      total_cost=?, total_price=?, total_margin_pct=? WHERE id=?""",
+                   (material_id, label, mat_cpu, m_cost, m_price, m_margin,
+                    total_cost, total_price, total_margin, item_id))
+        db.commit()
+        _recalc_quote(db, quote_id)
+    package_id = request.form.get('package_id', '')
+    return redirect(url_for('select_materials', quote_id=quote_id, package_id=package_id))
 
 @app.route('/quotes/<int:quote_id>')
 @login_required
@@ -1656,7 +1731,6 @@ def admin_packages():
     db = get_db()
     packages = db.execute("SELECT * FROM packages ORDER BY sort_order").fetchall()
     packages_with_items = []
-    prev_threshold = None
     for pkg in packages:
         items = db.execute("""
             SELECT pi.*, wt.work_type, wt.unit,
@@ -1674,21 +1748,7 @@ def admin_packages():
             ORDER BY pi.sort_order
         """, (pkg['package_id'],)).fetchall()
 
-        # Eligible waterline tile: priced above the previous tier's threshold, at or below
-        # this tier's own threshold (or unbounded above if this tier has no threshold set).
-        upper = pkg['tile_price_threshold']
-        tile_query = "SELECT material_id, category, series, cost_per_quote_unit FROM materials WHERE work_type_id=4 AND active='Y'"
-        params = []
-        if prev_threshold is not None:
-            tile_query += " AND cost_per_quote_unit > ?"
-            params.append(prev_threshold)
-        if upper is not None:
-            tile_query += " AND cost_per_quote_unit <= ?"
-            params.append(upper)
-        tile_query += " ORDER BY cost_per_quote_unit"
-        eligible_tiles = db.execute(tile_query, tuple(params)).fetchall()
-        prev_threshold = upper
-
+        eligible_tiles = _eligible_tiles_for_package(db, pkg['package_id'])
         packages_with_items.append({'pkg': pkg, 'line_items': items, 'eligible_tiles': eligible_tiles})
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
     return render_template('admin_packages.html', packages_with_items=packages_with_items, work_types=work_types)

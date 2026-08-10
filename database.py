@@ -1136,6 +1136,16 @@ def add_package_tile_threshold(conn):
                      (threshold, name))
 
 
+@migration
+def add_material_product_url(conn):
+    """Link to the manufacturer's own product page (photos live there instead of being
+    hosted in the app) -- populated for waterline tile via a one-time scrape/match against
+    luvtile.com; editable per material going forward in Admin."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(materials)").fetchall()}
+    if 'product_url' not in cols:
+        conn.execute("ALTER TABLE materials ADD COLUMN product_url TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

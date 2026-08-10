@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}Choose Your Tile — {{ quote.customer_name }}{% endblock %}
+{% block extra_css %}
+<style>
+.sm-header {
+  border-radius: var(--radius); padding: 28px 32px; margin-bottom: 28px;
+  background: {{ package.color if package else 'var(--surface)' }}; color: #0f172a;
+}
+.sm-badge { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.75; }
+.sm-title { font-size: 28px; font-weight: 700; margin-top: 4px; }
+.sm-sub { font-size: 14px; margin-top: 6px; opacity: 0.85; }
+.tile-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px;
+}
+.tile-card {
+  border: 2px solid var(--border); border-radius: var(--radius); padding: 18px;
+  text-align: center; background: var(--surface); transition: border-color 0.15s;
+}
+.tile-card.selected { border-color: var(--blue-light); background: rgba(59,130,246,0.08); }
+.tile-name { font-weight: 600; font-size: 15px; margin-top: 4px; }
+.tile-category { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
+.tile-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="sm-header">
+    {% if package %}
+    <div class="sm-badge">{{ package.badge }}</div>
+    <div class="sm-title">{{ package.name }} — Choose Your Tile</div>
+    <div class="sm-sub">Take a look through the options below and pick your favorite.</div>
+    {% else %}
+    <div class="sm-title">Choose Your Tile</div>
+    {% endif %}
+  </div>
+
+  {% if tile_item and tile_item.material_label %}
+  <div style="margin-bottom:20px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);">
+    Currently selected: <strong>{{ tile_item.material_label }}</strong>
+  </div>
+  {% endif %}
+
+  {% if eligible_tiles %}
+  <div class="tile-grid">
+    {% for t in eligible_tiles %}
+    <div class="tile-card {% if tile_item and tile_item.material_id == t.material_id %}selected{% endif %}">
+      <div class="tile-category">{{ t.category }}</div>
+      <div class="tile-name">{{ t.series }}</div>
+      <div class="tile-actions">
+        {% if t.product_url %}
+        <a href="{{ t.product_url }}" target="_blank" class="btn btn-secondary btn-sm">View Photo</a>
+        {% endif %}
+        {% if tile_item %}
+        <form method="POST" action="/quotes/{{ quote.quote_id }}/select_materials/tile">
+          <input type="hidden" name="item_id" value="{{ tile_item.id }}">
+          <input type="hidden" name="material_id" value="{{ t.material_id }}">
+          <input type="hidden" name="package_id" value="{{ package.package_id if package else '' }}">
+          <button type="submit" class="btn btn-primary btn-sm" style="width:100%;">
+            {% if tile_item and tile_item.material_id == t.material_id %}Selected ✓{% else %}Select{% endif %}
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div style="color:var(--text3);padding:20px;">No tile options are currently set up for this package tier.</div>
+  {% endif %}
+
+  <div style="margin-top:32px;text-align:center;">
+    <a href="/quotes/{{ quote.quote_id }}" class="btn btn-primary">Continue to Quote →</a>
+  </div>
+</div>
+{% endblock %}
