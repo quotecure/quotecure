@@ -262,9 +262,14 @@ def _insert_line_item_from_pricing(db, qid, p, sort_order, is_optional=0):
          p['total_cost'], p['total_price'], p['total_margin'], sort_order, p['description'], is_optional)
     )
 
-def _eligible_tiles_for_package(db, package_id):
+AIM_CATEGORY = 'Glass (Artistry In Mosaics)'
+
+def _eligible_tiles_for_package(db, package_id, manufacturer='luv'):
     """Waterline tile priced above the previous tier's threshold (by sort_order), at or
-    below this tier's own threshold -- unbounded above if this tier has no threshold set."""
+    below this tier's own threshold -- unbounded above if this tier has no threshold set.
+    manufacturer='luv' (default) excludes Artistry In Mosaics' Glass line entirely --
+    manufacturers are shown as distinct sets, never mixed in one list -- pass 'aim' to
+    see only that line instead."""
     pkg = db.execute("SELECT * FROM packages WHERE package_id=?", (package_id,)).fetchone()
     if not pkg:
         return []
@@ -275,6 +280,13 @@ def _eligible_tiles_for_package(db, package_id):
     tile_query = ("SELECT material_id, category, series, cost_per_quote_unit, product_url "
                    "FROM materials WHERE work_type_id=4 AND active='Y'")
     params = []
+    if manufacturer == 'aim':
+        tile_query += " AND category = ?"
+        params.append(AIM_CATEGORY)
+    elif manufacturer == 'luv':
+        tile_query += " AND category != ?"
+        params.append(AIM_CATEGORY)
+    # manufacturer == 'all': no filter, used by the internal admin reference view
     if prev_threshold is not None:
         tile_query += " AND cost_per_quote_unit > ?"
         params.append(prev_threshold)
@@ -391,9 +403,22 @@ def select_materials(quote_id):
     tile_item = db.execute(
         "SELECT * FROM quote_line_items WHERE quote_id=? AND work_type_id=4", (quote_id,)
     ).fetchone()
-    eligible_tiles = _eligible_tiles_for_package(db, package_id) if package_id else []
+    manufacturer = request.args.get('manufacturer', 'luv')
+    if manufacturer not in ('luv', 'aim'):
+        manufacturer = 'luv'
+    all_tiles = _eligible_tiles_for_package(db, package_id, manufacturer) if package_id else []
+    aim_count = len(_eligible_tiles_for_package(db, package_id, 'aim')) if package_id else 0
+    luv_count = len(_eligible_tiles_for_package(db, package_id, 'luv')) if package_id else 0
+    PER_PAGE = 6
+    page = max(1, int(request.args.get('page', 1) or 1))
+    total_pages = max(1, (len(all_tiles) + PER_PAGE - 1) // PER_PAGE)
+    page = min(page, total_pages)
+    start = (page - 1) * PER_PAGE
+    eligible_tiles = all_tiles[start:start + PER_PAGE]
     return render_template('select_materials.html', quote=quote, package=package,
-                           tile_item=tile_item, eligible_tiles=eligible_tiles)
+                           tile_item=tile_item, eligible_tiles=eligible_tiles,
+                           page=page, total_pages=total_pages, total_tiles=len(all_tiles),
+                           manufacturer=manufacturer, luv_count=luv_count, aim_count=aim_count)
 
 @app.route('/quotes/<int:quote_id>/select_materials/tile', methods=['POST'])
 @login_required
@@ -428,7 +453,9 @@ def select_material_tile(quote_id):
         db.commit()
         _recalc_quote(db, quote_id)
     package_id = request.form.get('package_id', '')
-    return redirect(url_for('select_materials', quote_id=quote_id, package_id=package_id))
+    page = request.form.get('page', '')
+    manufacturer = request.form.get('manufacturer', '')
+    return redirect(url_for('select_materials', quote_id=quote_id, package_id=package_id, page=page, manufacturer=manufacturer))
 
 @app.route('/quotes/<int:quote_id>')
 @login_required
@@ -1748,7 +1775,7 @@ def admin_packages():
             ORDER BY pi.sort_order
         """, (pkg['package_id'],)).fetchall()
 
-        eligible_tiles = _eligible_tiles_for_package(db, pkg['package_id'])
+        eligible_tiles = _eligible_tiles_for_package(db, pkg['package_id'], manufacturer='all')
         packages_with_items.append({'pkg': pkg, 'line_items': items, 'eligible_tiles': eligible_tiles})
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
     return render_template('admin_packages.html', packages_with_items=packages_with_items, work_types=work_types)
