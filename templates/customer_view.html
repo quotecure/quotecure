@@ -1,0 +1,178 @@
+{% extends 'base.html' %}
+{% block title %}{{ quote.customer_name }} — Quote{% endblock %}
+{% block extra_css %}
+<style>
+.cv-header { padding: 20px 0; margin-bottom: 8px; }
+.cv-title { font-size: 26px; font-weight: 700; }
+.cv-sub { font-size: 13px; color: var(--text3); margin-top: 4px; }
+.cv-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: 12px; background: var(--surface);
+}
+.cv-item-name { font-weight: 600; font-size: 15px; }
+.cv-item-desc { font-size: 12px; color: var(--text3); margin-top: 2px; }
+.cv-item-material { font-size: 13px; color: var(--text2); margin-top: 6px; }
+.cv-item-price { font-family:'Chivo Mono',monospace; font-size: 17px; font-weight: 700; white-space: nowrap; }
+.cv-picker { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border2); }
+.cv-picker.open { display: block; }
+.cv-total {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 24px; background: linear-gradient(135deg,#1e3a8a,#1e40af);
+  border-radius: var(--radius); margin: 20px 0; color: white;
+}
+.cv-total-label { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #bfdbfe; }
+.cv-total-value { font-family:'Chivo Mono',monospace; font-size: 28px; font-weight: 700; }
+.cv-schedule { font-size: 12px; color: var(--text3); text-align: center; margin-bottom: 24px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header cv-header">
+    <div>
+      <div class="cv-title">{{ quote.customer_name }}</div>
+      <div class="cv-sub">QT-{{ '%04d'|format(quote.quote_id) }}{% if quote.address %} &middot; {{ quote.address }}{% endif %}</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">Full Details (Staff) →</a>
+      <a href="/quotes" class="btn btn-secondary">← Quotes</a>
+    </div>
+  </div>
+
+  {% for item in line_items %}
+  <div class="cv-item" id="cv-item-{{ item.id }}">
+    <div style="flex:1;">
+      <div class="cv-item-name">{{ item.work_type_label }}{% if item.is_optional %} <span class="badge badge-amber" style="font-size:9px;">Optional</span>{% endif %}</div>
+      {% if item.description %}<div class="cv-item-desc">{{ item.description }}</div>{% endif %}
+      <div class="cv-item-material" id="cv-material-{{ item.id }}">
+        {{ item.product_label or item.material_label or 'No selection yet' }}
+      </div>
+      {% if item.work_type_id in (1,4,5,6,7) %}
+      <button class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="cvTogglePicker({{ item.id }})">Change Selection</button>
+      {% endif %}
+
+      <div class="cv-picker" id="cv-picker-{{ item.id }}">
+        {% if item.work_type_id == 1 %}
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:end;">
+          <div>
+            <label class="nr-label">Manufacturer</label>
+            <select class="nr-input" id="cv-mfr-{{ item.id }}" onchange="cvLoadLines({{ item.id }})">
+              <option value="">— Select —</option>
+              {% for mfr in manufacturers %}
+              <option value="{{ mfr.manufacturer_id }}" {{ 'selected' if item.get('mfr_id') == mfr.manufacturer_id }}>{{ mfr.manufacturer_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="nr-label">Product Line</label>
+            <select class="nr-input" id="cv-pl-{{ item.id }}" onchange="cvLoadFinishes({{ item.id }})">
+              <option value="">— Select manufacturer —</option>
+            </select>
+          </div>
+          <div>
+            <label class="nr-label">Finish</label>
+            <select class="nr-input" id="cv-fin-{{ item.id }}" onchange="cvSaveSurface({{ item.id }})">
+              <option value="">— Select product line —</option>
+            </select>
+          </div>
+        </div>
+        {% else %}
+        <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;">
+          <div>
+            <label class="nr-label">Material</label>
+            <select class="nr-input" id="cv-mat-{{ item.id }}" onchange="cvSaveMaterial({{ item.id }})">
+              <option value="">— None —</option>
+              {% for mat in materials %}
+              {% if mat.work_type_id == item.work_type_id or item.work_type_id in [4,5,6] %}
+              <option value="{{ mat.material_id }}" {{ 'selected' if item.material_id == mat.material_id }}>{{ mat.category }} — {{ mat.series }}</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="cvTogglePicker({{ item.id }})">Done</button>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="cv-item-price" id="cv-price-{{ item.id }}">${{ '%.2f'|format(item.total_price) }}</div>
+  </div>
+  {% endfor %}
+
+  <div class="cv-total">
+    <div class="cv-total-label">Total</div>
+    <div class="cv-total-value" id="cv-total">${{ '%.2f'|format(quote.total_price) }}</div>
+  </div>
+
+  {% if schedule %}
+  <div class="cv-schedule">
+    {% for s in schedule %}{{ s.label }}: ${{ '%.0f'|format(s.amount) }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+
+  <div style="text-align:center;">
+    <a href="/quotes/{{ quote.quote_id }}/preview" class="btn btn-primary" target="_blank">📄 Preview & Sign →</a>
+  </div>
+</div>
+
+<script>
+const QID = {{ quote.quote_id }};
+
+function cvTogglePicker(id) {
+  document.getElementById('cv-picker-' + id).classList.toggle('open');
+}
+
+async function cvLoadLines(id) {
+  const mfrId = document.getElementById('cv-mfr-' + id).value;
+  const r = await fetch('/api/surface_product_lines?manufacturer_id=' + mfrId);
+  const lines = await r.json();
+  const sel = document.getElementById('cv-pl-' + id);
+  sel.innerHTML = '<option value="">— Select —</option>';
+  lines.forEach(l => sel.innerHTML += '<option value="' + l + '">' + l + '</option>');
+  document.getElementById('cv-fin-' + id).innerHTML = '<option value="">— Select product line —</option>';
+}
+
+async function cvLoadFinishes(id) {
+  const mfrId = document.getElementById('cv-mfr-' + id).value;
+  const pl = document.getElementById('cv-pl-' + id).value;
+  const r = await fetch('/api/surface_finishes?manufacturer_id=' + mfrId + '&product_line=' + encodeURIComponent(pl));
+  const fins = await r.json();
+  const sel = document.getElementById('cv-fin-' + id);
+  sel.innerHTML = '<option value="">— Select —</option>';
+  fins.forEach(f => sel.innerHTML += '<option value="' + f.product_id + '">' + f.finish + '</option>');
+}
+
+async function cvSaveSurface(id) {
+  const productId = document.getElementById('cv-fin-' + id).value;
+  if (!productId) return;
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/update', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({field: 'surface_product', value: productId})
+  });
+  if (resp.ok) {
+    const d = await resp.json();
+    cvApplyResult(id, d);
+    cvTogglePicker(id);
+  }
+}
+
+async function cvSaveMaterial(id) {
+  const sel = document.getElementById('cv-mat-' + id);
+  const matId = sel.value;
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/update', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({field: 'material', value: matId, cost: 0})
+  });
+  if (resp.ok) {
+    const d = await resp.json();
+    cvApplyResult(id, d);
+  }
+}
+
+function cvApplyResult(id, d) {
+  const label = d.product_label || d.material_label;
+  if (label) document.getElementById('cv-material-' + id).textContent = label;
+  if (d.total_price !== undefined) document.getElementById('cv-price-' + id).textContent = '$' + d.total_price.toFixed(2);
+  if (d.quote_total_price !== undefined) document.getElementById('cv-total').textContent = '$' + d.quote_total_price.toFixed(2);
+}
+</script>
+{% endblock %}

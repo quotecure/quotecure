@@ -506,6 +506,36 @@ def edit_quote(quote_id):
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            qualifiers_by_wt=qualifiers_by_wt, additives=additives)
 
+@app.route('/quotes/<int:quote_id>/customer_view')
+@login_required
+def customer_view(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return redirect(url_for('quotes_list'))
+    line_items = db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND COALESCE(is_declined,0)=0 ORDER BY sort_order",
+        (quote_id,)
+    ).fetchall()
+    line_items_enriched = []
+    for item in line_items:
+        item_dict = dict(item)
+        if item_dict.get('product_id'):
+            p = db.execute("""SELECT sp.product_line, sm.manufacturer_id
+                               FROM surface_products sp
+                               JOIN surface_manufacturers sm ON sp.manufacturer_id=sm.manufacturer_id
+                               WHERE sp.product_id=?""", (item_dict['product_id'],)).fetchone()
+            if p:
+                item_dict['mfr_id'] = p['manufacturer_id']
+        line_items_enriched.append(item_dict)
+    manufacturers = db.execute("SELECT * FROM surface_manufacturers WHERE active='Y' ORDER BY manufacturer_name").fetchall()
+    materials = db.execute("""SELECT material_id, category, series, work_type_id FROM materials
+                              WHERE active='Y' AND work_type_id IN (4,5,6,7)
+                              ORDER BY category, series""").fetchall()
+    schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
+    return render_template('customer_view.html', quote=quote, line_items=line_items_enriched,
+                           manufacturers=manufacturers, materials=materials, schedule=schedule)
+
 @app.route('/quotes/<int:quote_id>/delete', methods=['POST'])
 @login_required
 def delete_quote(quote_id):
@@ -1921,14 +1951,15 @@ def update_line_item(quote_id, item_id):
 
     elif field == 'material':
         material_id = int(value) if value else None
-        mat_cpu = float(data.get('cost', 0) or 0)
+        mat_cpu = 0.0
         material_label = ''
         if material_id:
-            m = db.execute("""SELECT m.series, s.name as supplier_name FROM materials m
+            m = db.execute("""SELECT m.series, m.cost_per_quote_unit, s.name as supplier_name FROM materials m
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
                               WHERE m.material_id=?""", (material_id,)).fetchone()
             if m:
                 material_label = f"{m['supplier_name']} — {m['series']}"
+                mat_cpu = float(m['cost_per_quote_unit'])
         from line_item_logic import calc_component
         qty = float(row['labor_quantity'])
         markup = float(row['labor_markup_pct'])
