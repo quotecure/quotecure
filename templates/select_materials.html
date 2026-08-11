@@ -27,6 +27,14 @@
   text-decoration: none; cursor: pointer;
 }
 .mfr-tab.active { background: var(--blue-light); color: #0f172a; border-color: var(--blue-light); }
+.item-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.item-tab {
+  padding: 10px 18px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text2); font-size: 13px; font-weight: 600;
+  text-decoration: none; cursor: pointer;
+}
+.item-tab.active { background: #1e3a8a; color: white; border-color: #1e3a8a; }
+.item-tab .item-tab-sel { display: block; font-size: 11px; font-weight: 400; opacity: 0.85; margin-top: 2px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -41,15 +49,25 @@
     {% endif %}
   </div>
 
-  {% if tile_item and tile_item.material_label %}
+  {% if tile_items|length > 1 %}
+  <div class="item-tabs">
+    {% for ti in tile_items %}
+    <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer={{ manufacturer }}&item_id={{ ti.id }}"
+       class="item-tab {% if tile_item and tile_item.id == ti.id %}active{% endif %}">
+      {{ ti.work_type_label }}
+      <span class="item-tab-sel">{{ ti.material_label if ti.material_label else 'Not selected yet' }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% elif tile_item and tile_item.material_label %}
   <div style="margin-bottom:20px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);">
     Currently selected: <strong>{{ tile_item.material_label }}</strong>
   </div>
   {% endif %}
 
   <div class="mfr-tabs">
-    <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer=luv" class="mfr-tab {% if manufacturer == 'luv' %}active{% endif %}">LUV Tile ({{ luv_count }})</a>
-    <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer=aim" class="mfr-tab {% if manufacturer == 'aim' %}active{% endif %}">Artistry In Mosaics ({{ aim_count }})</a>
+    <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer=luv&item_id={{ tile_item.id if tile_item else '' }}" class="mfr-tab {% if manufacturer == 'luv' %}active{% endif %}">LUV Tile ({{ luv_count }})</a>
+    <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer=aim&item_id={{ tile_item.id if tile_item else '' }}" class="mfr-tab {% if manufacturer == 'aim' %}active{% endif %}">Artistry In Mosaics ({{ aim_count }})</a>
   </div>
 
   {% if eligible_tiles %}
@@ -82,11 +100,11 @@
   {% if total_pages > 1 %}
   <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:24px;">
     {% if page > 1 %}
-    <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer={{ manufacturer }}&page={{ page - 1 }}" class="btn btn-secondary btn-sm">← Previous</a>
+    <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer={{ manufacturer }}&item_id={{ tile_item.id if tile_item else '' }}&page={{ page - 1 }}" class="btn btn-secondary btn-sm">← Previous</a>
     {% endif %}
     <span style="font-size:12px;color:var(--text3);">Page {{ page }} of {{ total_pages }} &middot; {{ total_tiles }} options total</span>
     {% if page < total_pages %}
-    <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer={{ manufacturer }}&page={{ page + 1 }}" class="btn btn-secondary btn-sm">Next →</a>
+    <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer={{ manufacturer }}&item_id={{ tile_item.id if tile_item else '' }}&page={{ page + 1 }}" class="btn btn-secondary btn-sm">Next →</a>
     {% endif %}
   </div>
   {% endif %}

@@ -15,7 +15,7 @@
           <thead>
             <tr>
               <th>ID</th><th>Work Type</th><th>Unit</th><th>Structure</th>
-              <th class="right">Default %</th><th class="right">Min %</th><th class="right">Min Margin %</th>
+              <th class="right">Default %</th><th class="right">Min %</th><th class="right">Min Margin %</th><th class="right">Min Job $</th>
               <th>Modifier?</th><th>Status</th><th></th>
             </tr>
           </thead>
@@ -29,12 +29,13 @@
               <td class="right mono">{{ wt.default_markup|int }}%</td>
               <td class="right mono" style="color:#f87171">{{ wt.min_markup|int }}%</td>
               <td class="right mono" style="color:#fb923c">{{ wt.min_margin }}%</td>
+              <td class="right mono">{{ '$%.0f'|format(wt.min_job_price) if wt.min_job_price else '—' }}</td>
               <td style="text-align:center">{{ '✓' if wt.is_modifier == 'Y' else '—' }}</td>
               <td><span class="badge badge-{{ 'green' if wt.active == 'Y' else 'red' }}">{{ 'Active' if wt.active == 'Y' else 'Off' }}</span></td>
               <td><button class="btn btn-secondary btn-sm" onclick="toggleEdit({{ wt.work_type_id }})">Edit</button></td>
             </tr>
             <tr class="edit-form" id="edit-{{ wt.work_type_id }}">
-              <td colspan="10" style="padding:16px 20px; background:var(--surface2); border-bottom:2px solid var(--blue);">
+              <td colspan="11" style="padding:16px 20px; background:var(--surface2); border-bottom:2px solid var(--blue);">
                 <form method="POST" action="/admin/work_types/edit/{{ wt.work_type_id }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
                   <div>
                     <label class="form-label">Name</label>
@@ -51,6 +52,10 @@
                   <div>
                     <label class="form-label">Min Margin %</label>
                     <input class="form-control" name="min_margin" type="number" step="0.1" value="{{ wt.min_margin }}" style="width:90px;">
+                  </div>
+                  <div>
+                    <label class="form-label">Min Job Price $</label>
+                    <input class="form-control" name="min_job_price" type="number" step="1" value="{{ wt.min_job_price|int if wt.min_job_price else 0 }}" style="width:100px;">
                   </div>
                   <div>
                     <label class="form-label">Status</label>

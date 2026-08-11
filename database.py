@@ -1146,6 +1146,24 @@ def add_material_product_url(conn):
         conn.execute("ALTER TABLE materials ADD COLUMN product_url TEXT DEFAULT ''")
 
 
+@migration
+def add_work_type_min_job_price(conn):
+    """Flat dollar floor on a work type's total price, independent of markup -- lets a work
+    type be priced with a deliberately thin (even loss-leader) markup without any individual
+    job coming in underpriced. NULL/0 means no floor. Editable per work type in Admin."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(work_types)").fetchall()}
+    if 'min_job_price' not in cols:
+        conn.execute("ALTER TABLE work_types ADD COLUMN min_job_price REAL DEFAULT 0")
+
+
+@migration
+def reprice_surface_removal_as_loss_leader(conn):
+    """Surface Removal is being repositioned as a loss-leader: markup drops back down to
+    10 points below its pre-margin-bump baseline (25% -> 15%), backstopped by a $2,800
+    minimum job price so a small job never gets priced below what it actually costs to run."""
+    conn.execute("UPDATE work_types SET default_markup=15.0, min_job_price=2800 WHERE work_type='Surface Removal'")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

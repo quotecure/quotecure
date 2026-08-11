@@ -148,6 +148,17 @@ def _dims_totals(dims):
     total_sqft = dims.get('total_surface_sqft') or dims.get('pool_sqft') or 0
     return total_lf, total_sqft
 
+def _apply_min_job_price(db, work_type_id, total_cost, total_price):
+    """Enforce a work type's flat-dollar minimum job price, if one is set -- keeps a
+    deliberately thin-margin work type (e.g. a loss-leader) from pricing an individual job
+    below what it costs to run, regardless of markup. Returns (total_cost, total_price, total_margin)."""
+    wt = db.execute("SELECT min_job_price FROM work_types WHERE work_type_id=?", (work_type_id,)).fetchone()
+    floor = float(wt['min_job_price']) if wt and wt['min_job_price'] else 0
+    if floor and total_price < floor:
+        total_price = floor
+    total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
+    return total_cost, total_price, total_margin
+
 def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims, can_override):
     """Full pricing for one work-type item given a sub/material default and quote dimensions.
     wt: dict with work_type_id, work_type, unit, cost_structure, default_markup, min_markup, description.
@@ -229,7 +240,7 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
     m_cost, m_price, m_margin = calc_component(mat_cpu, mat_qty, markup, 10, can_override)
     total_cost = round(l_cost + m_cost, 2)
     total_price = round(l_price + m_price, 2)
-    total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
+    total_cost, total_price, total_margin = _apply_min_job_price(db, wt_id, total_cost, total_price)
 
     return {
         'work_type_id': wt_id, 'work_type_label': wt_label, 'cost_structure': wt.get('cost_structure', 'labor_only'),
@@ -400,9 +411,16 @@ def select_materials(quote_id):
         return redirect(url_for('quotes_list'))
     package_id = request.args.get('package_id')
     package = db.execute("SELECT * FROM packages WHERE package_id=?", (package_id,)).fetchone() if package_id else None
-    tile_item = db.execute(
-        "SELECT * FROM quote_line_items WHERE quote_id=? AND work_type_id=4", (quote_id,)
-    ).fetchone()
+    tile_items = db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND work_type_id IN (4,5) ORDER BY work_type_id",
+        (quote_id,)
+    ).fetchall()
+    requested_item_id = request.args.get('item_id', type=int)
+    tile_item = None
+    if requested_item_id:
+        tile_item = next((t for t in tile_items if t['id'] == requested_item_id), None)
+    if not tile_item and tile_items:
+        tile_item = tile_items[0]
     manufacturer = request.args.get('manufacturer', 'luv')
     if manufacturer not in ('luv', 'aim'):
         manufacturer = 'luv'
@@ -416,7 +434,7 @@ def select_materials(quote_id):
     start = (page - 1) * PER_PAGE
     eligible_tiles = all_tiles[start:start + PER_PAGE]
     return render_template('select_materials.html', quote=quote, package=package,
-                           tile_item=tile_item, eligible_tiles=eligible_tiles,
+                           tile_items=tile_items, tile_item=tile_item, eligible_tiles=eligible_tiles,
                            page=page, total_pages=total_pages, total_tiles=len(all_tiles),
                            manufacturer=manufacturer, luv_count=luv_count, aim_count=aim_count)
 
@@ -455,7 +473,7 @@ def select_material_tile(quote_id):
     package_id = request.form.get('package_id', '')
     page = request.form.get('page', '')
     manufacturer = request.form.get('manufacturer', '')
-    return redirect(url_for('select_materials', quote_id=quote_id, package_id=package_id, page=page, manufacturer=manufacturer))
+    return redirect(url_for('select_materials', quote_id=quote_id, package_id=package_id, page=page, manufacturer=manufacturer, item_id=item_id))
 
 @app.route('/quotes/<int:quote_id>')
 @login_required
@@ -533,8 +551,12 @@ def customer_view(quote_id):
                               WHERE active='Y' AND work_type_id IN (4,5,6,7)
                               ORDER BY category, series""").fetchall()
     schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
+    addable_work_types = db.execute(
+        "SELECT work_type_id, work_type FROM work_types WHERE active='Y' AND is_modifier='N' ORDER BY work_type"
+    ).fetchall()
     return render_template('customer_view.html', quote=quote, line_items=line_items_enriched,
-                           manufacturers=manufacturers, materials=materials, schedule=schedule)
+                           manufacturers=manufacturers, materials=materials, schedule=schedule,
+                           addable_work_types=addable_work_types)
 
 @app.route('/quotes/<int:quote_id>/delete', methods=['POST'])
 @login_required
@@ -636,6 +658,8 @@ def add_line_item(quote_id):
 
     can_override = bool(g.role and g.role['can_override_min_markup'])
     item = build_line_item(data, wt_dict, sub_name, product_label, material_label, can_override, quote)
+    item['total_cost'], item['total_price'], item['total_margin_pct'] = _apply_min_job_price(
+        db, item['work_type_id'], item['total_cost'], item['total_price'])
     sort_order = db.execute("SELECT COUNT(*) FROM quote_line_items WHERE quote_id=?", (quote_id,)).fetchone()[0]
 
     db.execute(
@@ -727,7 +751,39 @@ def delete_line_item(quote_id, item_id):
     db.execute("DELETE FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id))
     db.commit()
     _recalc_quote(db, quote_id)
-    return jsonify({'success': True})
+    updated_quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    return jsonify({'success': True, 'quote_total_price': updated_quote['total_price'] if updated_quote else None})
+
+@app.route('/quotes/<int:quote_id>/line_items/quick_add', methods=['POST'])
+@login_required
+def quick_add_line_item(quote_id):
+    """Add a line item priced entirely from the work type's own defaults (sub, markup,
+    material) -- used by the customer-facing quote screen, which never sees or sends
+    cost/markup data, unlike the staff add-item flow on the full edit screen."""
+    db = get_db()
+    data = request.json or {}
+    wt = db.execute("SELECT * FROM work_types WHERE work_type_id=?", (data.get('work_type_id'),)).fetchone()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not wt or not quote:
+        return jsonify({'error': 'Not found'}), 404
+    can_override = bool(g.role and g.role['can_override_min_markup'])
+    p = _compute_line_item_pricing(db, dict(wt), wt['default_sub_id'], wt['default_material_id'], dict(quote), can_override)
+    sort_order = db.execute("SELECT COUNT(*) FROM quote_line_items WHERE quote_id=?", (quote_id,)).fetchone()[0]
+    _insert_line_item_from_pricing(db, quote_id, p, sort_order, is_optional=0)
+    db.commit()
+    _recalc_quote(db, quote_id)
+    new_item = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY id DESC LIMIT 1", (quote_id,)).fetchone()
+    updated_quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    return jsonify({
+        'success': True,
+        'item_id': new_item['id'],
+        'work_type_id': new_item['work_type_id'],
+        'work_type_label': new_item['work_type_label'],
+        'product_label': new_item['product_label'],
+        'material_label': new_item['material_label'],
+        'total_price': new_item['total_price'],
+        'quote_total_price': updated_quote['total_price'],
+    })
 
 def _rollup_item_totals(db, item_id):
     """Recompute a line item's total_cost/total_price/total_margin_pct from labor + material +
@@ -750,7 +806,7 @@ def _rollup_item_totals(db, item_id):
 
     total_cost = round(float(row['labor_total_cost'] or 0) + float(row['material_total_cost'] or 0) + q_cost + tax_cost, 2)
     total_price = round(float(row['labor_total_price'] or 0) + float(row['material_total_price'] or 0) + q_price + tax_cost, 2)
-    total_margin = round(((total_price - total_cost) / total_price * 100) if total_price else 0, 1)
+    total_cost, total_price, total_margin = _apply_min_job_price(db, row['work_type_id'], total_cost, total_price)
     db.execute("UPDATE quote_line_items SET total_cost=?,total_price=?,total_margin_pct=? WHERE id=?",
                (total_cost, total_price, total_margin, item_id))
     return total_cost, total_price, total_margin
@@ -937,12 +993,13 @@ def add_work_type():
 @require_permission('can_edit_work_types')
 def edit_work_type(wt_id):
     db = get_db()
-    db.execute("""UPDATE work_types SET work_type=?,default_markup=?,min_markup=?,min_margin=?,active=?,description=?
+    db.execute("""UPDATE work_types SET work_type=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,active=?,description=?
                   WHERE work_type_id=?""",
                (request.form['work_type'],
                 float(request.form.get('default_markup',30) or 30),
                 float(request.form.get('min_markup',10) or 10),
                 float(request.form.get('min_margin',9.1) or 9.1),
+                float(request.form.get('min_job_price',0) or 0),
                 request.form.get('active','Y'), request.form.get('description',''), wt_id))
     db.commit()
     return redirect(url_for('admin_work_types'))

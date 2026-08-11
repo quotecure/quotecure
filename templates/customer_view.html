@@ -24,6 +24,12 @@
 .cv-total-label { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #bfdbfe; }
 .cv-total-value { font-family:'Chivo Mono',monospace; font-size: 28px; font-weight: 700; }
 .cv-schedule { font-size: 12px; color: var(--text3); text-align: center; margin-bottom: 24px; }
+.cv-remove { background: none; border: none; color: var(--text3); font-size: 12px; cursor: pointer; padding: 4px 0; margin-top: 8px; text-decoration: underline; }
+.cv-remove:hover { color: #ef4444; }
+.cv-add-row {
+  display: flex; gap: 10px; align-items: end; padding: 16px 20px; border: 1px dashed var(--border);
+  border-radius: var(--radius); margin-bottom: 12px; background: var(--surface);
+}
 </style>
 {% endblock %}
 {% block content %}
@@ -50,6 +56,7 @@
       {% if item.work_type_id in (1,4,5,6,7) %}
       <button class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="cvTogglePicker({{ item.id }})">Change Selection</button>
       {% endif %}
+      <div><button class="cv-remove" onclick="cvRemoveItem({{ item.id }})">Remove this item</button></div>
 
       <div class="cv-picker" id="cv-picker-{{ item.id }}">
         {% if item.work_type_id == 1 %}
@@ -97,6 +104,19 @@
     <div class="cv-item-price" id="cv-price-{{ item.id }}">${{ '%.2f'|format(item.total_price) }}</div>
   </div>
   {% endfor %}
+
+  <div class="cv-add-row">
+    <div style="flex:1;">
+      <label class="nr-label">Add an item</label>
+      <select class="nr-input" id="cv-add-wt">
+        <option value="">— Select —</option>
+        {% for wt in addable_work_types %}
+        <option value="{{ wt.work_type_id }}">{{ wt.work_type }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="cvAddItem()">+ Add</button>
+  </div>
 
   <div class="cv-total">
     <div class="cv-total-label">Total</div>
@@ -173,6 +193,30 @@ function cvApplyResult(id, d) {
   if (label) document.getElementById('cv-material-' + id).textContent = label;
   if (d.total_price !== undefined) document.getElementById('cv-price-' + id).textContent = '$' + d.total_price.toFixed(2);
   if (d.quote_total_price !== undefined) document.getElementById('cv-total').textContent = '$' + d.quote_total_price.toFixed(2);
+}
+
+async function cvRemoveItem(id) {
+  if (!confirm('Remove this item from the quote?')) return;
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id, { method: 'DELETE' });
+  if (resp.ok) {
+    const d = await resp.json();
+    document.getElementById('cv-item-' + id).remove();
+    if (d.quote_total_price !== undefined) document.getElementById('cv-total').textContent = '$' + d.quote_total_price.toFixed(2);
+  }
+}
+
+async function cvAddItem() {
+  const wtId = document.getElementById('cv-add-wt').value;
+  if (!wtId) { alert('Select an item to add.'); return; }
+  const resp = await fetch('/quotes/' + QID + '/line_items/quick_add', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({work_type_id: wtId})
+  });
+  if (resp.ok) {
+    location.reload();
+  } else {
+    alert('Could not add that item.');
+  }
 }
 </script>
 {% endblock %}
