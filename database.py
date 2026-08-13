@@ -1245,6 +1245,30 @@ def add_payment_collected_tracking(conn):
         conn.execute("ALTER TABLE payment_schedules ADD COLUMN collected_date TEXT DEFAULT ''")
 
 
+@migration
+def add_tiered_commission(conn):
+    """Tiered gross-profit commission model, replacing the flat default: below
+    tier1_threshold margin, tier1_rate applies; between tier1/tier2, tier2_rate;
+    at or above tier2_threshold, tier3_rate -- all as a % of gross profit (not
+    price), meant to reward pushing margin up rather than just closing volume.
+    Rates stored as plain percentages (8.0 = 8%), matching the existing
+    commission_policy.rate column's convention -- not fractions. The old
+    pct_of_price/pct_of_margin methods are left intact and still selectable in
+    Admin; this migration only switches the currently active policy over."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(commission_policy)").fetchall()}
+    if 'tier1_threshold' not in cols:
+        conn.execute("ALTER TABLE commission_policy ADD COLUMN tier1_threshold REAL DEFAULT 20.0")
+    if 'tier2_threshold' not in cols:
+        conn.execute("ALTER TABLE commission_policy ADD COLUMN tier2_threshold REAL DEFAULT 30.0")
+    if 'tier1_rate' not in cols:
+        conn.execute("ALTER TABLE commission_policy ADD COLUMN tier1_rate REAL DEFAULT 8.0")
+    if 'tier2_rate' not in cols:
+        conn.execute("ALTER TABLE commission_policy ADD COLUMN tier2_rate REAL DEFAULT 10.0")
+    if 'tier3_rate' not in cols:
+        conn.execute("ALTER TABLE commission_policy ADD COLUMN tier3_rate REAL DEFAULT 12.0")
+    conn.execute("UPDATE commission_policy SET method='tiered_gp' WHERE active='Y'")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

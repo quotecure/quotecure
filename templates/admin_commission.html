@@ -1,17 +1,56 @@
 {% extends 'base.html' %}
 {% block title %}Commission — QuoteCure{% endblock %}
+{% block extra_css %}
+<style>
+.tier-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+.tier-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+.tier-box .tier-range { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); }
+.tier-box .tier-rate { font-size: 20px; font-weight: 700; font-family: 'Chivo Mono', monospace; color: #fbbf24; margin-top: 4px; }
+.tier-box .tier-note { font-size: 11px; color: var(--text3); margin-top: 2px; }
+</style>
+{% endblock %}
 {% block content %}
-<div class="page" style="max-width:600px">
+<div class="page" style="max-width:720px">
   <div class="page-header">
     <div>
       <div class="page-title">Commission Policy</div>
       <div class="page-subtitle">How sales commission is calculated</div>
     </div>
   </div>
+
+  {% for p in policies if p.active == 'Y' and p.method == 'tiered_gp' %}
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header"><div class="card-title">Active: Tiered Gross Profit</div></div>
+    <div class="card-body">
+      <div class="tier-strip">
+        <div class="tier-box">
+          <div class="tier-range">Below {{ p.tier1_threshold|int }}% margin</div>
+          <div class="tier-rate">{{ p.tier1_rate }}%</div>
+          <div class="tier-note">of gross profit</div>
+        </div>
+        <div class="tier-box">
+          <div class="tier-range">{{ p.tier1_threshold|int }}–{{ p.tier2_threshold|int }}% margin</div>
+          <div class="tier-rate">{{ p.tier2_rate }}%</div>
+          <div class="tier-note">of gross profit</div>
+        </div>
+        <div class="tier-box">
+          <div class="tier-range">{{ p.tier2_threshold|int }}%+ margin</div>
+          <div class="tier-rate">{{ p.tier3_rate }}%</div>
+          <div class="tier-note">of gross profit</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text3);">
+        Commission = gross profit (price − cost) × the rate for whatever margin % the job actually lands at.
+        Higher-margin jobs pay a higher rate — this is the lever, not the reward.
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
   <div class="card">
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Name</th><th>Method</th><th class="right">Rate</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Method</th><th class="right">Flat Rate</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {% for p in policies %}
           <tr>
@@ -19,18 +58,59 @@
             <td><span class="badge badge-blue">{{ p.method }}</span></td>
             <td class="right mono">{{ p.rate }}%</td>
             <td><span class="badge badge-{{ 'green' if p.active == 'Y' else 'red' }}">{{ 'Active' if p.active == 'Y' else 'Off' }}</span></td>
-            <td>
-              <form method="POST" action="/admin/commission/update/{{ p.id }}" style="display:inline-flex;gap:8px;align-items:center;">
-                <select class="form-control" name="method" style="width:auto;padding:4px 8px;font-size:12px;">
-                  <option value="pct_of_price" {{ 'selected' if p.method == 'pct_of_price' }}>% of Price</option>
-                  <option value="pct_of_margin" {{ 'selected' if p.method == 'pct_of_margin' }}>% of Margin</option>
-                </select>
-                <input class="form-control" name="rate" type="number" step="0.1" value="{{ p.rate }}" style="width:70px;padding:4px 8px;font-size:12px;">
-                <select class="form-control" name="active" style="width:auto;padding:4px 8px;font-size:12px;">
-                  <option value="Y" {{ 'selected' if p.active == 'Y' }}>Active</option>
-                  <option value="N" {{ 'selected' if p.active == 'N' }}>Off</option>
-                </select>
-                <button class="btn btn-primary btn-sm" type="submit">Save</button>
+            <td><button class="btn btn-secondary btn-sm" type="button" onclick="toggleEdit({{ p.id }})">Edit</button></td>
+          </tr>
+          <tr class="edit-row" id="edit-{{ p.id }}" style="display:none;">
+            <td colspan="5" style="background:var(--surface2);padding:16px 20px;">
+              <form method="POST" action="/admin/commission/update/{{ p.id }}">
+                <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:14px;">
+                  <div>
+                    <label class="form-label">Method</label>
+                    <select class="form-control" name="method" style="width:180px;">
+                      <option value="tiered_gp" {{ 'selected' if p.method == 'tiered_gp' }}>Tiered (Gross Profit)</option>
+                      <option value="pct_of_price" {{ 'selected' if p.method == 'pct_of_price' }}>Flat % of Price</option>
+                      <option value="pct_of_margin" {{ 'selected' if p.method == 'pct_of_margin' }}>Flat % of Margin</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="form-label">Flat Rate % <span style="color:var(--text3);font-weight:400;">(only used by the two flat methods)</span></label>
+                    <input class="form-control" name="rate" type="number" step="0.1" value="{{ p.rate }}" style="width:90px;">
+                  </div>
+                  <div>
+                    <label class="form-label">Status</label>
+                    <select class="form-control" name="active" style="width:100px;">
+                      <option value="Y" {{ 'selected' if p.active == 'Y' }}>Active</option>
+                      <option value="N" {{ 'selected' if p.active == 'N' }}>Off</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:8px;">Tiered (Gross Profit) settings</div>
+                <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;">
+                  <div>
+                    <label class="form-label">Tier 1: below</label>
+                    <input class="form-control" name="tier1_threshold" type="number" step="0.5" value="{{ p.tier1_threshold }}" style="width:80px;"> <span style="font-size:11px;color:var(--text3);">% margin</span>
+                  </div>
+                  <div>
+                    <label class="form-label">Tier 1 rate</label>
+                    <input class="form-control" name="tier1_rate" type="number" step="0.5" value="{{ p.tier1_rate }}" style="width:80px;"> <span style="font-size:11px;color:var(--text3);">%</span>
+                  </div>
+                  <div>
+                    <label class="form-label">Tier 2: below</label>
+                    <input class="form-control" name="tier2_threshold" type="number" step="0.5" value="{{ p.tier2_threshold }}" style="width:80px;"> <span style="font-size:11px;color:var(--text3);">% margin</span>
+                  </div>
+                  <div>
+                    <label class="form-label">Tier 2 rate</label>
+                    <input class="form-control" name="tier2_rate" type="number" step="0.5" value="{{ p.tier2_rate }}" style="width:80px;"> <span style="font-size:11px;color:var(--text3);">%</span>
+                  </div>
+                  <div>
+                    <label class="form-label">Tier 3 rate <span style="color:var(--text3);font-weight:400;">(at/above tier 2)</span></label>
+                    <input class="form-control" name="tier3_rate" type="number" step="0.5" value="{{ p.tier3_rate }}" style="width:80px;"> <span style="font-size:11px;color:var(--text3);">%</span>
+                  </div>
+                </div>
+                <div style="margin-top:14px;">
+                  <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                  <button class="btn btn-secondary btn-sm" type="button" onclick="toggleEdit({{ p.id }})">Cancel</button>
+                </div>
               </form>
             </td>
           </tr>
@@ -40,4 +120,10 @@
     </div>
   </div>
 </div>
+<script>
+function toggleEdit(id) {
+  const row = document.getElementById('edit-' + id);
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
 {% endblock %}

@@ -337,6 +337,31 @@ def _insert_change_order_item(db, co_id, item, kind, action, label, sort_order,
          source_line_item_id, source_change_order_item_id)
     )
 
+def _compute_commission(policy, total_cost, total_price):
+    """The one commission formula, shared by _recalc_quote and _recalc_change_order
+    so a quote and a Change Order are always paid out under the same rules. 'tiered_gp'
+    rewards margin, not just volume: the rate applied depends on gross-profit margin %,
+    not a flat cut of price. Thresholds/rates all come from the active commission_policy
+    row (editable in Admin), stored as plain percentages."""
+    if not policy:
+        return 0
+    gross_profit = total_price - total_cost
+    method = policy['method']
+    if method == 'pct_of_price':
+        return total_price * float(policy['rate']) / 100
+    if method == 'pct_of_margin':
+        return gross_profit * float(policy['rate']) / 100
+    if method == 'tiered_gp':
+        margin_pct = (gross_profit / total_price * 100) if total_price else 0
+        if margin_pct < float(policy['tier1_threshold']):
+            rate = policy['tier1_rate']
+        elif margin_pct < float(policy['tier2_threshold']):
+            rate = policy['tier2_rate']
+        else:
+            rate = policy['tier3_rate']
+        return gross_profit * float(rate) / 100
+    return 0
+
 def _recalc_change_order(db, co_id):
     """Mirrors _recalc_quote's commission math exactly, summing change_order_items
     instead of quote_line_items. Never touches payment_schedules -- a Change Order
@@ -347,12 +372,7 @@ def _recalc_change_order(db, co_id):
     total_price = sum(float(i['total_price'] or 0) for i in items)
     margin = ((total_price - total_cost) / total_price * 100) if total_price else 0
     policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
-    commission = 0
-    if policy:
-        if policy['method'] == 'pct_of_price':
-            commission = total_price * policy['rate'] / 100
-        elif policy['method'] == 'pct_of_margin':
-            commission = (total_price - total_cost) * policy['rate'] / 100
+    commission = _compute_commission(policy, total_cost, total_price)
     db.execute("UPDATE change_orders SET total_cost=?,total_price=?,total_margin=?,commission=? WHERE id=?",
                (round(total_cost,2), round(total_price,2), round(margin,1), round(commission,2), co_id))
     db.commit()
@@ -1223,12 +1243,7 @@ def _recalc_quote(db, quote_id):
     total_price = sum(float(i['total_price'] or 0) for i in items)
     margin = ((total_price - total_cost) / total_price * 100) if total_price else 0
     policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
-    commission = 0
-    if policy:
-        if policy['method'] == 'pct_of_price':
-            commission = total_price * policy['rate'] / 100
-        elif policy['method'] == 'pct_of_margin':
-            commission = (total_price - total_cost) * policy['rate'] / 100
+    commission = _compute_commission(policy, total_cost, total_price)
     db.execute("UPDATE quotes SET total_cost=?,total_price=?,total_margin=?,commission=? WHERE quote_id=?",
                (round(total_cost,2), round(total_price,2), round(margin,1), round(commission,2), quote_id))
     db.commit()
@@ -1507,9 +1522,17 @@ def admin_commission():
 @require_permission('can_edit_commission_policy')
 def update_commission(policy_id):
     db = get_db()
-    db.execute("UPDATE commission_policy SET method=?,rate=?,active=? WHERE id=?",
-               (request.form['method'], float(request.form['rate']),
-                request.form.get('active','Y'), policy_id))
+    db.execute("""UPDATE commission_policy SET method=?,rate=?,active=?,
+                  tier1_threshold=?,tier2_threshold=?,tier1_rate=?,tier2_rate=?,tier3_rate=?
+                  WHERE id=?""",
+               (request.form['method'], float(request.form.get('rate',0) or 0),
+                request.form.get('active','Y'),
+                float(request.form.get('tier1_threshold',20) or 20),
+                float(request.form.get('tier2_threshold',30) or 30),
+                float(request.form.get('tier1_rate',8) or 8),
+                float(request.form.get('tier2_rate',10) or 10),
+                float(request.form.get('tier3_rate',12) or 12),
+                policy_id))
     db.commit()
     return redirect(url_for('admin_commission'))
 

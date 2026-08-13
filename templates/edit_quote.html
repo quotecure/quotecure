@@ -203,6 +203,14 @@
     {% endif %}
   </div>
 
+  {% if current_role and current_role.show_commission and commission_policy and commission_policy.method == 'tiered_gp' %}
+  <div id="tier-nudge" style="display:flex;align-items:center;gap:8px;padding:9px 14px;margin:-6px 0 14px;
+       background:#78350f22;border:1px solid #78350f;border-radius:var(--radius-sm);font-size:12px;color:var(--text2);">
+    <span style="font-size:14px;">💡</span>
+    <span id="tier-nudge-text">—</span>
+  </div>
+  {% endif %}
+
   {% macro qt_head() %}
       <thead>
         <tr>
@@ -636,6 +644,36 @@ const POOL_LF = {{ (quote.pool_perimeter or 0) + (quote.spa_perimeter if quote.h
                     + (quote.steps_lf or 0) + (quote.benches_lf or 0) + (quote.swimouts_lf or 0) }};
 const DRAWS = {{ schedule_json | default("[]") | safe }};
 const LOCKED = {{ 'true' if quote.status == 'contract' else 'false' }};
+const TIER_POLICY = {{ ({
+      'active': 1 if (commission_policy and commission_policy.method == 'tiered_gp') else 0,
+      't1': commission_policy.tier1_threshold if commission_policy else 20,
+      't2': commission_policy.tier2_threshold if commission_policy else 30,
+      'r1': commission_policy.tier1_rate if commission_policy else 8,
+      'r2': commission_policy.tier2_rate if commission_policy else 10,
+      'r3': commission_policy.tier3_rate if commission_policy else 12,
+    }) | tojson }};
+
+function updateTierNudge(marginPct, grossProfit) {
+  const el = document.getElementById('tier-nudge-text');
+  if (!el || !TIER_POLICY.active || marginPct === undefined || grossProfit === undefined) return;
+  let tier, rate, nextThreshold, nextRate;
+  if (marginPct < TIER_POLICY.t1) {
+    tier = 1; rate = TIER_POLICY.r1; nextThreshold = TIER_POLICY.t1; nextRate = TIER_POLICY.r2;
+  } else if (marginPct < TIER_POLICY.t2) {
+    tier = 2; rate = TIER_POLICY.r2; nextThreshold = TIER_POLICY.t2; nextRate = TIER_POLICY.r3;
+  } else {
+    tier = 3; rate = TIER_POLICY.r3; nextThreshold = null; nextRate = null;
+  }
+  let msg = 'Tier ' + tier + ' — ' + marginPct.toFixed(0) + '% margin pays ' + rate.toFixed(1) + '% of gross profit';
+  if (nextThreshold !== null) {
+    const distance = nextThreshold - marginPct;
+    const upside = (grossProfit * nextRate / 100) - (grossProfit * rate / 100);
+    msg += '. ' + distance.toFixed(0) + '% more margin gets you to Tier ' + (tier + 1) + ' — that\'s +$' + upside.toFixed(0) + ' on this job.';
+  } else {
+    msg += '. Top tier — nowhere higher to go on this one.';
+  }
+  el.textContent = msg;
+}
 function lockedAlert() {
   alert('This is a signed contract — line items are locked. Use a Change Order to change scope.');
 }
@@ -1057,6 +1095,7 @@ function updateSummaryCards(d) {
   if (d.quote_gross_profit !== undefined && document.getElementById('sum-gross')) document.getElementById('sum-gross').textContent = '$' + d.quote_gross_profit.toFixed(2);
   if (d.quote_commission !== undefined && document.getElementById('sum-commission')) document.getElementById('sum-commission').textContent = '$' + d.quote_commission.toFixed(2);
   if (d.quote_net_profit !== undefined && document.getElementById('sum-net')) document.getElementById('sum-net').textContent = '$' + d.quote_net_profit.toFixed(2);
+  updateTierNudge(d.quote_total_margin, d.quote_gross_profit);
 }
 
 // ── Payment schedule ──────────────────────────────────────────────
@@ -1146,6 +1185,8 @@ function recalcPaidSummary(totalPaidOverride) {
   document.getElementById('paid-total').textContent = '$' + totalPaid.toFixed(2);
   document.getElementById('paid-remaining').textContent = '$' + (contractTotal - totalPaid).toFixed(2);
 }
+
+updateTierNudge({{ quote.total_margin or 0 }}, {{ (quote.total_price - quote.total_cost) or 0 }});
 
 // ── Init surface pickers for existing products ────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
