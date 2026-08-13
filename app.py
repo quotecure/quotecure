@@ -137,9 +137,14 @@ def index():
 @login_required
 def quotes_list():
     db = get_db()
-    quotes = db.execute("SELECT * FROM quotes ORDER BY created_at DESC").fetchall()
+    tab = request.args.get('tab', 'quotes')
+    if tab == 'contracts':
+        quotes = db.execute("SELECT * FROM quotes WHERE status='contract' ORDER BY signed_at DESC").fetchall()
+    else:
+        tab = 'quotes'
+        quotes = db.execute("SELECT * FROM quotes WHERE status!='contract' ORDER BY created_at DESC").fetchall()
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
-    return render_template('quotes.html', quotes=quotes, commission_policy=commission_policy)
+    return render_template('quotes.html', quotes=quotes, commission_policy=commission_policy, active_tab=tab)
 
 def _dims_totals(dims):
     """Shared lf/sqft totals from a dims dict (works for both real quotes.Row and plain dicts)."""
@@ -272,6 +277,368 @@ def _insert_line_item_from_pricing(db, qid, p, sort_order, is_optional=0):
          p['product_id'], p['product_label'],
          p['total_cost'], p['total_price'], p['total_margin'], sort_order, p['description'], is_optional)
     )
+
+def _contract_effective_items(db, quote_id):
+    """Current effective state of each work type on a contract: the original signed
+    line item, unless a later SIGNED Change Order added or removed it, in which case
+    the latest signed CO's version wins. Draft/unsent COs never count toward this.
+    Amend isn't a separate case -- it's just a 'remove' row for the old spec followed
+    by an 'add' row for the new spec, both tagged to the same work_type_id, so walking
+    add/remove in signed order handles it automatically. Returns {work_type_id: row_dict}.
+    Freeform CO lines never key by work_type_id and aren't part of this resolver."""
+    rows = db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND (is_optional=0 OR is_optional IS NULL)",
+        (quote_id,)
+    ).fetchall()
+    effective = {r['work_type_id']: dict(r) for r in rows}
+    co_items = db.execute(
+        "SELECT coi.* FROM change_order_items coi "
+        "JOIN change_orders co ON coi.change_order_id = co.id "
+        "WHERE co.quote_id=? AND co.status='signed' AND coi.kind='catalog' "
+        "ORDER BY co.co_number, coi.sort_order",
+        (quote_id,)
+    ).fetchall()
+    for item in co_items:
+        wt_id = item['work_type_id']
+        if item['action'] == 'remove':
+            effective.pop(wt_id, None)
+        elif item['action'] == 'add':
+            effective[wt_id] = dict(item)
+    return effective
+
+def _insert_change_order_item(db, co_id, item, kind, action, label, sort_order,
+                               source_line_item_id=None, source_change_order_item_id=None):
+    """item is a dict shaped like _price_catalog_item's output, quote_line_items, or a
+    prior change_order_items row -- all three share the same column names, so no
+    key-mapping is needed. For a 'remove' row, the caller is expected to have already
+    negated item['total_cost']/['total_price']; the breakdown columns (labor_*/material_*)
+    are stored as the removed item's own original (positive) magnitudes, for audit."""
+    db.execute(
+        "INSERT INTO change_order_items "
+        "(change_order_id, sort_order, kind, action, label, description, work_type_id, "
+        "sub_id, sub_name, labor_quantity, labor_unit, labor_cost_per_unit, labor_total_cost, "
+        "labor_markup_pct, labor_margin_pct, labor_total_price, labor_min_markup, "
+        "material_id, material_label, material_quantity, material_unit, material_cost_per_unit, "
+        "material_total_cost, material_markup_pct, material_margin_pct, material_total_price, material_min_markup, "
+        "product_id, product_label, total_cost, total_price, total_margin_pct, "
+        "source_line_item_id, source_change_order_item_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (co_id, sort_order, kind, action, label, item.get('description',''), item.get('work_type_id'),
+         item.get('sub_id',''), item.get('sub_name',''), item.get('labor_quantity',0), item.get('labor_unit',''),
+         item.get('labor_cost_per_unit',0), item.get('labor_total_cost',0),
+         item.get('labor_markup_pct',0), item.get('labor_margin_pct',0),
+         item.get('labor_total_price',0), item.get('labor_min_markup',0),
+         item.get('material_id'), item.get('material_label',''), item.get('material_quantity',0), item.get('material_unit',''),
+         item.get('material_cost_per_unit',0), item.get('material_total_cost',0),
+         item.get('material_markup_pct',0), item.get('material_margin_pct',0),
+         item.get('material_total_price',0), item.get('material_min_markup',10),
+         item.get('product_id'), item.get('product_label',''),
+         item['total_cost'], item['total_price'], item.get('total_margin_pct',0),
+         source_line_item_id, source_change_order_item_id)
+    )
+
+def _recalc_change_order(db, co_id):
+    """Mirrors _recalc_quote's commission math exactly, summing change_order_items
+    instead of quote_line_items. Never touches payment_schedules -- a Change Order
+    doesn't get its own predicted schedule; its net amount gets appended as one row
+    only once it's signed (see the /sign route in Phase 6)."""
+    items = db.execute("SELECT total_cost, total_price FROM change_order_items WHERE change_order_id=?", (co_id,)).fetchall()
+    total_cost = sum(float(i['total_cost'] or 0) for i in items)
+    total_price = sum(float(i['total_price'] or 0) for i in items)
+    margin = ((total_price - total_cost) / total_price * 100) if total_price else 0
+    policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
+    commission = 0
+    if policy:
+        if policy['method'] == 'pct_of_price':
+            commission = total_price * policy['rate'] / 100
+        elif policy['method'] == 'pct_of_margin':
+            commission = (total_price - total_cost) * policy['rate'] / 100
+    db.execute("UPDATE change_orders SET total_cost=?,total_price=?,total_margin=?,commission=? WHERE id=?",
+               (round(total_cost,2), round(total_price,2), round(margin,1), round(commission,2), co_id))
+    db.commit()
+
+# ── Change Orders ────────────────────────────────────────────────────────────
+
+@app.route('/quotes/<int:quote_id>/change_orders', methods=['POST'])
+@login_required
+def create_change_order(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote or quote['status'] != 'contract':
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    max_co = db.execute("SELECT MAX(co_number) FROM change_orders WHERE quote_id=?", (quote_id,)).fetchone()[0]
+    co_number = (max_co or 0) + 1
+    db.execute("INSERT INTO change_orders (quote_id, co_number, status) VALUES (?,?,'draft')", (quote_id, co_number))
+    db.commit()
+    co_id = db.execute("SELECT lastval()").fetchone()[0]
+    return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id))
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>')
+@login_required
+def change_order_builder(quote_id, co_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not quote or not co:
+        return redirect(url_for('quotes_list'))
+    items = db.execute("SELECT * FROM change_order_items WHERE change_order_id=? ORDER BY sort_order", (co_id,)).fetchall()
+    effective = _contract_effective_items(db, quote_id)
+    # Also apply this draft CO's own items on top, purely for the Remove/Amend dropdowns --
+    # so a work type already staged for removal earlier in this same draft doesn't still
+    # show up as removable. The authoritative resolver (signed-only) is untouched.
+    for it in items:
+        if it['kind'] != 'catalog':
+            continue
+        if it['action'] == 'remove':
+            effective.pop(it['work_type_id'], None)
+        elif it['action'] == 'add':
+            effective[it['work_type_id']] = dict(it)
+    removable = list(effective.values())
+    work_types = [dict(wt) for wt in db.execute(
+        "SELECT * FROM work_types WHERE active='Y' AND is_modifier='N' ORDER BY work_type").fetchall()]
+    subs = db.execute("SELECT * FROM subs WHERE active='Y' ORDER BY name").fetchall()
+    materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
+                              JOIN suppliers s ON m.supplier_id=s.supplier_id
+                              WHERE m.active='Y' AND m.work_type_id IN (4,5,6)
+                              ORDER BY m.category, m.series""").fetchall()
+    manufacturers = db.execute("SELECT * FROM surface_manufacturers WHERE active='Y' ORDER BY manufacturer_name").fetchall()
+    prior_cos = db.execute("SELECT * FROM change_orders WHERE quote_id=? AND id!=? ORDER BY co_number", (quote_id, co_id)).fetchall()
+    return render_template('change_order_builder.html', quote=quote, co=co, items=items,
+                           removable=removable, work_types=work_types, subs=subs, materials=materials,
+                           manufacturers=manufacturers, prior_cos=prior_cos)
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/items', methods=['POST'])
+@login_required
+def add_change_order_item(quote_id, co_id):
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] != 'draft':
+        return jsonify({'error': 'Not found or not editable'}), 404
+    data = request.json
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    item = _price_catalog_item(db, quote, data)
+    sort_order = db.execute("SELECT COUNT(*) FROM change_order_items WHERE change_order_id=?", (co_id,)).fetchone()[0]
+    _insert_change_order_item(db, co_id, item, 'catalog', 'add', item['work_type_label'], sort_order)
+    db.commit()
+    _recalc_change_order(db, co_id)
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/items/remove', methods=['POST'])
+@login_required
+def remove_change_order_item(quote_id, co_id):
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] != 'draft':
+        return jsonify({'error': 'Not found or not editable'}), 404
+    data = request.json or {}
+    work_type_id = int(data.get('work_type_id'))
+    effective = _contract_effective_items(db, quote_id)
+    current = effective.get(work_type_id)
+    if not current:
+        return jsonify({'error': 'That work type is not currently on this contract.'}), 400
+    negated = dict(current)
+    negated['total_cost'] = -abs(float(current['total_cost'] or 0))
+    negated['total_price'] = -abs(float(current['total_price'] or 0))
+    is_from_co = 'change_order_id' in current
+    src_line = current.get('id') if not is_from_co else None
+    src_co_item = current.get('id') if is_from_co else None
+    label = current.get('work_type_label') or current.get('label') or ''
+    sort_order = db.execute("SELECT COUNT(*) FROM change_order_items WHERE change_order_id=?", (co_id,)).fetchone()[0]
+    _insert_change_order_item(db, co_id, negated, 'catalog', 'remove', label + ' (removed)', sort_order,
+                               source_line_item_id=src_line, source_change_order_item_id=src_co_item)
+    db.commit()
+    _recalc_change_order(db, co_id)
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/items/amend', methods=['POST'])
+@login_required
+def amend_change_order_item(quote_id, co_id):
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] != 'draft':
+        return jsonify({'error': 'Not found or not editable'}), 404
+    data = request.json or {}
+    work_type_id = int(data.get('work_type_id'))
+    effective = _contract_effective_items(db, quote_id)
+    current = effective.get(work_type_id)
+    if not current:
+        return jsonify({'error': 'That work type is not currently on this contract.'}), 400
+
+    negated = dict(current)
+    negated['total_cost'] = -abs(float(current['total_cost'] or 0))
+    negated['total_price'] = -abs(float(current['total_price'] or 0))
+    is_from_co = 'change_order_id' in current
+    src_line = current.get('id') if not is_from_co else None
+    src_co_item = current.get('id') if is_from_co else None
+    old_label = current.get('work_type_label') or current.get('label') or ''
+    sort_order = db.execute("SELECT COUNT(*) FROM change_order_items WHERE change_order_id=?", (co_id,)).fetchone()[0]
+    _insert_change_order_item(db, co_id, negated, 'catalog', 'remove', old_label + ' (previous)', sort_order,
+                               source_line_item_id=src_line, source_change_order_item_id=src_co_item)
+
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    new_item = _price_catalog_item(db, quote, data)
+    sort_order2 = db.execute("SELECT COUNT(*) FROM change_order_items WHERE change_order_id=?", (co_id,)).fetchone()[0]
+    _insert_change_order_item(db, co_id, new_item, 'catalog', 'add', new_item['work_type_label'], sort_order2)
+
+    db.commit()
+    _recalc_change_order(db, co_id)
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/items/freeform', methods=['POST'])
+@login_required
+def add_freeform_change_order_item(quote_id, co_id):
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] != 'draft':
+        return jsonify({'error': 'Not found or not editable'}), 404
+    data = request.json or {}
+    label = (data.get('label') or '').strip()
+    if not label:
+        return jsonify({'error': 'A label is required.'}), 400
+    if data.get('price') in (None, '') or data.get('cost') in (None, ''):
+        return jsonify({'error': 'Both a price and a cost are required.'}), 400
+    price = float(data['price'])
+    cost = float(data['cost'])
+    margin = ((price - cost) / price * 100) if price else 0
+    sort_order = db.execute("SELECT COUNT(*) FROM change_order_items WHERE change_order_id=?", (co_id,)).fetchone()[0]
+    db.execute(
+        "INSERT INTO change_order_items (change_order_id, sort_order, kind, action, label, description, "
+        "total_cost, total_price, total_margin_pct) VALUES (?,?,?,?,?,?,?,?,?)",
+        (co_id, sort_order, 'freeform', '', label, data.get('description',''), cost, price, round(margin,1))
+    )
+    db.commit()
+    _recalc_change_order(db, co_id)
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/items/<int:item_id>', methods=['DELETE'])
+@login_required
+def delete_change_order_item(quote_id, co_id, item_id):
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] != 'draft':
+        return jsonify({'error': 'Not found or not editable'}), 404
+    db.execute("DELETE FROM change_order_items WHERE id=? AND change_order_id=?", (item_id, co_id))
+    db.commit()
+    _recalc_change_order(db, co_id)
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/delete', methods=['POST'])
+@login_required
+def delete_change_order(quote_id, co_id):
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if co and co['status'] == 'draft':
+        db.execute("DELETE FROM change_order_items WHERE change_order_id=?", (co_id,))
+        db.execute("DELETE FROM change_orders WHERE id=?", (co_id,))
+        db.commit()
+    return redirect(url_for('edit_quote', quote_id=quote_id))
+
+def _change_order_money(db, quote_id, co_id):
+    """The running-balance math shown on a signed Change Order document -- confirmed
+    against a real example: Original Contract Total (frozen at signing) plus the net of
+    all PRIOR SIGNED Change Orders on this contract, minus Total Paid so far (one running
+    pool against the whole job, not tracked per-CO), gives Remaining Balance on Original;
+    add this CO's own net to get the New Remaining Balance. 'Previous Change Orders' is
+    omitted entirely when this is CO #1."""
+    quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    co = db.execute("SELECT * FROM change_orders WHERE id=?", (co_id,)).fetchone()
+    original_total = float(quote['total_price'] or 0)
+    prior_net = float(db.execute(
+        "SELECT COALESCE(SUM(total_price),0) FROM change_orders WHERE quote_id=? AND status='signed' AND co_number < ?",
+        (quote_id, co['co_number'])
+    ).fetchone()[0] or 0)
+    total_paid = float(db.execute(
+        "SELECT COALESCE(SUM(collected_amount),0) FROM payment_schedules WHERE quote_id=? AND collected=1",
+        (quote_id,)
+    ).fetchone()[0] or 0)
+    remaining_on_original = original_total + prior_net - total_paid
+    this_co_net = float(co['total_price'] or 0)
+    new_remaining = remaining_on_original + this_co_net
+    return {
+        'original_total': round(original_total, 2),
+        'prior_net': round(prior_net, 2),
+        'show_prior': co['co_number'] > 1,
+        'total_paid': round(total_paid, 2),
+        'remaining_on_original': round(remaining_on_original, 2),
+        'this_co_net': round(this_co_net, 2),
+        'new_remaining': round(new_remaining, 2),
+    }
+
+def _change_order_preview_html(quote_id, co_id):
+    """Shared renderer for the signable Change Order document -- used by the /preview
+    route and the email PDF export, same one-function-two-callers pattern as
+    _quote_preview_html."""
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    items = db.execute("SELECT * FROM change_order_items WHERE change_order_id=? ORDER BY sort_order", (co_id,)).fetchall()
+    money = _change_order_money(db, quote_id, co_id)
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    from datetime import date
+    created_date = date.today().strftime('%B %d, %Y')
+    return render_template('change_order_preview.html', quote=quote, co=co, items=items,
+                           money=money, settings=settings, created_date=created_date)
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/preview')
+@login_required
+def change_order_preview(quote_id, co_id):
+    return _change_order_preview_html(quote_id, co_id)
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/sign', methods=['POST'])
+@login_required
+def sign_change_order(quote_id, co_id):
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] == 'signed':
+        return jsonify({'error': 'Not found or already signed'}), 404
+    data = request.json
+    signature_data = data.get('signature', '')
+    printed_name = (data.get('printed_name') or '').strip()
+    if not signature_data or not printed_name:
+        return jsonify({'error': 'Signature and printed name are required'}), 400
+    from datetime import datetime
+    signed_at = datetime.now().strftime('%B %d, %Y %I:%M %p')
+    db.execute("UPDATE change_orders SET signature_data=?,signed_at=?,signed_name=?,status='signed' WHERE id=?",
+               (signature_data, signed_at, printed_name, co_id))
+    # Append this CO's net amount to the payment ledger -- a plain INSERT, never
+    # generate_payment_schedule() (which would wipe collected-payment history).
+    max_sort = db.execute("SELECT COALESCE(MAX(sort_order),-1) FROM payment_schedules WHERE quote_id=?", (quote_id,)).fetchone()[0]
+    db.execute("INSERT INTO payment_schedules (quote_id, label, amount, pct, sort_order) VALUES (?,?,?,?,?)",
+               (quote_id, f"Change Order #{co['co_number']}", co['total_price'], 0, max_sort + 1))
+    db.commit()
+    return jsonify({'success': True, 'signed_at': signed_at})
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/email', methods=['POST'])
+@login_required
+def email_change_order(quote_id, co_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not quote or not co:
+        return jsonify({'error': 'Not found'}), 404
+    to_email = (quote['customer_email'] or '').strip()
+    if not to_email:
+        return jsonify({'error': 'No customer email on file. Add one in Edit Details.'}), 400
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    gmail_address = settings['gmail_address'] if settings else ''
+    gmail_app_password = settings['gmail_app_password'] if settings else ''
+    if not gmail_address or not gmail_app_password:
+        return jsonify({'error': 'Email sending isn\'t set up yet. Add your Gmail address and App Password in Admin → Company Settings.'}), 400
+    try:
+        html = _change_order_preview_html(quote_id, co_id)
+        pdf_bytes = _generate_quote_pdf_bytes(html)
+        company_name = settings['company_name'] if settings else 'Your Company'
+        subject = f"Change Order #{co['co_number']} from {company_name} — QT-{quote_id:04d}"
+        body = (f"Hi {quote['customer_name']},\n\n"
+                f"Please find your Change Order attached.\n\n"
+                f"Thank you,\n{quote['salesperson'] or company_name}")
+        _send_quote_email(to_email, subject, body, pdf_bytes, quote_id, gmail_address, gmail_app_password)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    if co['status'] == 'draft':
+        db.execute("UPDATE change_orders SET status='sent' WHERE id=?", (co_id,))
+        db.commit()
+    return jsonify({'success': True, 'sent_to': to_email})
 
 AIM_CATEGORY = 'Glass (Artistry In Mosaics)'
 
@@ -486,6 +853,11 @@ def edit_quote(quote_id):
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
     schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     schedule_json = json.dumps([{'id':s['id'],'label':s['label'],'amount':s['amount'],'pct':s['pct']} for s in schedule])
+    signed_co_net = float(db.execute(
+        "SELECT COALESCE(SUM(total_price),0) FROM change_orders WHERE quote_id=? AND status='signed'", (quote_id,)
+    ).fetchone()[0] or 0)
+    contract_total = float(quote['total_price'] or 0) + signed_co_net
+    change_orders = db.execute("SELECT * FROM change_orders WHERE quote_id=? ORDER BY co_number", (quote_id,)).fetchall()
     manufacturers = db.execute("SELECT * FROM surface_manufacturers WHERE active='Y' ORDER BY manufacturer_name").fetchall()
     applicators = db.execute("SELECT * FROM surface_applicators WHERE active='Y' ORDER BY name").fetchall()
     # Add manufacturer_id to surface application line items
@@ -521,6 +893,7 @@ def edit_quote(quote_id):
                            declined_items=declined_items,
                            work_types=work_types, subs=subs, commission_policy=commission_policy,
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
+                           contract_total=contract_total, change_orders=change_orders,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            qualifiers_by_wt=qualifiers_by_wt, additives=additives)
 
@@ -575,6 +948,8 @@ def edit_quote_details(quote_id):
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if request.method == 'POST':
+        if _is_locked_contract(db, quote_id):
+            return redirect(url_for('edit_quote', quote_id=quote_id))
         db.execute("""UPDATE quotes SET customer_name=?,address=?,salesperson=?,
                       pool_perimeter=?,pool_shallow=?,pool_deep=?,pool_sqft=?,
                       has_spa=?,spa_perimeter=?,spa_depth=?,spa_sqft=?,
@@ -604,11 +979,12 @@ def edit_quote_details(quote_id):
         return redirect(url_for('edit_quote', quote_id=quote_id))
     return render_template('edit_quote_details.html', quote=quote)
 
-@app.route('/quotes/<int:quote_id>/line_items', methods=['POST'])
-@login_required
-def add_line_item(quote_id):
-    db = get_db()
-    data = request.json
+def _price_catalog_item(db, quote, data):
+    """Shared pricing body for a catalog-based line item: resolves sub/material/product
+    labels, composes the Surface Application/Removal pool+spa+sunshelf label, and prices
+    it through build_line_item() + the min-job-price floor. Used by both add_line_item
+    (a normal quote's line items) and a Change Order's catalog Add, so both price
+    identically -- this is the one pricing engine, not two."""
     work_type_id = data.get('work_type_id')
     wt = db.execute("SELECT * FROM work_types WHERE work_type_id=?", (work_type_id,)).fetchone()
 
@@ -642,7 +1018,6 @@ def add_line_item(quote_id):
         if m:
             material_label = m['supplier_name'] + ' \u2014 ' + m['series']
 
-    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     wt_dict = dict(wt) if wt else {}
     wt_label = wt_dict.get('work_type','')
     if wt_label in ['Surface Application', 'Surface Removal']:
@@ -660,6 +1035,17 @@ def add_line_item(quote_id):
     item = build_line_item(data, wt_dict, sub_name, product_label, material_label, can_override, quote)
     item['total_cost'], item['total_price'], item['total_margin_pct'] = _apply_min_job_price(
         db, item['work_type_id'], item['total_cost'], item['total_price'])
+    return item
+
+@app.route('/quotes/<int:quote_id>/line_items', methods=['POST'])
+@login_required
+def add_line_item(quote_id):
+    db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
+    data = request.json
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    item = _price_catalog_item(db, quote, data)
     sort_order = db.execute("SELECT COUNT(*) FROM quote_line_items WHERE quote_id=?", (quote_id,)).fetchone()[0]
 
     db.execute(
@@ -689,6 +1075,8 @@ def add_line_item(quote_id):
 @login_required
 def update_markup(quote_id, item_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     data = request.json
     component = data.get('component', 'labor')  # 'labor' or 'material'
     new_markup = float(data.get('markup_pct', 30))
@@ -748,6 +1136,8 @@ def update_markup(quote_id, item_id):
 @login_required
 def delete_line_item(quote_id, item_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     db.execute("DELETE FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id))
     db.commit()
     _recalc_quote(db, quote_id)
@@ -761,6 +1151,8 @@ def quick_add_line_item(quote_id):
     material) -- used by the customer-facing quote screen, which never sees or sends
     cost/markup data, unlike the staff add-item flow on the full edit screen."""
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     data = request.json or {}
     wt = db.execute("SELECT * FROM work_types WHERE work_type_id=?", (data.get('work_type_id'),)).fetchone()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
@@ -811,7 +1203,18 @@ def _rollup_item_totals(db, item_id):
                (total_cost, total_price, total_margin, item_id))
     return total_cost, total_price, total_margin
 
+def _is_locked_contract(db, quote_id):
+    q = db.execute("SELECT status FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    return bool(q and q['status'] == 'contract')
+
 def _recalc_quote(db, quote_id):
+    if _is_locked_contract(db, quote_id):
+        # Defensive: a signed Contract's totals (and payment_schedules rows, which may
+        # carry collected-payment data by now) must stay frozen forever. Every route that
+        # mutates quote_line_items is guarded from running against a locked contract, so
+        # this should be unreachable -- but this is the one choke point every caller
+        # passes through, so guard here too rather than trust every call site forever.
+        return
     items = db.execute(
         "SELECT total_cost,total_price FROM quote_line_items WHERE quote_id=? AND (is_optional=0 OR is_optional IS NULL)",
         (quote_id,)
@@ -1311,12 +1714,37 @@ def update_display_name():
 @login_required
 def update_payment_schedule(quote_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     data = request.json
     for item in data.get('items', []):
         db.execute("UPDATE payment_schedules SET label=?,amount=?,pct=? WHERE id=? AND quote_id=?",
                    (item['label'], float(item['amount']), float(item['pct']), item['id'], quote_id))
     db.commit()
     return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/payment_schedule/<int:schedule_id>/collect', methods=['POST'])
+@login_required
+def collect_payment_schedule_item(quote_id, schedule_id):
+    """Marks a payment_schedules row collected/uncollected. Deliberately NOT guarded by
+    _is_locked_contract -- tracking what's actually been paid must keep working on a
+    locked Contract, that's the whole point of this existing alongside the lock."""
+    db = get_db()
+    data = request.json or {}
+    collected = bool(data.get('collected'))
+    if collected:
+        collected_amount = float(data.get('collected_amount') or 0)
+        collected_date = data.get('collected_date') or ''
+        db.execute("UPDATE payment_schedules SET collected=1,collected_amount=?,collected_date=? WHERE id=? AND quote_id=?",
+                   (collected_amount, collected_date, schedule_id, quote_id))
+    else:
+        db.execute("UPDATE payment_schedules SET collected=0,collected_amount=NULL,collected_date='' WHERE id=? AND quote_id=?",
+                   (schedule_id, quote_id))
+    db.commit()
+    total_paid = float(db.execute(
+        "SELECT COALESCE(SUM(collected_amount),0) FROM payment_schedules WHERE quote_id=? AND collected=1", (quote_id,)
+    ).fetchone()[0] or 0)
+    return jsonify({'success': True, 'total_paid': round(total_paid, 2)})
 
 @app.route('/quotes/<int:quote_id>/toggle_terms', methods=['POST'])
 @login_required
@@ -1331,6 +1759,8 @@ def toggle_terms(quote_id):
 @login_required
 def regenerate_payment_schedule(quote_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if quote:
         generate_payment_schedule(db, quote_id, quote['total_price'])
@@ -1646,12 +2076,16 @@ def email_quote(quote_id):
         _send_quote_email(to_email, subject, body, pdf_bytes, quote_id, gmail_address, gmail_app_password)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    db.execute("UPDATE quotes SET status='sent' WHERE quote_id=? AND status='draft'", (quote_id,))
+    db.commit()
     return jsonify({'success': True, 'sent_to': to_email})
 
 @app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/decline', methods=['POST'])
 @login_required
 def decline_optional_item(quote_id, item_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     row = db.execute("SELECT is_optional FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
     if not row or not row['is_optional']:
         return jsonify({'error': 'Not found'}), 404
@@ -1663,6 +2097,8 @@ def decline_optional_item(quote_id, item_id):
 @login_required
 def include_optional_item(quote_id, item_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     row = db.execute("SELECT is_optional FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
     if not row or not row['is_optional']:
         return jsonify({'error': 'Not found'}), 404
@@ -1677,6 +2113,8 @@ def restore_declined_item(quote_id, item_id):
     if not (g.role and g.role['can_override_min_markup']):
         return jsonify({'error': 'Not permitted'}), 403
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     db.execute("UPDATE quote_line_items SET is_declined=0 WHERE id=? AND quote_id=?", (item_id, quote_id))
     db.commit()
     return jsonify({'success': True})
@@ -1692,7 +2130,7 @@ def sign_quote(quote_id):
         return jsonify({'error': 'Signature and printed name are required'}), 400
     from datetime import datetime
     signed_at = datetime.now().strftime('%B %d, %Y %I:%M %p')
-    db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=? WHERE quote_id=?",
+    db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=?,status='contract' WHERE quote_id=?",
                (signature_data, signed_at, printed_name, quote_id))
     db.commit()
     return jsonify({'success': True, 'signed_at': signed_at})
@@ -1700,10 +2138,13 @@ def sign_quote(quote_id):
 @app.route('/quotes/<int:quote_id>/unsign', methods=['POST'])
 @login_required
 def unsign_quote(quote_id):
+    """Also doubles as "unlock" for a signed Contract — reverting status lets its
+    line items and details be edited again. Signed Change Orders are unaffected;
+    they remain standalone signed history regardless of the parent's lock state."""
     if not (g.role and g.role['can_override_min_markup']):
         return jsonify({'error': 'Not permitted'}), 403
     db = get_db()
-    db.execute("UPDATE quotes SET signature_data='',signed_at='',signed_name='' WHERE quote_id=?", (quote_id,))
+    db.execute("UPDATE quotes SET signature_data='',signed_at='',signed_name='',status='sent' WHERE quote_id=?", (quote_id,))
     db.commit()
     return jsonify({'success': True})
 
@@ -1918,6 +2359,8 @@ def toggle_package_item_optional(item_id):
 @login_required
 def reorder_line_item(quote_id, item_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     data = request.json
     direction = data.get('direction', 1)
     row = db.execute("SELECT is_optional FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
@@ -1947,6 +2390,8 @@ def reorder_line_item(quote_id, item_id):
 @login_required
 def update_line_item(quote_id, item_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     data = request.json
     field = data.get('field')
     value = data.get('value')
@@ -2118,6 +2563,8 @@ def update_line_item(quote_id, item_id):
 @login_required
 def toggle_qualifier(quote_id, item_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     data = request.json
     qualifier_id = int(data.get('qualifier_id'))
     checked = bool(data.get('checked'))
@@ -2181,6 +2628,8 @@ def toggle_qualifier(quote_id, item_id):
 @login_required
 def toggle_tax(quote_id, item_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     data = request.json
     checked = bool(data.get('checked'))
     row = db.execute("SELECT id FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()

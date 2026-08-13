@@ -108,10 +108,60 @@
 .sched-body { display:none; background:var(--surface); border:1px solid var(--border);
   border-top:none; border-radius:0 0 var(--radius) var(--radius); padding:10px 12px; }
 .sched-body.open { display:block; }
+
+/* Payments preview (Phase 1 mock — not yet persisted) */
+.paid-row { display:grid; grid-template-columns:1fr 90px 100px 26px 118px; gap:8px; align-items:center;
+  padding:5px 0; border-bottom:1px solid var(--border2); }
+.paid-check { width:16px; height:16px; accent-color:var(--green); cursor:pointer; }
+.paid-date { background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--text);
+  font-size:11px; padding:4px 6px; height:28px; width:100%; font-family:'Chivo Mono',monospace; }
+.paid-date:disabled { opacity:0.35; cursor:not-allowed; }
+.paid-summary { display:flex; flex-direction:column; gap:4px; margin-top:10px; padding-top:8px; border-top:1px solid var(--border); }
+.paid-summary-row { display:flex; justify-content:space-between; font-size:11px; color:var(--text3); }
+.paid-summary-row .val { font-family:'Chivo Mono',monospace; color:var(--text2); }
+.paid-summary-row.total .val { color:#4ade80; font-weight:700; font-size:13px; }
+.paid-summary-row.remaining .val { color:#fbbf24; font-weight:700; font-size:13px; }
+.paid-preview-badge { font-size:9px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;
+  color:#fbbf24; background:#78350f44; border:1px solid #78350f; border-radius:4px; padding:2px 6px; margin-left:8px; }
 </style>
 {% endblock %}
 {% block content %}
 <div class="page-wide">
+
+  {% if quote.status == 'contract' %}
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;margin-bottom:12px;background:#78350f22;border:1px solid #78350f;border-radius:var(--radius);">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#fbbf24;background:#78350f44;border:1px solid #78350f;border-radius:4px;padding:2px 8px;">🔒 Contract</span>
+      <span style="font-size:12px;color:var(--text2);">Signed {{ quote.signed_at }} by {{ quote.signed_name }} — line items and details are locked. Changes go through a Change Order.</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <form method="POST" action="/quotes/{{ quote.quote_id }}/change_orders" style="display:inline">
+        <button class="btn btn-primary btn-sm" type="submit">+ Create Change Order</button>
+      </form>
+      {% if current_role and current_role.can_override_min_markup %}
+      <button class="btn btn-secondary btn-sm" type="button" onclick="unlockContract()">Unlock Contract</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if change_orders %}
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;">
+    {% for co in change_orders %}
+    <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}{{ '/preview' if co.status == 'signed' else '' }}"
+       style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;
+              {% if not loop.last %}border-bottom:1px solid var(--border2);{% endif %}text-decoration:none;color:inherit;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:13px;color:var(--text);">Change Order #{{ co.co_number }}</span>
+        <span class="badge badge-{{ 'purple' if co.status == 'signed' else 'amber' if co.status == 'sent' else 'blue' }}">{{ co.status }}</span>
+      </div>
+      <span class="mono" style="font-size:13px;{{ 'color:#f87171;' if co.total_price < 0 else 'color:#4ade80;' }}">
+        {{ '$%.2f'|format(co.total_price) if co.total_price >= 0 else '-$%.2f'|format(-co.total_price) }}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endif %}
 
   <!-- Header -->
   <div class="page-header" style="margin-bottom:12px;">
@@ -548,6 +598,35 @@
     {% endif %}
   </div>
 
+  {% if schedule %}
+  <!-- Payments: tracks what's actually been collected against the payment schedule -->
+  <div class="sched-bar" onclick="togglePayments()">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);">Payments</span>
+    </div>
+    <span id="paid-chev" style="color:var(--text3);font-size:11px;">▼</span>
+  </div>
+  <div class="sched-body" id="paid-body">
+    {% for draw in schedule %}
+    <div class="paid-row">
+      <span style="font-size:12px;color:var(--text2);">{{ draw.label }}</span>
+      <span class="mono" style="font-size:11px;color:var(--text3);text-align:right;">${{ '%.2f'|format(draw.amount) }} sched.</span>
+      <input type="number" step="0.01" class="paid-date" style="text-align:right;font-family:'Chivo Mono',monospace;"
+             id="paid-amt-{{ draw.id }}" value="{{ '%.2f'|format(draw.collected_amount if draw.collected_amount is not none else draw.amount) }}"
+             {{ 'disabled' if not draw.collected }} onchange="onPaidFieldChange({{ draw.id }})">
+      <input type="checkbox" class="paid-check" id="paid-check-{{ draw.id }}" {{ 'checked' if draw.collected }} onchange="togglePaid({{ draw.id }})">
+      <input type="date" class="paid-date" id="paid-date-{{ draw.id }}" value="{{ draw.collected_date or '' }}"
+             {{ 'disabled' if not draw.collected }} onchange="onPaidFieldChange({{ draw.id }})">
+    </div>
+    {% endfor %}
+    <div class="paid-summary">
+      <div class="paid-summary-row"><span>{{ 'Contract Total' if quote.status == 'contract' else 'Quote Total' }}</span><span class="val">${{ '%.2f'|format(contract_total or 0) }}</span></div>
+      <div class="paid-summary-row total"><span>Total Paid</span><span class="val" id="paid-total">${{ '%.2f'|format(schedule|selectattr('collected')|sum(attribute='collected_amount')|default(0)) }}</span></div>
+      <div class="paid-summary-row remaining"><span>Remaining Balance</span><span class="val" id="paid-remaining">${{ '%.2f'|format((contract_total or 0) - (schedule|selectattr('collected')|sum(attribute='collected_amount')|default(0))) }}</span></div>
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 
 <script>
@@ -556,10 +635,20 @@ const POOL_SQFT = {{ quote.total_surface_sqft or quote.pool_sqft or 0 }};
 const POOL_LF = {{ (quote.pool_perimeter or 0) + (quote.spa_perimeter if quote.has_spa else 0)
                     + (quote.steps_lf or 0) + (quote.benches_lf or 0) + (quote.swimouts_lf or 0) }};
 const DRAWS = {{ schedule_json | default("[]") | safe }};
+const LOCKED = {{ 'true' if quote.status == 'contract' else 'false' }};
+function lockedAlert() {
+  alert('This is a signed contract — line items are locked. Use a Change Order to change scope.');
+}
+async function unlockContract() {
+  if (!confirm('Unlock this contract? Line items and details become editable again, and the signature is cleared.')) return;
+  const resp = await fetch('/quotes/' + QID + '/unsign', {method: 'POST'});
+  if (resp.ok) location.reload();
+}
 let activeCell = null;
 
 // ── Cell editing ──────────────────────────────────────────────────
 function editCell(td, id, field) {
+  if (LOCKED) { lockedAlert(); return; }
   if (field === 'none') return;
   if (activeCell) closeActiveCell();
   activeCell = td;
@@ -685,18 +774,21 @@ async function toggleTerms(checked) {
 
 // ── Product picker ────────────────────────────────────────────────
 function toggleProductPicker(id) {
+  if (LOCKED) { lockedAlert(); return; }
   const tr = document.getElementById('pprow-' + id);
   tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
 }
 
 // ── Restore a customer-declined optional item ──────────────────────
 async function restoreDeclined(id) {
+  if (LOCKED) { lockedAlert(); return; }
   const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/restore_declined', {method: 'POST'});
   if (resp.ok) location.reload();
 }
 
 // ── Qualifiers ────────────────────────────────────────────────────
 async function toggleQualifier(itemId, qualifierId, checked) {
+  if (LOCKED) { lockedAlert(); return; }
   const resp = await fetch('/quotes/' + QID + '/line_items/' + itemId + '/qualifiers/toggle', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({qualifier_id: qualifierId, checked: checked})
@@ -714,6 +806,7 @@ async function toggleQualifier(itemId, qualifierId, checked) {
 }
 
 async function toggleTax(itemId, checked) {
+  if (LOCKED) { lockedAlert(); return; }
   const resp = await fetch('/quotes/' + QID + '/line_items/' + itemId + '/tax/toggle', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({checked: checked})
@@ -731,12 +824,14 @@ async function toggleTax(itemId, checked) {
 
 // ── Description picker ───────────────────────────────────────────
 function toggleDescPicker(id) {
+  if (LOCKED) { lockedAlert(); return; }
   const tr = document.getElementById('descrow-' + id);
   tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
   if (tr.style.display === 'table-row') document.getElementById('desc-inp-' + id).focus();
 }
 
 async function saveDescription(id) {
+  if (LOCKED) { lockedAlert(); return; }
   const text = document.getElementById('desc-inp-' + id).value;
   const d = await saveCell(id, 'description', text);
   if (d) {
@@ -809,6 +904,7 @@ async function ppSaveMaterial(id) {
 
 // ── Markup stepper ────────────────────────────────────────────────
 async function adjMarkup(id, component, delta) {
+  if (LOCKED) { lockedAlert(); return; }
   const key = component === 'labor' ? '' : '-mat';
   const mvEl = document.getElementById('mv' + key + '-' + id) || document.getElementById('mv-' + id);
   const cur = parseFloat(mvEl?.textContent) || 0;
@@ -831,6 +927,7 @@ async function adjMarkup(id, component, delta) {
 
 // ── Reorder / Delete ──────────────────────────────────────────────
 async function moveRow(id, dir) {
+  if (LOCKED) { lockedAlert(); return; }
   await fetch('/quotes/' + QID + '/line_items/' + id + '/reorder', {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({direction: dir})
   });
@@ -838,6 +935,7 @@ async function moveRow(id, dir) {
 }
 
 async function deleteItem(id) {
+  if (LOCKED) { lockedAlert(); return; }
   if (!confirm('Remove this line item?')) return;
   const resp = await fetch('/quotes/' + QID + '/line_items/' + id, {method: 'DELETE'});
   if (resp.ok) location.reload();
@@ -845,6 +943,7 @@ async function deleteItem(id) {
 
 // ── Add new row ───────────────────────────────────────────────────
 function openNewRow(section) {
+  if (LOCKED) { lockedAlert(); return; }
   document.getElementById('new-row-tr-' + section).style.display = 'table-row';
   document.getElementById('nr-wt-' + section).focus();
 }
@@ -930,6 +1029,7 @@ function calcNrPreview(section) {
 }
 
 async function addNrRow(section) {
+  if (LOCKED) { lockedAlert(); return; }
   const wtId = document.getElementById('nr-wt-' + section).value;
   if (!wtId) { alert('Select a work type.'); return; }
   const payload = {
@@ -988,6 +1088,63 @@ function updateDraw(id, field, value) {
 async function regenSchedule() {
   const r = await fetch('/quotes/' + QID + '/payment_schedule/regenerate', {method:'POST'});
   if (r.ok) location.reload();
+}
+
+// ── Payments preview (Phase 1 mock — client-side only, nothing persisted) ──
+function togglePayments() {
+  const body = document.getElementById('paid-body');
+  const chev = document.getElementById('paid-chev');
+  const open = !body.classList.contains('open');
+  body.classList.toggle('open', open);
+  chev.textContent = open ? '▲' : '▼';
+}
+
+async function togglePaid(id) {
+  const check = document.getElementById('paid-check-' + id);
+  const date = document.getElementById('paid-date-' + id);
+  const amt = document.getElementById('paid-amt-' + id);
+  date.disabled = !check.checked;
+  amt.disabled = !check.checked;
+  if (check.checked && !date.value) {
+    date.value = new Date().toISOString().slice(0, 10);
+  }
+  await savePaid(id);
+}
+
+async function onPaidFieldChange(id) {
+  const check = document.getElementById('paid-check-' + id);
+  if (!check.checked) return;
+  await savePaid(id);
+}
+
+async function savePaid(id) {
+  const check = document.getElementById('paid-check-' + id);
+  const date = document.getElementById('paid-date-' + id);
+  const amt = document.getElementById('paid-amt-' + id);
+  const resp = await fetch('/quotes/' + QID + '/payment_schedule/' + id + '/collect', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({collected: check.checked, collected_amount: amt.value, collected_date: date.value})
+  });
+  if (resp.ok) {
+    const d = await resp.json();
+    recalcPaidSummary(d.total_paid);
+  }
+}
+
+function recalcPaidSummary(totalPaidOverride) {
+  let totalPaid = totalPaidOverride;
+  if (totalPaid === undefined) {
+    totalPaid = 0;
+    document.querySelectorAll('.paid-check').forEach(c => {
+      if (c.checked) {
+        const id = c.id.replace('paid-check-', '');
+        totalPaid += parseFloat(document.getElementById('paid-amt-' + id).value || 0);
+      }
+    });
+  }
+  const contractTotal = {{ contract_total or 0 }};
+  document.getElementById('paid-total').textContent = '$' + totalPaid.toFixed(2);
+  document.getElementById('paid-remaining').textContent = '$' + (contractTotal - totalPaid).toFixed(2);
 }
 
 // ── Init surface pickers for existing products ────────────────────

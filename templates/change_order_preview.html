@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Quote — {{ quote.customer_name }}</title>
+<title>Change Order #{{ co.co_number }} — {{ quote.customer_name }}</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Chivo+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -11,13 +11,11 @@
 
   .page { max-width: 820px; margin: 0 auto; padding: 48px 48px 64px; }
 
-  /* Print button — hidden when printing */
   .print-bar { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 32px; }
   .print-btn { background: #1d4ed8; color: white; border: none; border-radius: 6px; padding: 10px 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; }
   .back-btn { background: #f1f5f9; color: #334155; border: none; border-radius: 6px; padding: 10px 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
   @media print { .print-bar { display: none; } .no-print { display: none !important; } body { font-size: 12px; } .page { padding: 24px; } }
 
-  /* Header */
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; padding-bottom: 24px; border-bottom: 2px solid #e2e8f0; }
   .company-name { font-size: 22px; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; }
   .company-info { font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.7; }
@@ -26,15 +24,16 @@
   .quote-number { font-family: 'Chivo Mono', monospace; font-size: 12px; color: #94a3b8; margin-top: 4px; }
   .quote-dates { font-size: 12px; color: #64748b; margin-top: 8px; line-height: 1.7; }
 
-  /* Customer */
   .customer-section { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; background: #f8fafc; border-radius: 8px; padding: 20px 24px; }
   .customer-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px; }
   .customer-value { font-size: 15px; font-weight: 600; color: #0f172a; }
   .customer-sub { font-size: 13px; color: #64748b; margin-top: 2px; }
 
-  /* Line items */
+  .agree-text { font-size: 14px; color: #334155; line-height: 1.6; margin-bottom: 28px; }
+  .agree-text strong { color: #0f172a; }
+
   .section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #94a3b8; margin-bottom: 12px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 32px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
   thead th { padding: 10px 12px; text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #94a3b8; border-bottom: 2px solid #e2e8f0; }
   thead th.right { text-align: right; }
   tbody td { padding: 13px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
@@ -42,52 +41,35 @@
   tbody tr:last-child td { border-bottom: none; }
   .item-name { font-weight: 600; color: #0f172a; }
   .item-desc { font-size: 12px; color: #64748b; margin-top: 3px; }
+  .amt-pos { color: #16a34a; }
+  .amt-neg { color: #dc2626; }
 
-  /* Totals */
   .totals-section { display: flex; justify-content: flex-end; margin-bottom: 32px; }
-  .totals-box { width: 300px; }
+  .totals-box { width: 340px; }
   .total-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
-  .total-row:last-child { border-bottom: none; border-top: 2px solid #e2e8f0; padding-top: 12px; margin-top: 4px; font-weight: 700; font-size: 16px; color: #0f172a; }
+  .total-row.co-total { border-top: 2px solid #e2e8f0; padding-top: 12px; margin-top: 4px; font-weight: 700; font-size: 15px; color: #0f172a; }
+  .total-row.spacer { border-bottom: none; height: 4px; }
+  .total-row.grand { border-top: 2px solid #0f172a; padding-top: 12px; margin-top: 4px; font-weight: 700; font-size: 17px; color: #0f172a; }
   .total-label { color: #64748b; }
   .total-amount { font-family: 'Chivo Mono', monospace; font-weight: 600; color: #0f172a; }
+  .total-amount.neg { color: #dc2626; }
+  .total-amount.bold { font-weight: 700; }
 
-  /* Payment schedule */
-  .payment-section { background: #f8fafc; border-radius: 8px; padding: 20px 24px; margin-bottom: 32px; }
-  .payment-title { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #94a3b8; margin-bottom: 14px; }
-  .payment-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #e2e8f0; }
-  .payment-row:last-child { border-bottom: none; }
-  .payment-label { font-weight: 500; color: #334155; }
-  .payment-pct { font-size: 11px; color: #94a3b8; margin-left: 8px; }
-  .payment-amount { font-family: 'Chivo Mono', monospace; font-weight: 600; color: #1d4ed8; font-size: 14px; }
-
-  /* Terms */
-  .terms-section { margin-bottom:32px; }
-  .terms-title { font-size:11px; font-weight:700; letter-spacing:0.09em; text-transform:uppercase; color:#94a3b8; margin-bottom:12px; }
-  .terms-body { font-size:11px; color:#475569; line-height:1.7; }
-  .terms-body p { margin-bottom:10px; }
-  .terms-body p:last-child { margin-bottom:0; }
-
-  /* Signature */
   .signature-section { border-top: 2px solid #e2e8f0; padding-top: 32px; margin-top: 8px; }
   .sig-title { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #94a3b8; margin-bottom: 20px; }
   .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
   .sig-line { border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 6px; height: 40px; }
   .sig-label { font-size: 11px; color: #94a3b8; }
-
-  /* Validity notice */
-  .validity { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 32px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
 </style>
 </head>
 <body>
 <div class="page">
 
-  <!-- Print bar -->
   <div class="print-bar">
-    <a href="/quotes/{{ quote.quote_id }}" class="back-btn">← Back to Quote</a>
+    <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}" class="back-btn">← Back to Change Order</a>
     <button class="print-btn" onclick="window.print()">🖨 Save as PDF</button>
   </div>
 
-  <!-- Header -->
   <div class="header">
     <div>
       {% if settings and settings.logo_path %}
@@ -103,16 +85,14 @@
       </div>
     </div>
     <div class="quote-meta">
-      <div class="quote-title">QUOTE</div>
-      <div class="quote-number">QT-{{ '%04d'|format(quote.quote_id) }}</div>
+      <div class="quote-title">CHANGE ORDER</div>
+      <div class="quote-number">QT-{{ '%04d'|format(quote.quote_id) }} &middot; CO #{{ co.co_number }}</div>
       <div class="quote-dates">
-        Date: {{ today }}<br>
-        Valid until: {{ valid_until }}
+        {% if co.signed_at %}Signed: {{ co.signed_at }}{% else %}Date: {{ created_date }}{% endif %}
       </div>
     </div>
   </div>
 
-  <!-- Customer info -->
   <div class="customer-section">
     <div>
       <div class="customer-label">Prepared For</div>
@@ -121,150 +101,93 @@
     </div>
     <div>
       <div class="customer-label">Prepared By</div>
-      <div class="customer-value">{{ quote.salesperson or settings.company_name }}</div>
+      <div class="customer-value">{{ quote.salesperson or (settings.company_name if settings else '') }}</div>
       {% if settings and settings.email %}<div class="customer-sub">{{ settings.email }}</div>{% endif %}
     </div>
   </div>
 
-  <!-- Line items -->
-  <div class="section-title">Scope of Work</div>
+  <div class="agree-text">
+    We, <strong>{{ settings.company_name if settings else 'Your Company' }}</strong> and client listed above, hereby agree to make the change(s) specified below to the existing contract signed and dated <strong>{{ quote.signed_at }}</strong>.
+  </div>
+
+  <div class="section-title">Change(s)</div>
   <table>
     <thead>
       <tr>
-        <th>Service</th>
-        <th class="right">Price</th>
+        <th>Description</th>
+        <th class="right">Amount</th>
       </tr>
     </thead>
     <tbody>
-      {% for item in line_items %}
+      {% for item in items %}
       <tr>
         <td>
-          <div class="item-name">{{ item.work_type_label }}</div>
+          <div class="item-name">{{ item.label }}</div>
           {% if item.description %}<div class="item-desc">{{ item.description }}</div>{% endif %}
-          {% if item.product_label %}<div class="item-desc">{{ item.product_label }}</div>{% endif %}
-          {% if item.material_label %}<div class="item-desc">Material: {{ item.material_label }}</div>{% endif %}
         </td>
-        <td class="right">${{ '%.2f'|format(item.total_price) }}</td>
+        <td class="right {{ 'amt-pos' if item.total_price >= 0 else 'amt-neg' }}">
+          {{ '$%.2f'|format(item.total_price) if item.total_price >= 0 else '-$%.2f'|format(-item.total_price) }}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 
-  <!-- Totals -->
   <div class="totals-section">
     <div class="totals-box">
+      <div class="total-row co-total">
+        <span class="total-label"><strong>Change Order</strong></span>
+        <span class="total-amount {{ 'neg' if money.this_co_net < 0 else '' }} bold">
+          {{ '$%.2f'|format(money.this_co_net) if money.this_co_net >= 0 else '-$%.2f'|format(-money.this_co_net) }}
+        </span>
+      </div>
+      <div class="total-row spacer"></div>
       <div class="total-row">
-        <span class="total-label">Subtotal</span>
-        <span class="total-amount">${{ '%.2f'|format(quote.total_price) }}</span>
+        <span class="total-label">Original Contract Total</span>
+        <span class="total-amount">${{ '%.2f'|format(money.original_total) }}</span>
+      </div>
+      {% if money.show_prior %}
+      <div class="total-row">
+        <span class="total-label">Previous Change Orders</span>
+        <span class="total-amount {{ 'neg' if money.prior_net < 0 else '' }}">
+          {{ '$%.2f'|format(money.prior_net) if money.prior_net >= 0 else '-$%.2f'|format(-money.prior_net) }}
+        </span>
+      </div>
+      {% endif %}
+      <div class="total-row">
+        <span class="total-label">Total Paid on Original Contract</span>
+        <span class="total-amount neg">(${{ '%.2f'|format(money.total_paid) }})</span>
       </div>
       <div class="total-row">
-        <span class="total-label"><strong>Total</strong></span>
-        <span class="total-amount">${{ '%.2f'|format(quote.total_price) }}</span>
+        <span class="total-label"><strong>Remaining Balance on Original Contract</strong></span>
+        <span class="total-amount bold">${{ '%.2f'|format(money.remaining_on_original) }}</span>
+      </div>
+      <div class="total-row grand">
+        <span class="total-label"><strong>New Remaining Balance Including Change Order</strong></span>
+        <span class="total-amount bold">${{ '%.2f'|format(money.new_remaining) }}</span>
       </div>
     </div>
   </div>
 
-  <!-- Optional Add-Ons -->
-  {% if optional_items %}
-  <div class="section-title">Optional Add-Ons <span style="text-transform:none;font-weight:400;color:#94a3b8;">(not included in total above)</span></div>
-  <table>
-    <thead>
-      <tr>
-        <th>Service</th>
-        <th class="right">Price</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in optional_items %}
-      <tr id="opt-row-{{ item.id }}">
-        <td>
-          <div class="item-name">{{ item.work_type_label }}</div>
-          {% if item.description %}<div class="item-desc">{{ item.description }}</div>{% endif %}
-          {% if item.product_label %}<div class="item-desc">{{ item.product_label }}</div>{% endif %}
-          {% if item.material_label %}<div class="item-desc">Material: {{ item.material_label }}</div>{% endif %}
-        </td>
-        <td class="right">
-          <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
-            <span>${{ '%.2f'|format(item.total_price) }}</span>
-            {% if quote.status != 'contract' %}
-            <span class="no-print" style="display:flex;gap:6px;">
-              <button type="button" onclick="declineItem({{ item.id }})" title="Decline" style="width:22px;height:22px;border-radius:50%;border:1px solid #fca5a5;background:#fef2f2;color:#dc2626;font-size:12px;line-height:1;cursor:pointer;">✕</button>
-              <button type="button" onclick="includeItem({{ item.id }})" title="Add to quote" style="width:22px;height:22px;border-radius:50%;border:1px solid #86efac;background:#f0fdf4;color:#16a34a;font-size:12px;line-height:1;cursor:pointer;">+</button>
-            </span>
-            {% endif %}
-          </div>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  <!-- Customer Declined -->
-  {% if declined_items %}
-  <div class="section-title" style="margin-top:24px;">Customer Declined</div>
-  <table>
-    <tbody>
-      {% for item in declined_items %}
-      <tr>
-        <td style="color:#94a3b8;text-decoration:line-through;">{{ item.work_type_label }}</td>
-        <td class="right" style="color:#94a3b8;text-decoration:line-through;">${{ '%.2f'|format(item.total_price) }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  <!-- Payment schedule -->
-  {% if schedule %}
-  <div class="payment-section">
-    <div class="payment-title">Payment Schedule</div>
-    {% for draw in schedule %}
-    <div class="payment-row">
-      <div>
-        <span class="payment-label">{{ draw.label }}</span>
-        <span class="payment-pct">({{ '%.0f'|format(draw.pct) }}%)</span>
-      </div>
-      <div class="payment-amount">${{ '%.2f'|format(draw.amount) }}</div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  <!-- Terms & Conditions -->
-  {% if quote.include_terms and settings and settings.terms_text %}
-  <div class="terms-section">
-    <div class="terms-title">Terms &amp; Conditions</div>
-    <div class="terms-body">
-      {% for para in settings.terms_text.replace('\r\n', '\n').split('\n\n') %}
-      {% if para.strip() %}<p>{{ para.replace('\n', ' ') }}</p>{% endif %}
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- Signature -->
   <div class="signature-section">
     <div class="sig-title">Authorization</div>
+    <div style="font-size:13px;color:#334155;margin-bottom:20px;">WE hereby agree to make the change(s) specified above at the new total price.</div>
     <div class="sig-grid">
       <div>
-        {% if quote.signature_data %}
-        <img src="{{ quote.signature_data }}" style="height:60px;display:block;margin-bottom:4px;">
+        {% if co.signature_data %}
+        <img src="{{ co.signature_data }}" style="height:60px;display:block;margin-bottom:4px;">
         <div class="sig-line" style="border-bottom:1px solid #334155;"></div>
         <div class="sig-label">Customer Signature</div>
         <div style="font-size:11px;color:#64748b;margin-top:6px;">
-          {{ quote.signed_name }} &middot; Signed {{ quote.signed_at }}
+          {{ co.signed_name }} &middot; Signed {{ co.signed_at }}
         </div>
-        {% if current_role and current_role.can_override_min_markup %}
-        <button type="button" class="no-print" onclick="resetSig({{ quote.quote_id }})" style="margin-top:8px;font-family:'DM Sans',sans-serif;font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;background:white;color:#64748b;cursor:pointer;">Reset signature</button>
-        {% endif %}
         {% else %}
         <canvas id="sig-canvas" width="360" height="70" style="border-bottom:1px solid #334155;touch-action:none;cursor:crosshair;display:block;"></canvas>
         <div class="sig-label">Customer Signature</div>
         <div class="no-print" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input id="sig-name" type="text" placeholder="Printed name" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;width:160px;">
           <button type="button" onclick="clearSig()" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #cbd5e1;background:white;cursor:pointer;">Clear</button>
-          <button type="button" onclick="saveSig({{ quote.quote_id }})" style="font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;padding:6px 14px;border-radius:6px;border:none;background:#1d4ed8;color:white;cursor:pointer;">Sign</button>
+          <button type="button" onclick="saveSig()" style="font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;padding:6px 14px;border-radius:6px;border:none;background:#1d4ed8;color:white;cursor:pointer;">Sign</button>
         </div>
         {% endif %}
       </div>
@@ -275,32 +198,12 @@
     </div>
   </div>
 
-  <div class="validity">
-    This quote is valid for {{ settings.quote_validity_days if settings else 30 }} days from the date of issue.
-    All work subject to standard terms and conditions.
-  </div>
-
 </div>
 <script>
 const QUOTE_ID = {{ quote.quote_id }};
-
-async function declineItem(itemId) {
-  const resp = await fetch('/quotes/' + QUOTE_ID + '/line_items/' + itemId + '/decline', {method: 'POST'});
-  if (resp.ok) location.reload();
-}
-
-async function includeItem(itemId) {
-  const resp = await fetch('/quotes/' + QUOTE_ID + '/line_items/' + itemId + '/include', {method: 'POST'});
-  if (resp.ok) location.reload();
-}
+const CO_ID = {{ co.id }};
 
 (function() {
-  window.resetSig = async function(quoteId) {
-    if (!confirm('Clear the customer signature so they can sign again?')) return;
-    const resp = await fetch('/quotes/' + quoteId + '/unsign', {method: 'POST'});
-    if (resp.ok) location.reload();
-  };
-
   const canvas = document.getElementById('sig-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -347,11 +250,11 @@ async function includeItem(itemId) {
     hasStroke = false;
   };
 
-  window.saveSig = async function(quoteId) {
+  window.saveSig = async function() {
     const name = document.getElementById('sig-name').value.trim();
     if (!hasStroke) { alert('Please sign above before submitting.'); return; }
     if (!name) { alert('Please enter a printed name.'); return; }
-    const resp = await fetch('/quotes/' + quoteId + '/sign', {
+    const resp = await fetch('/quotes/' + QUOTE_ID + '/change_orders/' + CO_ID + '/sign', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({signature: canvas.toDataURL('image/png'), printed_name: name})
     });

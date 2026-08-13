@@ -129,6 +129,7 @@ tbody tr:hover { background: var(--surface2); }
 .badge-red { background: #7f1d1d44; color: #f87171; border: 1px solid #7f1d1d; }
 .badge-blue { background: #1e3a8a44; color: #93c5fd; border: 1px solid #1e3a8a; }
 .badge-amber { background: #78350f44; color: #fbbf24; border: 1px solid #78350f; }
+.badge-purple { background: #581c8744; color: #c084fc; border: 1px solid #581c87; }
 .pill { display: inline-block; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 500; }
 .pill-markup { background: var(--amber-pale); color: var(--amber); }
 .pill-margin { background: var(--green-pale); color: var(--green); }

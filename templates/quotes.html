@@ -1,13 +1,26 @@
 {% extends 'base.html' %}
-{% block title %}Quotes — QuoteCure{% endblock %}
+{% block title %}{{ 'Contracts' if active_tab == 'contracts' else 'Quotes' }} — QuoteCure{% endblock %}
+{% block extra_css %}
+<style>
+.qtabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.qtab { padding: 8px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600;
+  color: var(--text2); text-decoration: none; border: 1px solid var(--border); background: var(--surface); }
+.qtab.active { background: var(--blue); color: white; border-color: var(--blue); }
+</style>
+{% endblock %}
 {% block content %}
 <div class="page">
   <div class="page-header">
     <div>
-      <div class="page-title">Quotes</div>
-      <div class="page-subtitle">All customer quotes</div>
+      <div class="page-title">{{ 'Contracts' if active_tab == 'contracts' else 'Quotes' }}</div>
+      <div class="page-subtitle">{{ 'Signed jobs — open one to add a Change Order' if active_tab == 'contracts' else 'Draft and sent quotes' }}</div>
     </div>
     <a href="/quotes/new" class="btn btn-primary">+ New Quote</a>
+  </div>
+
+  <div class="qtabs">
+    <a href="/quotes?tab=quotes" class="qtab {{ 'active' if active_tab != 'contracts' }}">Quotes</a>
+    <a href="/quotes?tab=contracts" class="qtab {{ 'active' if active_tab == 'contracts' }}">Contracts</a>
   </div>
 
   <div class="card">
@@ -24,7 +37,7 @@
             <th class="right">Total Cost</th>
             <th class="right">Total Price</th>
             <th class="right">Margin</th>
-            <th>Created</th>
+            <th>{{ 'Signed' if active_tab == 'contracts' else 'Created' }}</th>
             <th></th>
           </tr>
         </thead>
@@ -35,15 +48,17 @@
             <td><a href="/quotes/{{ q.quote_id }}">{{ q.customer_name }}</a></td>
             <td style="color:var(--text2)">{{ q.address or '—' }}</td>
             <td style="color:var(--text2)">{{ q.salesperson or '—' }}</td>
-            <td><span class="badge badge-{{ 'green' if q.status == 'sent' else 'blue' if q.status == 'draft' else 'amber' }}">{{ q.status }}</span></td>
+            <td><span class="badge badge-{{ 'purple' if q.status == 'contract' else 'green' if q.status == 'sent' else 'blue' if q.status == 'draft' else 'amber' }}">{{ q.status }}</span></td>
             <td class="right mono">${{ '%.2f'|format(q.total_cost) }}</td>
             <td class="right mono" style="font-weight:600">${{ '%.2f'|format(q.total_price) }}</td>
             <td class="right"><span class="pill pill-margin">{{ '%.0f'|format(q.total_margin) }}%</span></td>
-            <td style="color:var(--text3); font-size:12px">{{ q.created_at[:10] }}</td>
+            <td style="color:var(--text3); font-size:12px">{{ (q.signed_at if active_tab == 'contracts' else q.created_at[:10]) or '—' }}</td>
             <td>
+              {% if active_tab != 'contracts' %}
               <form method="POST" action="/quotes/{{ q.quote_id }}/delete" style="display:inline" onsubmit="return confirm('Delete this quote?')">
                 <button class="btn btn-danger btn-sm">Delete</button>
               </form>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -52,8 +67,14 @@
     </div>
     {% else %}
     <div class="empty-state">
-      <div class="empty-state-icon">📋</div>
-      <div class="empty-state-text">No quotes yet. <a href="/quotes/new">Create your first one.</a></div>
+      <div class="empty-state-icon">{{ '📜' if active_tab == 'contracts' else '📋' }}</div>
+      <div class="empty-state-text">
+        {% if active_tab == 'contracts' %}
+        No signed contracts yet. Quotes move here once a customer signs.
+        {% else %}
+        No quotes yet. <a href="/quotes/new">Create your first one.</a>
+        {% endif %}
+      </div>
     </div>
     {% endif %}
   </div>

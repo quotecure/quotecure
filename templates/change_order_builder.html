@@ -1,0 +1,356 @@
+{% extends 'base.html' %}
+{% block title %}Change Order #{{ co.co_number }} — {{ quote.customer_name }}{% endblock %}
+{% block extra_css %}
+<style>
+.co-banner { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;margin-bottom:12px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius); }
+.co-list { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px; }
+.co-row { display:grid;grid-template-columns:1fr 120px 32px;gap:10px;align-items:center;
+  padding:10px 14px;border-bottom:1px solid var(--border2); }
+.co-row:last-child { border-bottom:none; }
+.co-row .lbl { font-size:13px;color:var(--text); }
+.co-row .lbl .tag { font-size:9px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;
+  padding:1px 6px;border-radius:3px;margin-left:6px;vertical-align:middle; }
+.co-row .lbl .tag.add { background:#14532d44;color:#4ade80;border:1px solid #14532d; }
+.co-row .lbl .tag.remove { background:#7f1d1d44;color:#f87171;border:1px solid #7f1d1d; }
+.co-row .lbl .tag.freeform { background:#1e3a8a44;color:#93c5fd;border:1px solid #1e3a8a; }
+.co-row .price { font-family:'Chivo Mono',monospace;font-size:13px;text-align:right; }
+.co-row .price.pos { color:#4ade80; }
+.co-row .price.neg { color:#f87171; }
+.co-empty { padding:24px;text-align:center;color:var(--text3);font-size:13px; }
+.co-net { display:flex;justify-content:space-between;align-items:center;padding:12px 16px;
+  background:var(--surface2);border-top:2px solid var(--border);border-radius:0 0 var(--radius) var(--radius); }
+.co-net .val { font-family:'Chivo Mono',monospace;font-size:18px;font-weight:700; }
+.co-net .val.pos { color:#4ade80; }
+.co-net .val.neg { color:#f87171; }
+.co-panel { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px;margin-bottom:14px; }
+.co-panel h3 { font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:12px; }
+.co-form-row { display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px; }
+.co-form-row.two { grid-template-columns:1fr 1fr; }
+.co-form-row label { display:block;font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em; }
+.co-form-row select, .co-form-row input { width:100%;background:var(--bg);border:1px solid var(--border);
+  border-radius:4px;color:var(--text);font-size:13px;padding:7px 9px;height:34px; }
+.co-preview-line { font-size:11px;color:var(--text3);margin-top:6px;font-family:'Chivo Mono',monospace; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-wide">
+
+  <div class="co-banner">
+    <div>
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;">Change Order #{{ co.co_number }} &middot; <span style="color:#fbbf24;">{{ co.status }}</span></div>
+      <div style="font-size:18px;font-weight:700;margin-top:2px;">{{ quote.customer_name }} — QT-{{ '%04d'|format(quote.quote_id) }}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px;">Original contract signed {{ quote.signed_at }} &middot; ${{ '%.2f'|format(quote.total_price) }}</div>
+    </div>
+    <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary btn-sm">← Back to Contract</a>
+  </div>
+
+  <div class="co-list">
+    {% if items %}
+      {% for item in items %}
+      <div class="co-row" id="co-item-{{ item.id }}">
+        <div class="lbl">
+          {{ item.label }}
+          <span class="tag {{ item.kind if item.kind == 'freeform' else item.action }}">{{ 'Freeform' if item.kind == 'freeform' else item.action }}</span>
+        </div>
+        <div class="price {{ 'pos' if item.total_price >= 0 else 'neg' }}">{{ '$%.2f'|format(item.total_price) if item.total_price >= 0 else '-$%.2f'|format(-item.total_price) }}</div>
+        <button class="btn btn-secondary btn-sm" style="padding:2px 8px;" onclick="deleteCoItem({{ item.id }})">✕</button>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="co-empty">No items yet — add or remove scope below.</div>
+    {% endif %}
+  </div>
+  <div class="co-net" style="margin-top:-16px;margin-bottom:20px;">
+    <span style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;">Change Order Net</span>
+    <span class="val {{ 'pos' if co.total_price >= 0 else 'neg' }}" id="co-net-val">{{ '$%.2f'|format(co.total_price) if co.total_price >= 0 else '-$%.2f'|format(-co.total_price) }}</span>
+  </div>
+
+  {% if co.status == 'draft' %}
+  <div class="co-panel">
+    <h3>Add a work type</h3>
+    <div class="co-form-row">
+      <div>
+        <label>Work Type</label>
+        <select id="add-wt" onchange="onCoWtChange('add')">
+          <option value="">— Select —</option>
+          {% for wt in work_types %}
+          <option value="{{ wt.work_type_id }}">{{ wt.work_type }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Sub / Applicator</label>
+        <select id="add-sub" onchange="onCoSubChange('add')"><option value="">— Select work type first —</option></select>
+      </div>
+      <div>
+        <label id="add-material-label">Material</label>
+        <select id="add-material" onchange="onCoMaterialChange('add')"><option value="">— None —</option></select>
+      </div>
+    </div>
+    <div class="co-form-row two">
+      <div>
+        <label>Quantity</label>
+        <input type="number" id="add-qty" step="0.01" oninput="calcCoPreview('add')">
+      </div>
+      <div>
+        <label>Labor $ / unit</label>
+        <input type="number" id="add-cpu" step="0.01" oninput="calcCoPreview('add')">
+      </div>
+    </div>
+    <div class="co-preview-line" id="add-preview"></div>
+    <button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="submitCoAdd()">+ Add to Change Order</button>
+  </div>
+
+  <div class="co-panel">
+    <h3>Remove a work type currently on this contract</h3>
+    <div class="co-form-row two">
+      <div>
+        <label>Work Type</label>
+        <select id="remove-wt">
+          <option value="">— Select —</option>
+          {% for r in removable %}
+          <option value="{{ r.work_type_id }}">{{ r.work_type_label or r.label }} — ${{ '%.2f'|format(r.total_price) }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;align-items:end;">
+        <button class="btn btn-secondary btn-sm" onclick="submitCoRemove()">− Remove from Contract</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="co-panel">
+    <h3>Amend a work type currently on this contract</h3>
+    <div class="co-form-row">
+      <div>
+        <label>Work Type</label>
+        <select id="amend-wt" onchange="onCoWtChange('amend')">
+          <option value="">— Select —</option>
+          {% for r in removable %}
+          <option value="{{ r.work_type_id }}">{{ r.work_type_label or r.label }} — ${{ '%.2f'|format(r.total_price) }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>New Sub / Applicator</label>
+        <select id="amend-sub" onchange="onCoSubChange('amend')"><option value="">— Select work type first —</option></select>
+      </div>
+      <div>
+        <label id="amend-material-label">New Material</label>
+        <select id="amend-material" onchange="onCoMaterialChange('amend')"><option value="">— None —</option></select>
+      </div>
+    </div>
+    <div class="co-form-row two">
+      <div>
+        <label>Quantity</label>
+        <input type="number" id="amend-qty" step="0.01" oninput="calcCoPreview('amend')">
+      </div>
+      <div>
+        <label>Labor $ / unit</label>
+        <input type="number" id="amend-cpu" step="0.01" oninput="calcCoPreview('amend')">
+      </div>
+    </div>
+    <div class="co-preview-line" id="amend-preview"></div>
+    <button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="submitCoAmend()">↻ Amend</button>
+  </div>
+
+  <div class="co-panel">
+    <h3>Add a one-off line (no catalog item — repairs, misc. scope)</h3>
+    <div class="co-form-row">
+      <div>
+        <label>Label</label>
+        <input type="text" id="ff-label" placeholder="e.g. Cut and re-pour beam">
+      </div>
+      <div>
+        <label>Price</label>
+        <input type="number" id="ff-price" step="0.01">
+      </div>
+      <div>
+        <label>Cost</label>
+        <input type="number" id="ff-cost" step="0.01">
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="submitCoFreeform()">+ Add Freeform Line</button>
+  </div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px;">
+    <button class="btn btn-secondary btn-sm" onclick="deleteChangeOrder()" style="color:#f87171;">Delete this Change Order</button>
+    {% if items %}
+    <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/preview" class="btn btn-primary">Preview &amp; Sign →</a>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="co-panel">
+    <p style="color:var(--text2);font-size:13px;">This Change Order is {{ co.status }} and can no longer be edited.</p>
+    <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/preview" class="btn btn-primary" style="margin-top:8px;">View Document →</a>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+const QID = {{ quote.quote_id }};
+const COID = {{ co.id }};
+const WORK_TYPES = {{ work_types | tojson }};
+
+async function onCoWtChange(section) {
+  const wtId = document.getElementById(section + '-wt').value;
+  const subSel = document.getElementById(section + '-sub');
+  const matSel = document.getElementById(section + '-material');
+  const matLabel = document.getElementById(section + '-material-label');
+  subSel.innerHTML = '<option value="">— Select —</option>';
+  matSel.innerHTML = '<option value="">— None —</option>';
+  document.getElementById(section + '-qty').value = '';
+  document.getElementById(section + '-cpu').value = '';
+  if (!wtId) return;
+
+  if (parseInt(wtId) === 1) {
+    matLabel.textContent = 'Surface Product (pick sub first)';
+  } else {
+    matLabel.textContent = 'Material';
+    const mr = await fetch('/api/materials_for_work_type?work_type_id=' + wtId);
+    const mats = await mr.json();
+    mats.forEach(m => matSel.innerHTML += '<option value="' + m.material_id + '" data-cpu="' + m.cost + '">' + m.category + ' — ' + m.series + '</option>');
+  }
+
+  const r = await fetch('/api/subs_for_work_type?work_type_id=' + wtId);
+  const subs = await r.json();
+  subs.forEach(s => subSel.innerHTML += '<option value="' + s.sub_id + '">' + s.name + '</option>');
+}
+
+async function onCoSubChange(section) {
+  const wtId = document.getElementById(section + '-wt').value;
+  const subId = document.getElementById(section + '-sub').value;
+  if (!subId || !wtId) return;
+
+  if (parseInt(wtId) === 1) {
+    const matSel = document.getElementById(section + '-material');
+    matSel.innerHTML = '<option value="">— Select —</option>';
+    const r = await fetch('/api/products_for_applicator?sub_id=' + subId);
+    const products = await r.json();
+    products.forEach(p => matSel.innerHTML += '<option value="' + p.product_id + '" data-rate="' + p.rate + '">' + p.label + '</option>');
+  } else {
+    const r = await fetch('/api/rate?sub_id=' + subId + '&work_type_id=' + wtId);
+    const d = await r.json();
+    if (d.rate !== null) document.getElementById(section + '-cpu').value = d.rate;
+  }
+  calcCoPreview(section);
+}
+
+function onCoMaterialChange(section) {
+  const wtId = document.getElementById(section + '-wt').value;
+  const matSel = document.getElementById(section + '-material');
+  if (parseInt(wtId) === 1) {
+    const opt = matSel.selectedOptions[0];
+    if (opt && opt.dataset.rate) document.getElementById(section + '-cpu').value = opt.dataset.rate;
+  }
+  calcCoPreview(section);
+}
+
+function calcCoPreview(section) {
+  const qty = parseFloat(document.getElementById(section + '-qty').value) || 0;
+  const cpu = parseFloat(document.getElementById(section + '-cpu').value) || 0;
+  const el = document.getElementById(section + '-preview');
+  if (qty && cpu) el.textContent = 'Est. labor: $' + (qty * cpu).toFixed(2) + ' before markup';
+  else el.textContent = '';
+}
+
+async function submitCoAdd() {
+  const wtId = document.getElementById('add-wt').value;
+  if (!wtId) { alert('Select a work type.'); return; }
+  const wt = WORK_TYPES.find(w => w.work_type_id == wtId);
+  const isSurface = parseInt(wtId) === 1;
+  const payload = {
+    work_type_id: wtId,
+    sub_id: document.getElementById('add-sub').value,
+    quantity: document.getElementById('add-qty').value,
+    unit: wt ? wt.unit : 'each',
+    labor_cost_per_unit: document.getElementById('add-cpu').value,
+    labor_markup_pct: wt ? wt.default_markup : 30,
+    material_cost_per_unit: 0, material_markup_pct: wt ? wt.default_markup : 30, material_min_markup: 10,
+  };
+  if (isSurface) {
+    payload.product_id = document.getElementById('add-material').value;
+  } else {
+    payload.material_id = document.getElementById('add-material').value;
+    const matOpt = document.getElementById('add-material').selectedOptions[0];
+    if (matOpt && matOpt.dataset.cpu) {
+      payload.material_cost_per_unit = matOpt.dataset.cpu;
+      payload.material_quantity = payload.quantity;
+    }
+  }
+  const resp = await fetch('/quotes/' + QID + '/change_orders/' + COID + '/items', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+  });
+  if (resp.ok) location.reload();
+  else { const d = await resp.json(); alert(d.error || 'Could not add item.'); }
+}
+
+async function submitCoRemove() {
+  const wtId = document.getElementById('remove-wt').value;
+  if (!wtId) { alert('Select a work type to remove.'); return; }
+  const resp = await fetch('/quotes/' + QID + '/change_orders/' + COID + '/items/remove', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({work_type_id: wtId})
+  });
+  if (resp.ok) location.reload();
+  else { const d = await resp.json(); alert(d.error || 'Could not remove item.'); }
+}
+
+async function submitCoAmend() {
+  const wtId = document.getElementById('amend-wt').value;
+  if (!wtId) { alert('Select a work type to amend.'); return; }
+  const wt = WORK_TYPES.find(w => w.work_type_id == wtId);
+  const isSurface = parseInt(wtId) === 1;
+  const payload = {
+    work_type_id: wtId,
+    sub_id: document.getElementById('amend-sub').value,
+    quantity: document.getElementById('amend-qty').value,
+    unit: wt ? wt.unit : 'each',
+    labor_cost_per_unit: document.getElementById('amend-cpu').value,
+    labor_markup_pct: wt ? wt.default_markup : 30,
+    material_cost_per_unit: 0, material_markup_pct: wt ? wt.default_markup : 30, material_min_markup: 10,
+  };
+  if (isSurface) {
+    payload.product_id = document.getElementById('amend-material').value;
+  } else {
+    payload.material_id = document.getElementById('amend-material').value;
+    const matOpt = document.getElementById('amend-material').selectedOptions[0];
+    if (matOpt && matOpt.dataset.cpu) {
+      payload.material_cost_per_unit = matOpt.dataset.cpu;
+      payload.material_quantity = payload.quantity;
+    }
+  }
+  const resp = await fetch('/quotes/' + QID + '/change_orders/' + COID + '/items/amend', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+  });
+  if (resp.ok) location.reload();
+  else { const d = await resp.json(); alert(d.error || 'Could not amend item.'); }
+}
+
+async function submitCoFreeform() {
+  const label = document.getElementById('ff-label').value.trim();
+  const price = document.getElementById('ff-price').value;
+  const cost = document.getElementById('ff-cost').value;
+  if (!label || price === '' || cost === '') { alert('Label, price, and cost are all required.'); return; }
+  const resp = await fetch('/quotes/' + QID + '/change_orders/' + COID + '/items/freeform', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({label, price, cost})
+  });
+  if (resp.ok) location.reload();
+  else { const d = await resp.json(); alert(d.error || 'Could not add line.'); }
+}
+
+async function deleteCoItem(itemId) {
+  if (!confirm('Remove this line from the Change Order?')) return;
+  const resp = await fetch('/quotes/' + QID + '/change_orders/' + COID + '/items/' + itemId, {method: 'DELETE'});
+  if (resp.ok) location.reload();
+}
+
+async function deleteChangeOrder() {
+  if (!confirm('Delete this entire Change Order? This cannot be undone.')) return;
+  await fetch('/quotes/' + QID + '/change_orders/' + COID + '/delete', {method: 'POST'});
+  location.href = '/quotes/' + QID;
+}
+</script>
+{% endblock %}
