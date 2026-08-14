@@ -165,7 +165,7 @@ def _apply_min_job_price(db, work_type_id, total_cost, total_price):
     return total_cost, total_price, total_margin
 
 DECK_SQFT_WORK_TYPES = {
-    'Paver Installation', 'Paver Sealing',
+    'Paver Installation', 'Paver Sealing', 'Flagstone Pavers',
     'Textured Decking – Knockdown', 'Textured Decking – Variegated',
 }
 

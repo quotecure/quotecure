@@ -1348,6 +1348,100 @@ def add_deck_sqft(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN deck_sqft REAL DEFAULT 0")
 
 
+@migration
+def add_flagstone_pavers(conn):
+    """Flagstone Pavers: a dedicated work type (not a material tacked onto the existing
+    Paver Installation work type) so its markup can be solved precisely without touching
+    Paver Installation's own 30% default, which any other future paver job still relies on.
+    Material cost $3.50/sqft (the flagstone itself, taxable) + labor cost $2.10/sqft (the
+    existing S3 paver-install rate, reused at its existing amount) = $5.60/sqft raw cost.
+    default_markup is solved backward (87.5%) so a plain quick-add hits Jim's ~$10.50/sqft
+    target exactly before tax; the Tax toggle (already generic, no work-type gating) adds a
+    small pass-through on top when checked. Also gets its own Freight qualifier, mirroring
+    Coping/Paver Installation, since qualifiers are scoped per work_type_id.
+
+    Defensively creates the 'Flagstone' supplier if missing, rather than assuming
+    init_materials() already seeded it -- on at least one environment it hadn't, because
+    init_materials() no-ops if ANY supplier row already exists (e.g. from the light-fixture
+    migration running first), silently skipping its own supplier/material seed list."""
+    supplier = conn.execute("SELECT supplier_id FROM suppliers WHERE name='Flagstone'").fetchone()
+    if supplier:
+        supplier_id = supplier[0]
+    else:
+        conn.execute("INSERT INTO suppliers (name,contact,notes,active) VALUES ('Flagstone','','Paver supplier','Y')")
+        supplier_id = conn.execute("SELECT lastval()").fetchone()[0]
+
+    wt = conn.execute("SELECT work_type_id FROM work_types WHERE work_type='Flagstone Pavers'").fetchone()
+    if wt:
+        wt_id = wt[0]
+    else:
+        cost, price = 3.50, 10.50
+        labor_cost = 2.10
+        markup = round((price / (cost + labor_cost) - 1) * 100, 4)
+        conn.execute(
+            "INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,"
+            "is_modifier,modified_by,show_on_quote,active,description,default_sub_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            ('Flagstone Pavers', 'sqft', 'labor_only', markup, 10.0, 9.1, 'N', '', 'Y', 'Y', '', 'S3')
+        )
+        wt_id = conn.execute("SELECT lastval()").fetchone()[0]
+
+    rate = conn.execute("SELECT id FROM sub_rates WHERE sub_id='S3' AND work_type_id=?", (wt_id,)).fetchone()
+    if not rate:
+        conn.execute("INSERT INTO sub_rates (sub_id,work_type_id,rate,unit,notes) VALUES ('S3',?,2.10,'sqft','flagstone paver install')", (wt_id,))
+
+    mat = conn.execute("SELECT material_id FROM materials WHERE supplier_id=? AND series='Flagstone Pavers'", (supplier_id,)).fetchone()
+    if not mat:
+        conn.execute(
+            "INSERT INTO materials (supplier_id,category,series,item_code,raw_price,price_unit,"
+            "conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,active) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (supplier_id, 'Pavers', 'Flagstone Pavers', '', 3.50, 'per_sqft', 1.0, 'sqft', 3.50, wt_id, 'Y')
+        )
+        mat_id = conn.execute("SELECT lastval()").fetchone()[0]
+        conn.execute("UPDATE work_types SET default_material_id=? WHERE work_type_id=?", (mat_id, wt_id))
+    else:
+        mat_id = mat[0]
+        conn.execute("UPDATE work_types SET default_material_id=? WHERE work_type_id=? AND default_material_id IS NULL", (mat_id, wt_id))
+
+    freight = conn.execute("SELECT qualifier_id FROM qualifiers WHERE work_type_id=? AND is_freight=1", (wt_id,)).fetchone()
+    if not freight:
+        conn.execute("INSERT INTO qualifiers (work_type_id,label,amount,active,is_freight) VALUES (?,'Freight',300.0,'Y',1)", (wt_id,))
+
+
+@migration
+def update_package_pricing_and_decking_items(conn):
+    """Refresh/Signature/Resort price-range refresh, plus the two new decking-related
+    package items Jim asked for: Signature gets Textured Decking - Knockdown (priced off
+    deck_sqft -- $0 on a quote with no decking, same as any other dimension-driven item,
+    not omitted), Resort gets Flagstone Pavers. Resort's Coping Installation already
+    existed in the original seed and already derives correctly from pool perimeter, so it
+    needed no change. Refresh is left with no decking item, per Jim's instruction."""
+    conn.execute("UPDATE packages SET price_range_label='$10,000–$20,000' WHERE name='Refresh'")
+    conn.execute("UPDATE packages SET price_range_label='$20,000–$30,000' WHERE name='Signature'")
+    conn.execute("UPDATE packages SET price_range_label='$30,000+' WHERE name='Resort'")
+
+    def add_package_item(pkg_name, wt_name, sub_id, material_id):
+        pkg = conn.execute("SELECT package_id FROM packages WHERE name=?", (pkg_name,)).fetchone()
+        wt = conn.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (wt_name,)).fetchone()
+        if not pkg or not wt:
+            return
+        pkg_id, wt_id = pkg[0], wt[0]
+        existing = conn.execute("SELECT id FROM package_items WHERE package_id=? AND work_type_id=?", (pkg_id, wt_id)).fetchone()
+        if existing:
+            return
+        next_sort = conn.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM package_items WHERE package_id=?", (pkg_id,)).fetchone()[0]
+        conn.execute(
+            "INSERT INTO package_items (package_id,work_type_id,sort_order,default_sub_id,default_material_id,active) "
+            "VALUES (?,?,?,?,?,'Y')", (pkg_id, wt_id, next_sort, sub_id, material_id)
+        )
+
+    knockdown_sub = conn.execute("SELECT sub_id FROM subs WHERE name='Design-a-Deck (Jeff)'").fetchone()
+    add_package_item('Signature', 'Textured Decking – Knockdown', knockdown_sub[0] if knockdown_sub else '', None)
+
+    flagstone_wt = conn.execute("SELECT work_type_id, default_material_id FROM work_types WHERE work_type='Flagstone Pavers'").fetchone()
+    add_package_item('Resort', 'Flagstone Pavers', 'S3', flagstone_wt[1] if flagstone_wt else None)
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
