@@ -19,13 +19,30 @@
         <div style="border-bottom:1px solid var(--border2);">
           <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
             <span class="mono" style="color:var(--text3);min-width:36px;">{{ s.sub_id }}</span>
-            <span style="font-weight:500;flex:1;">{{ s.name }}</span>
+            <span style="font-weight:500;flex:1;">{{ s.name }}{% if s.phone %}<span style="font-weight:400;color:var(--text3);font-size:12px;margin-left:8px;">{{ s.phone }}</span>{% endif %}</span>
             <span class="badge badge-{{ 'green' if s.active == 'Y' else 'red' }}">{{ 'Active' if s.active == 'Y' else 'Off' }}</span>
+            <button class="btn btn-secondary btn-sm" onclick="toggleEdit('{{ s.sub_id }}')">Edit</button>
             <button class="btn btn-secondary btn-sm" onclick="toggleRates('{{ s.sub_id }}')">Rates</button>
             <form method="POST" action="/admin/subs/toggle" style="display:inline">
               <input type="hidden" name="sub_id" value="{{ s.sub_id }}">
               <input type="hidden" name="table" value="subs">
               <button class="btn btn-secondary btn-sm">{{ 'Deactivate' if s.active == 'Y' else 'Activate' }}</button>
+            </form>
+          </div>
+          <!-- Inline edit panel -->
+          <div class="rates-panel" id="edit-{{ s.sub_id }}">
+            <form method="POST" action="/admin/subs/edit" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+              <input type="hidden" name="sub_id" value="{{ s.sub_id }}">
+              <input type="hidden" name="table" value="subs">
+              <div>
+                <label class="form-label">Name</label>
+                <input class="form-control" name="name" value="{{ s.name }}" style="width:200px;">
+              </div>
+              <div>
+                <label class="form-label">Phone</label>
+                <input class="form-control" name="phone" value="{{ s.phone or '' }}" placeholder="(555) 555-5555" style="width:160px;">
+              </div>
+              <button class="btn btn-primary btn-sm" type="submit">Save</button>
             </form>
           </div>
           <!-- Inline rates panel -->
@@ -90,6 +107,10 @@
               <label class="form-label">Name</label>
               <input class="form-control" name="name" required placeholder="Company name">
             </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Phone</label>
+              <input class="form-control" name="phone" placeholder="(555) 555-5555" style="width:150px;">
+            </div>
             <button class="btn btn-primary" type="submit">Add Sub</button>
           </form>
           <div style="font-size:11px;color:var(--text3);margin-top:8px;">ID assigned automatically (S{{ next_sub_id }})</div>
@@ -105,13 +126,30 @@
         <div style="border-bottom:1px solid var(--border2);">
           <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
             <span class="mono" style="color:var(--text3);min-width:36px;">{{ a.sub_id }}</span>
-            <span style="font-weight:500;flex:1;">{{ a.name }}</span>
+            <span style="font-weight:500;flex:1;">{{ a.name }}{% if a.phone %}<span style="font-weight:400;color:var(--text3);font-size:12px;margin-left:8px;">{{ a.phone }}</span>{% endif %}</span>
             <span class="badge badge-{{ 'green' if a.active == 'Y' else 'red' }}">{{ 'Active' if a.active == 'Y' else 'Off' }}</span>
+            <button class="btn btn-secondary btn-sm" onclick="toggleEdit('app-{{ a.sub_id }}')">Edit</button>
             <button class="btn btn-secondary btn-sm" onclick="toggleRates('app-{{ a.sub_id }}')">Products</button>
             <form method="POST" action="/admin/subs/toggle" style="display:inline">
               <input type="hidden" name="sub_id" value="{{ a.sub_id }}">
               <input type="hidden" name="table" value="surface_applicators">
               <button class="btn btn-secondary btn-sm">{{ 'Deactivate' if a.active == 'Y' else 'Activate' }}</button>
+            </form>
+          </div>
+          <!-- Inline edit panel -->
+          <div class="rates-panel" id="edit-app-{{ a.sub_id }}">
+            <form method="POST" action="/admin/subs/edit" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+              <input type="hidden" name="sub_id" value="{{ a.sub_id }}">
+              <input type="hidden" name="table" value="surface_applicators">
+              <div>
+                <label class="form-label">Name</label>
+                <input class="form-control" name="name" value="{{ a.name }}" style="width:200px;">
+              </div>
+              <div>
+                <label class="form-label">Phone</label>
+                <input class="form-control" name="phone" value="{{ a.phone or '' }}" placeholder="(555) 555-5555" style="width:160px;">
+              </div>
+              <button class="btn btn-primary btn-sm" type="submit">Save</button>
             </form>
           </div>
           <!-- Inline product rates -->
@@ -170,6 +208,10 @@
               <label class="form-label">Name</label>
               <input class="form-control" name="name" required placeholder="Applicator name">
             </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Phone</label>
+              <input class="form-control" name="phone" placeholder="(555) 555-5555" style="width:150px;">
+            </div>
             <button class="btn btn-primary" type="submit">Add Applicator</button>
           </form>
           <div style="font-size:11px;color:var(--text3);margin-top:8px;">ID assigned automatically (P{{ next_app_id }})</div>
@@ -182,6 +224,10 @@
 <script>
 function toggleRates(id) {
   const panel = document.getElementById('rates-' + id);
+  panel.classList.toggle('open');
+}
+function toggleEdit(id) {
+  const panel = document.getElementById('edit-' + id);
   panel.classList.toggle('open');
 }
 </script>

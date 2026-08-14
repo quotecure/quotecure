@@ -164,11 +164,16 @@ def _apply_min_job_price(db, work_type_id, total_cost, total_price):
     total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
     return total_cost, total_price, total_margin
 
+DECK_SQFT_WORK_TYPES = {
+    'Paver Installation', 'Paver Sealing',
+    'Textured Decking – Knockdown', 'Textured Decking – Variegated',
+}
+
 def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims, can_override):
     """Full pricing for one work-type item given a sub/material default and quote dimensions.
     wt: dict with work_type_id, work_type, unit, cost_structure, default_markup, min_markup, description.
     dims: dict with pool_perimeter, has_spa, spa_perimeter, steps_lf, benches_lf, swimouts_lf,
-          total_surface_sqft (or pool_sqft), has_shelf.
+          total_surface_sqft (or pool_sqft), has_shelf, deck_sqft (Paver Installation/Sealing only).
     Returns a dict with every quote_line_items column this produces."""
     wt_id = wt['work_type_id']
     sub_name = ''
@@ -195,7 +200,13 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
     wt_unit = wt.get('unit', 'each')
     unit = rate_row['unit'] if rate_row else wt_unit
     total_lf, total_sqft = _dims_totals(dims)
-    if unit == 'sqft':
+    if wt.get('work_type', '') in DECK_SQFT_WORK_TYPES:
+        # Paver Installation/Sealing, Textured Decking (Knockdown/Variegated) -- deck sqft,
+        # not the pool's own interior surface sqft. Matched by name, not ID, since the
+        # Textured Decking work types are seeded by a later migration and don't have a
+        # guaranteed-stable ID across environments the way the original seeded catalog does.
+        qty = float(dims.get('deck_sqft') or 0)
+    elif unit == 'sqft':
         qty = total_sqft
     elif unit == 'lf':
         qty = total_lf
@@ -708,6 +719,7 @@ def estimate_packages():
         'benches_lf': float(data.get('benches_lf', 0) or 0),
         'swimouts_lf': float(data.get('swimouts_lf', 0) or 0),
         'total_surface_sqft': float(data.get('total_surface_sqft', 0) or 0),
+        'deck_sqft': float(data.get('deck_sqft', 0) or 0),
     }
     packages = db.execute("SELECT * FROM packages WHERE active='Y' ORDER BY sort_order").fetchall()
     results = {}
@@ -733,8 +745,8 @@ def new_quote():
                       pool_perimeter,pool_shallow,pool_deep,pool_sqft,
                       has_spa,spa_perimeter,spa_depth,spa_sqft,
                       has_shelf,shelf_sqft,total_surface_sqft,
-                      steps_lf,benches_lf,swimouts_lf,customer_email,water_surface_sqft)
-                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      steps_lf,benches_lf,swimouts_lf,customer_email,water_surface_sqft,deck_sqft)
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (request.form['customer_name'], request.form.get('address',''),
                     request.form.get('salesperson',''),
                     float(request.form.get('pool_perimeter',0) or 0),
@@ -752,7 +764,8 @@ def new_quote():
                     float(request.form.get('benches_lf',0) or 0),
                     float(request.form.get('swimouts_lf',0) or 0),
                     request.form.get('customer_email','').strip(),
-                    float(request.form.get('water_surface_sqft',0) or 0)))
+                    float(request.form.get('water_surface_sqft',0) or 0),
+                    float(request.form.get('deck_sqft',0) or 0)))
         db.commit()
         qid = db.execute("SELECT lastval()").fetchone()[0]
 
@@ -898,6 +911,7 @@ def edit_quote(quote_id):
     optional_items = [i for i in line_items_enriched if i.get('is_optional') and not i.get('is_declined')]
     declined_items = [i for i in line_items_enriched if i.get('is_optional') and i.get('is_declined')]
     optional_total = round(sum(float(i['total_price'] or 0) for i in optional_items), 2)
+    estimated_days_total = _estimated_timeline_days(db, line_items)
 
     materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
@@ -915,7 +929,8 @@ def edit_quote(quote_id):
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
                            contract_total=contract_total, change_orders=change_orders,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
-                           qualifiers_by_wt=qualifiers_by_wt, additives=additives)
+                           qualifiers_by_wt=qualifiers_by_wt, additives=additives,
+                           estimated_days_total=estimated_days_total)
 
 @app.route('/quotes/<int:quote_id>/customer_view')
 @login_required
@@ -974,7 +989,7 @@ def edit_quote_details(quote_id):
                       pool_perimeter=?,pool_shallow=?,pool_deep=?,pool_sqft=?,
                       has_spa=?,spa_perimeter=?,spa_depth=?,spa_sqft=?,
                       has_shelf=?,shelf_sqft=?,total_surface_sqft=?,
-                      steps_lf=?,benches_lf=?,swimouts_lf=?,customer_email=?,water_surface_sqft=?
+                      steps_lf=?,benches_lf=?,swimouts_lf=?,customer_email=?,water_surface_sqft=?,deck_sqft=?
                       WHERE quote_id=?""",
                    (request.form['customer_name'], request.form.get('address',''),
                     request.form.get('salesperson',''),
@@ -994,6 +1009,7 @@ def edit_quote_details(quote_id):
                     float(request.form.get('swimouts_lf',0) or 0),
                     request.form.get('customer_email','').strip(),
                     float(request.form.get('water_surface_sqft',0) or 0),
+                    float(request.form.get('deck_sqft',0) or 0),
                     quote_id))
         db.commit()
         return redirect(url_for('edit_quote', quote_id=quote_id))
@@ -1227,6 +1243,21 @@ def _is_locked_contract(db, quote_id):
     q = db.execute("SELECT status FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     return bool(q and q['status'] == 'contract')
 
+def _estimated_timeline_days(db, line_items):
+    """Rough job duration: sum of each distinct work type's estimated_days across a
+    quote's accepted line items. Not a real schedule -- just a summed estimate shown
+    on the quote/contract, since work types don't run one at a time in practice."""
+    wt_days = {r['work_type_id']: float(r['estimated_days'] or 0)
+               for r in db.execute("SELECT work_type_id, estimated_days FROM work_types").fetchall()}
+    seen = set()
+    total = 0.0
+    for item in line_items:
+        wt_id = item.get('work_type_id') if isinstance(item, dict) else item['work_type_id']
+        if wt_id and wt_id not in seen:
+            seen.add(wt_id)
+            total += wt_days.get(wt_id, 0.0)
+    return round(total, 1)
+
 def _recalc_quote(db, quote_id):
     if _is_locked_contract(db, quote_id):
         # Defensive: a signed Contract's totals (and payment_schedules rows, which may
@@ -1352,6 +1383,7 @@ def add_sub():
     db = get_db()
     table = request.form.get('table','subs')
     name = request.form['name'].strip()
+    phone = request.form.get('phone','').strip()
     if table == 'applicators':
         # Auto-increment P prefix
         rows = db.execute("SELECT sub_id FROM surface_applicators").fetchall()
@@ -1360,7 +1392,7 @@ def add_sub():
             try: nums.append(int(r['sub_id'].replace('P','').replace('p','')))
             except: pass
         next_id = 'P' + str(max(nums) + 1 if nums else 1)
-        db.execute("INSERT INTO surface_applicators VALUES (?,?,'Y')", (next_id, name))
+        db.execute("INSERT INTO surface_applicators (sub_id,name,active,phone) VALUES (?,?,'Y',?)", (next_id, name, phone))
     else:
         # Auto-increment S prefix
         rows = db.execute("SELECT sub_id FROM subs").fetchall()
@@ -1369,7 +1401,7 @@ def add_sub():
             try: nums.append(int(r['sub_id'].replace('S','').replace('s','')))
             except: pass
         next_id = 'S' + str(max(nums) + 1 if nums else 1)
-        db.execute("INSERT INTO subs VALUES (?,?,'Y')", (next_id, name))
+        db.execute("INSERT INTO subs (sub_id,name,active,phone) VALUES (?,?,'Y',?)", (next_id, name, phone))
     db.commit()
     return redirect(url_for('admin_subs'))
 
@@ -1379,9 +1411,25 @@ def toggle_sub():
     db = get_db()
     sub_id = request.form['sub_id']
     table = request.form.get('table','subs')
+    if table not in ('subs', 'surface_applicators'):
+        table = 'subs'
     current = db.execute(f"SELECT active FROM {table} WHERE sub_id=?", (sub_id,)).fetchone()
     new_val = 'N' if current['active'] == 'Y' else 'Y'
     db.execute(f"UPDATE {table} SET active=? WHERE sub_id=?", (new_val, sub_id))
+    db.commit()
+    return redirect(url_for('admin_subs'))
+
+@app.route('/admin/subs/edit', methods=['POST'])
+@require_permission('can_edit_subs')
+def edit_sub():
+    db = get_db()
+    sub_id = request.form['sub_id']
+    table = request.form.get('table','subs')
+    if table not in ('subs', 'surface_applicators'):
+        table = 'subs'
+    name = request.form['name'].strip()
+    phone = request.form.get('phone','').strip()
+    db.execute(f"UPDATE {table} SET name=?, phone=? WHERE sub_id=?", (name, phone, sub_id))
     db.commit()
     return redirect(url_for('admin_subs'))
 
@@ -1397,13 +1445,14 @@ def admin_work_types():
 def add_work_type():
     db = get_db()
     db.execute("""INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,
-                  is_modifier,modified_by,show_on_quote,active,description) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                  is_modifier,modified_by,show_on_quote,active,description,estimated_days) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                (request.form['work_type'], request.form['unit'], request.form['cost_structure'],
                 float(request.form.get('default_markup',30) or 30),
                 float(request.form.get('min_markup',10) or 10),
                 float(request.form.get('min_margin',9.1) or 9.1),
                 request.form.get('is_modifier','N'), request.form.get('modified_by',''),
-                request.form.get('show_on_quote','Y'), 'Y', request.form.get('description','')))
+                request.form.get('show_on_quote','Y'), 'Y', request.form.get('description',''),
+                float(request.form.get('estimated_days',0) or 0)))
     db.commit()
     return redirect(url_for('admin_work_types'))
 
@@ -1411,13 +1460,14 @@ def add_work_type():
 @require_permission('can_edit_work_types')
 def edit_work_type(wt_id):
     db = get_db()
-    db.execute("""UPDATE work_types SET work_type=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,active=?,description=?
+    db.execute("""UPDATE work_types SET work_type=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,active=?,description=?
                   WHERE work_type_id=?""",
                (request.form['work_type'],
                 float(request.form.get('default_markup',30) or 30),
                 float(request.form.get('min_markup',10) or 10),
                 float(request.form.get('min_margin',9.1) or 9.1),
                 float(request.form.get('min_job_price',0) or 0),
+                float(request.form.get('estimated_days',0) or 0),
                 request.form.get('active','Y'), request.form.get('description',''), wt_id))
     db.commit()
     return redirect(url_for('admin_work_types'))

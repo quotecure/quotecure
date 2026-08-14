@@ -37,8 +37,8 @@
 input:checked + .slider { background:var(--blue-light); }
 input:checked + .slider:before { transform:translateX(16px); }
 
-.spa-fields, .shelf-fields { display:none; margin-top:12px; }
-.spa-fields.open, .shelf-fields.open { display:block; }
+.spa-fields, .shelf-fields, .decking-fields { display:none; margin-top:12px; }
+.spa-fields.open, .shelf-fields.open, .decking-fields.open { display:block; }
 
 .total-surface-box {
   background:linear-gradient(135deg,#1e3a8a,#1e40af);
@@ -211,6 +211,24 @@ input:checked + .slider:before { transform:translateX(16px); }
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:-4px;">Linear feet of waterline tile needed around these features — added to tile/cap tile/coping quantity, not pool surface area.</div>
 
+        <!-- Decking -->
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Decking</div>
+            <div class="toggle-sublabel">Deck/paver area — feeds Paver Installation, Paver Sealing &amp; Textured Decking quantity</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="has_decking" onchange="toggleDecking()">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="decking-fields" id="decking-fields">
+          <div class="form-group" style="margin-top:8px;">
+            <label class="form-label">Deck / Paver Area (sqft) <span style="opacity:.6;">(measured on-site — separate from pool interior surface above)</span></label>
+            <input class="form-control" name="deck_sqft" id="deck_sqft" type="number" step="0.1" placeholder="e.g. 600">
+          </div>
+        </div>
+
         <!-- Total surface summary -->
         <div class="total-surface-box" id="total-box">
           <div>
@@ -312,6 +330,12 @@ function toggleShelf() {
   const open = document.getElementById('has_shelf').checked;
   document.getElementById('shelf-fields').classList.toggle('open', open);
   recalc();
+}
+
+function toggleDecking() {
+  const open = document.getElementById('has_decking').checked;
+  document.getElementById('decking-fields').classList.toggle('open', open);
+  if (!open) document.getElementById('deck_sqft').value = '';
 }
 
 // ── Live package pricing ────────────────────────────────────────

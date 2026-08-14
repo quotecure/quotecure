@@ -1269,6 +1269,85 @@ def add_tiered_commission(conn):
     conn.execute("UPDATE commission_policy SET method='tiered_gp' WHERE active='Y'")
 
 
+@migration
+def add_sub_contact_phone(conn):
+    """Phone number for subs and surface applicators -- prep work for eventually
+    sending sub work orders by text/WhatsApp instead of email, since most subs
+    don't really use email. Not wired to any delivery mechanism yet."""
+    for table in ('subs', 'surface_applicators'):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if 'phone' not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN phone TEXT DEFAULT ''")
+
+
+@migration
+def add_work_type_estimated_days(conn):
+    """Estimated calendar days a work type takes on site -- prep work for a
+    summed job timeline shown on the quote/contract. Not wired to any real
+    scheduling/booking-conflict system yet; that's separate, larger, later work."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(work_types)").fetchall()}
+    if 'estimated_days' not in cols:
+        conn.execute("ALTER TABLE work_types ADD COLUMN estimated_days REAL DEFAULT 0")
+
+
+@migration
+def add_textured_decking(conn):
+    """Textured Decking: a decorative acrylic deck coating sold in two finish options,
+    Knockdown ($3.50/sqft cost, $6.50/sqft price) and Variegated ($5.50/sqft cost,
+    $9.00/sqft price) -- Jim's exact numbers. Modeled as two separate catalog work types
+    (one per option) rather than one work type with a material picker, because each
+    option needs its own precise markup% baked in and a material's price always inherits
+    its work type's single shared default_markup, which can't hit two different cost:price
+    ratios at once. Design-a-Deck (Jeff) is the first sub for this, added here since Jim
+    gave the name directly rather than via the Subs admin page."""
+    sub = conn.execute("SELECT sub_id FROM subs WHERE name='Design-a-Deck (Jeff)'").fetchone()
+    if sub:
+        sub_id = sub[0]
+    else:
+        nums = []
+        for r in conn.execute("SELECT sub_id FROM subs").fetchall():
+            try: nums.append(int(r[0].replace('S', '').replace('s', '')))
+            except: pass
+        sub_id = 'S' + str(max(nums) + 1 if nums else 1)
+        conn.execute("INSERT INTO subs (sub_id,name,active,phone) VALUES (?,?,'Y','')", (sub_id, 'Design-a-Deck (Jeff)'))
+
+    options = [
+        ('Textured Decking – Knockdown', 3.50, 6.50),
+        ('Textured Decking – Variegated', 5.50, 9.00),
+    ]
+    for name, cost, price in options:
+        existing = conn.execute("SELECT work_type_id, default_sub_id FROM work_types WHERE work_type=?", (name,)).fetchone()
+        if existing:
+            wt_id = existing[0]
+            if not existing[1]:
+                conn.execute("UPDATE work_types SET default_sub_id=? WHERE work_type_id=?", (sub_id, wt_id))
+        else:
+            markup = round((price / cost - 1) * 100, 4)
+            conn.execute(
+                "INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,"
+                "is_modifier,modified_by,show_on_quote,active,description,default_sub_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (name, 'sqft', 'labor_only', markup, 10.0, 9.1, 'N', '', 'Y', 'Y', '', sub_id)
+            )
+            wt_id = conn.execute("SELECT lastval()").fetchone()[0]
+        rate = conn.execute("SELECT id FROM sub_rates WHERE sub_id=? AND work_type_id=?", (sub_id, wt_id)).fetchone()
+        if not rate:
+            conn.execute("INSERT INTO sub_rates (sub_id,work_type_id,rate,unit,notes) VALUES (?,?,?,?,?)",
+                         (sub_id, wt_id, cost, 'sqft', name.rsplit('–', 1)[-1].strip().lower()))
+
+
+@migration
+def add_deck_sqft(conn):
+    """Deck/paver square footage, entered directly like water_surface_sqft -- a deck has
+    no fixed shape relative to the pool, unlike pool_sqft's perimeter x depth formula, so
+    it can't be derived. Feeds Paver Installation/Sealing (work_type_id 7/8) quantity in
+    _compute_line_item_pricing instead of the pool's own interior total_sqft. Coping
+    (work_type_id 6) already derives correctly from perimeter via _dims_totals's total_lf,
+    so it needed no new field."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'deck_sqft' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN deck_sqft REAL DEFAULT 0")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
