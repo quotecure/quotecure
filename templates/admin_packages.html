@@ -9,6 +9,8 @@
 .pkg-meta { font-size: 12px; margin-top: 6px; opacity: 0.85; }
 .pkg-body { background: var(--surface); padding: 16px 20px; }
 .pp-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: end; margin-top: 14px; }
+.pkg-item-edit { display: none; }
+.pkg-item-edit.open { display: table-row; }
 </style>
 {% endblock %}
 {% block content %}
@@ -81,9 +83,45 @@
                 </form>
               </td>
               <td><span class="badge badge-{{ 'green' if item.active == 'Y' else 'red' }}">{{ 'Active' if item.active == 'Y' else 'Off' }}</span></td>
-              <td>
+              <td style="display:flex;gap:6px;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="toggleEditItem({{ item.id }})">Edit</button>
                 <form method="POST" action="/admin/packages/items/{{ item.id }}/toggle">
                   <button class="btn btn-secondary btn-sm">{{ 'Remove' if item.active == 'Y' else 'Add Back' }}</button>
+                </form>
+              </td>
+            </tr>
+            <tr class="pkg-item-edit" id="edit-item-{{ item.id }}" data-wt="{{ item.work_type_id }}" data-sub="{{ item.default_sub_id or '' }}" data-mat="{{ item.default_material_id or '' }}">
+              <td colspan="7" style="padding:14px 20px;background:var(--surface2);border-bottom:2px solid var(--blue);">
+                <form method="POST" action="/admin/packages/items/{{ item.id }}/edit" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+                  <div style="min-width:120px;">
+                    <span class="nr-label" style="display:block;">Work Type</span>
+                    <span style="font-size:13px;">{{ item.work_type }}</span>
+                  </div>
+                  <div style="min-width:180px;">
+                    <label class="nr-label">Sub</label>
+                    <select class="nr-input edit-sub" name="sub_id"><option value="">— None —</option></select>
+                  </div>
+                  {% if item.work_type_id == 1 %}
+                  <div style="min-width:160px;">
+                    <label class="nr-label">Manufacturer <span style="opacity:.6;">(finish only)</span></label>
+                    <select class="nr-input edit-mfr"><option value="">—</option></select>
+                  </div>
+                  <div style="min-width:200px;">
+                    <label class="nr-label">Material / Finish</label>
+                    <select class="nr-input edit-material" name="material_id">
+                      <option value="{{ item.default_material_id or '' }}">— Keep current{% if item.product_finish %} ({{ item.manufacturer_name }} – {{ item.product_finish }}){% endif %} —</option>
+                    </select>
+                  </div>
+                  {% else %}
+                  <div style="min-width:220px;">
+                    <label class="nr-label">Material</label>
+                    <select class="nr-input edit-material" name="material_id">
+                      <option value="{{ item.default_material_id or '' }}">{% if item.material_series %}— Keep current ({{ item.material_series }}) —{% else %}— None —{% endif %}</option>
+                    </select>
+                  </div>
+                  {% endif %}
+                  <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                  <button class="btn btn-secondary btn-sm" type="button" onclick="toggleEditItem({{ item.id }})">Cancel</button>
                 </form>
               </td>
             </tr>
@@ -190,5 +228,73 @@ document.querySelectorAll('.pkg-add-form').forEach(form => {
     }
   });
 });
+
+// ── Edit existing package item (sub / material) ─────────────────────────────
+function toggleEditItem(itemId) {
+  const row = document.getElementById('edit-item-' + itemId);
+  const opening = !row.classList.contains('open');
+  row.classList.toggle('open');
+  if (opening && !row.dataset.loaded) {
+    row.dataset.loaded = '1';
+    loadEditItemOptions(row);
+  }
+}
+
+async function loadEditItemOptions(row) {
+  const wtId = row.dataset.wt;
+  const curSub = row.dataset.sub;
+  const subSel = row.querySelector('.edit-sub');
+  const mfrSel = row.querySelector('.edit-mfr');
+  const matSel = row.querySelector('.edit-material');
+
+  const r = await fetch('/api/subs_for_work_type?work_type_id=' + wtId);
+  const subs = await r.json();
+  subs.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.sub_id;
+    opt.textContent = s.name;
+    if (s.sub_id === curSub) opt.selected = true;
+    subSel.appendChild(opt);
+  });
+
+  if (mfrSel) {
+    const mr = await fetch('/api/surface_manufacturers');
+    const mfrs = await mr.json();
+    mfrs.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.name;
+      mfrSel.appendChild(opt);
+    });
+    mfrSel.addEventListener('change', async () => {
+      while (matSel.options.length > 1) matSel.remove(1);
+      if (!mfrSel.value) return;
+      const subId = subSel.value;
+      const lr = await fetch('/api/surface_product_lines?manufacturer_id=' + mfrSel.value + '&sub_id=' + subId);
+      const lines = await lr.json();
+      for (const line of lines) {
+        const fr = await fetch('/api/surface_finishes?manufacturer_id=' + mfrSel.value + '&product_line=' + encodeURIComponent(line) + '&sub_id=' + subId);
+        const finishes = await fr.json();
+        finishes.forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = f.product_id;
+          opt.textContent = line + ' – ' + f.finish;
+          matSel.appendChild(opt);
+        });
+      }
+    });
+  } else if (matSel) {
+    const curMat = row.dataset.mat;
+    const mr = await fetch('/api/materials_for_work_type?work_type_id=' + wtId);
+    const mats = await mr.json();
+    mats.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.material_id;
+      opt.textContent = m.label;
+      if (String(m.material_id) === curMat) opt.selected = true;
+      matSel.appendChild(opt);
+    });
+  }
+}
 </script>
 {% endblock %}

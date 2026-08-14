@@ -2408,6 +2408,17 @@ def add_package_item(package_id):
     db.commit()
     return redirect(url_for('admin_packages'))
 
+@app.route('/admin/packages/items/<int:item_id>/edit', methods=['POST'])
+@require_permission('can_access_admin')
+def edit_package_item(item_id):
+    db = get_db()
+    sub_id = request.form.get('sub_id', '')
+    material_id = request.form.get('material_id') or None
+    db.execute("UPDATE package_items SET default_sub_id=?, default_material_id=? WHERE id=?",
+               (sub_id, material_id, item_id))
+    db.commit()
+    return redirect(url_for('admin_packages'))
+
 @app.route('/admin/packages/items/<int:item_id>/toggle', methods=['POST'])
 @require_permission('can_access_admin')
 def toggle_package_item(item_id):

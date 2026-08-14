@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-13 — Editable package items + Robert as default skimmer sub
+
+Skimmer Installation had no default sub on any of the three packages (blank `default_sub_id`), so a package-generated quote always priced skimmer labor at $0. Set Robert (sub S9, already rated at $400/each) as the default across Refresh/Signature/Resort. While fixing this, noticed Admin → Packages had no way to *edit* an existing item's sub/material at all — only add a new item or toggle one active/optional — so a wrong default like this had no fix short of removing and re-adding the whole line. Added a real edit route + inline edit form (mirrors the Add Item cascading dropdowns) so any package item's sub and material can be changed directly.
+
 ## 2026-08-13 — Package pricing refresh + Flagstone Pavers
 
 Updated package price ranges: Refresh $10,000–$20,000 (unchanged scope, no decking), Signature $20,000–$30,000 (now includes Textured Decking – Knockdown, auto-priced off `deck_sqft` — added to the quote at $0 if no decking dimension was entered, same as any other dimension-driven item, not omitted), Resort $30,000+ (now includes **Flagstone Pavers**, a new dedicated work type; Coping Installation was already in Resort's original seed and needed no change since it already derives from pool perimeter).

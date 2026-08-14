@@ -1442,6 +1442,15 @@ def update_package_pricing_and_decking_items(conn):
     add_package_item('Resort', 'Flagstone Pavers', 'S3', flagstone_wt[1] if flagstone_wt else None)
 
 
+@migration
+def set_default_skimmer_sub(conn):
+    """Skimmer Installation package items had no default sub on any package
+    (default_sub_id='') -- labor priced at $0 whenever a package auto-populated a quote's
+    skimmer line. Robert (S9) already has a $400/each skimmer-install rate seeded; just
+    wire him up as the default across all three packages."""
+    conn.execute("UPDATE package_items SET default_sub_id='S9' WHERE work_type_id=11 AND (default_sub_id IS NULL OR default_sub_id='')")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
