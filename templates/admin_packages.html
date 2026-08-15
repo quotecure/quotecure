@@ -57,6 +57,10 @@
           <label class="form-label">Tile Price Ceiling ($/lf) <span style="opacity:.6;">(blank = no ceiling)</span></label>
           <input class="form-control" name="tile_price_threshold" type="number" step="0.01" value="{{ pkg.tile_price_threshold if pkg.tile_price_threshold is not none else '' }}">
         </div>
+        <div style="flex:1;min-width:160px;">
+          <label class="form-label">Surface Price Ceiling ($/sqft) <span style="opacity:.6;">(blank = no ceiling)</span></label>
+          <input class="form-control" name="surface_price_threshold" type="number" step="0.01" value="{{ pkg.surface_price_threshold if pkg.surface_price_threshold is not none else '' }}">
+        </div>
         <button class="btn btn-primary btn-sm" type="submit">Save</button>
       </form>
 

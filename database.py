@@ -1443,6 +1443,227 @@ def update_package_pricing_and_decking_items(conn):
 
 
 @migration
+def add_surface_picker_columns(conn):
+    """Prep for a surface-finish picker mirroring the existing waterline tile picker:
+    - packages.surface_price_threshold: same tiering idea as tile_price_threshold, banding
+      eligible finishes by Pebble Pros rate ($/sqft) instead of tile's material cost.
+      Defaults roughly split the 83 currently-rated finishes (of 172 total -- the rest have
+      no Pebble Pros rate yet and are excluded from the picker until priced) into thirds.
+    - surface_products.product_url: same pattern as materials.product_url -- an outbound
+      link to the manufacturer's own product photo page, not a hosted/hotlinked image."""
+    pkg_cols = {r[1] for r in conn.execute("PRAGMA table_info(packages)").fetchall()}
+    if 'surface_price_threshold' not in pkg_cols:
+        conn.execute("ALTER TABLE packages ADD COLUMN surface_price_threshold REAL")
+    defaults = {'Refresh': 6.00, 'Signature': 8.15}
+    for name, threshold in defaults.items():
+        conn.execute("UPDATE packages SET surface_price_threshold=? WHERE name=? AND surface_price_threshold IS NULL",
+                     (threshold, name))
+
+    sp_cols = {r[1] for r in conn.execute("PRAGMA table_info(surface_products)").fetchall()}
+    if 'product_url' not in sp_cols:
+        conn.execute("ALTER TABLE surface_products ADD COLUMN product_url TEXT DEFAULT ''")
+
+
+SURFACE_PRODUCT_URLS = [
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Antigua', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Azure', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Bluestone', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Bluestone with Black', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Charcoal', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Dune', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Emerald Isle', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Marina', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Marina with Black', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Maui', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Miami Blue', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Midnight Blue', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Natural', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Oyster', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Panama', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Pewter', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Pool Quartz', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Sapphire', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'St. Thomas', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Tahiti', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Tahoe', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis', 'Tropical Blue', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Elite', 'Antigua', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Elite', 'Panama', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Elite', 'Tahoe', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Elite', 'Tropical Blue', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Entry Level', 'Bluestone', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Entry Level', 'Marina', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Entry Level', 'Natural', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Entry Level', 'Oyster', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Entry Level', 'Pool Quartz', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Premium', 'Maui', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Premium', 'Midnight Blue', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Premium', 'Sapphire Blue', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Premium', 'St. Thomas', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Premium', 'Tahiti', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Standard', 'Bluestone with Black', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Standard', 'Marina with Black', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Standard', 'Miami Blue', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Upgrade', 'Azure', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Upgrade', 'Charcoal', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Upgrade', 'Dune', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Upgrade', 'Emerald', 'https://www.pmmproducts.com/pools/'),
+    ('Marquis (Premix Marbletite)', 'Marquis Upgrade', 'Pewter', 'https://www.pmmproducts.com/pools/'),
+    ('PebbleTec', 'Pebble Crystal Standard', 'Warm White', 'https://pebbletec.com/product/specialty-lines/warm-white/'),
+    ('PebbleTec', 'Pebble Crystal Standard', 'Warm White w/ Black Accents', 'https://pebbletec.com/product/specialty-lines/warm-white-with-quartz-accents/'),
+    ('PebbleTec', 'Pebble Crystal Standard', 'Warm White w/ Blue Accents', 'https://pebbletec.com/product/specialty-lines/warm-white-with-quartz-accents/'),
+    ('PebbleTec', 'Pebble Crystal Standard', 'Warm White w/ Teal Accents', 'https://pebbletec.com/product/specialty-lines/warm-white-with-quartz-accents/'),
+    ('PebbleTec', 'Pebble Crystal Upgraded', 'Buff Blue', 'https://pebbletec.com/product/specialty-lines/buff-blue/'),
+    ('PebbleTec', 'Pebble Crystal Upgraded', 'Heather Grey', 'https://pebbletec.com/product/specialty-lines/heather-grey/'),
+    ('PebbleTec', 'Pebble Crystal Upgraded', 'Verde Mist', 'https://pebbletec.com/product/specialty-lines/verde-mist/'),
+    ('PebbleTec', 'Pebble Sheen', 'Aqua Blue', 'https://pebbletec.com/product/pebblesheen/aqua-blue/'),
+    ('PebbleTec', 'Pebble Sheen', 'Arctic White', 'https://pebbletec.com/product/pebblesheen/arctic-white/'),
+    ('PebbleTec', 'Pebble Sheen', 'Black Eclipse', 'https://pebbletec.com/product/pebblesheen/black-eclipse/'),
+    ('PebbleTec', 'Pebble Sheen', 'Black Onyx', 'https://pebbletec.com/product/pebblesheen/black-onyx/'),
+    ('PebbleTec', 'Pebble Sheen', 'Blue Granite', 'https://pebbletec.com/product/pebblesheen/blue-granite/'),
+    ('PebbleTec', 'Pebble Sheen', 'Blue Surf', 'https://pebbletec.com/product/pebblesheen/blue-surf/'),
+    ('PebbleTec', 'Pebble Sheen', 'Bordeaux', 'https://pebbletec.com/product/pebblesheen/bordeaux/'),
+    ('PebbleTec', 'Pebble Sheen', 'Cool Blue', 'https://pebbletec.com/product/pebblesheen/cool-blue/'),
+    ('PebbleTec', 'Pebble Sheen', 'Desert Gold', 'https://pebbletec.com/product/pebblesheen/desert-gold/'),
+    ('PebbleTec', 'Pebble Sheen', 'French Grey', 'https://pebbletec.com/product/pebblesheen/french-grey/'),
+    ('PebbleTec', 'Pebble Sheen', 'Irish Mist', 'https://pebbletec.com/product/pebblesheen/irish-mist/'),
+    ('PebbleTec', 'Pebble Sheen', 'Ocean Blue', 'https://pebbletec.com/product/pebblesheen/ocean-blue/'),
+    ('PebbleTec', 'Pebble Sheen', 'Prism Blue', 'https://pebbletec.com/product/pebblesheen/prism-blue/'),
+    ('PebbleTec', 'Pebble Sheen', 'Slate Blue', 'https://pebbletec.com/product/pebblesheen/slate-blue/'),
+    ('PebbleTec', 'Pebble Sheen', 'Turtle Bay', 'https://pebbletec.com/product/pebblesheen/turtle-bay/'),
+    ('PebbleTec', 'Pebble Sheen', 'White Diamonds', 'https://pebbletec.com/product/pebblesheen/white-diamonds/'),
+    ('PebbleTec', 'Pebble Sheen Elite (SWPF)', 'Arctic White', 'https://pebbletec.com/product/pebblesheen/arctic-white/'),
+    ('PebbleTec', 'Pebble Sheen Elite (SWPF)', 'Cool Blue', 'https://pebbletec.com/product/pebblesheen/cool-blue/'),
+    ('PebbleTec', 'Pebble Sheen Premium (SWPF)', 'Black Eclipse', 'https://pebbletec.com/product/pebblesheen/black-eclipse/'),
+    ('PebbleTec', 'Pebble Sheen Premium (SWPF)', 'Black Onyx', 'https://pebbletec.com/product/pebblesheen/black-onyx/'),
+    ('PebbleTec', 'Pebble Sheen Premium (SWPF)', 'Ocean Blue', 'https://pebbletec.com/product/pebblesheen/ocean-blue/'),
+    ('PebbleTec', 'Pebble Sheen Premium (SWPF)', 'Prism Blue', 'https://pebbletec.com/product/pebblesheen/prism-blue/'),
+    ('PebbleTec', 'Pebble Sheen Premium (SWPF)', 'Slate Blue', 'https://pebbletec.com/product/pebblesheen/slate-blue/'),
+    ('PebbleTec', 'Pebble Sheen Premium (SWPF)', 'Turtle Bay', 'https://pebbletec.com/product/pebblesheen/turtle-bay/'),
+    ('PebbleTec', 'Pebble Sheen Standard (SWPF)', 'Blue Granite', 'https://pebbletec.com/product/pebblesheen/blue-granite/'),
+    ('PebbleTec', 'Pebble Sheen Standard (SWPF)', 'Desert Gold', 'https://pebbletec.com/product/pebblesheen/desert-gold/'),
+    ('PebbleTec', 'Pebble Sheen Standard (SWPF)', 'French Grey', 'https://pebbletec.com/product/pebblesheen/french-grey/'),
+    ('PebbleTec', 'Pebble Sheen Standard (SWPF)', 'White Diamonds', 'https://pebbletec.com/product/pebblesheen/white-diamonds/'),
+    ('PebbleTec', 'Pebble Sheen Upgraded (SWPF)', 'Aqua Blue', 'https://pebbletec.com/product/pebblesheen/aqua-blue/'),
+    ('PebbleTec', 'Pebble Sheen Upgraded (SWPF)', 'Blue Surf', 'https://pebbletec.com/product/pebblesheen/blue-surf/'),
+    ('PebbleTec', 'Pebble Sheen Upgraded (SWPF)', 'Bordeaux', 'https://pebbletec.com/product/pebblesheen/bordeaux/'),
+    ('PebbleTec', 'Pebble Sheen Upgraded (SWPF)', 'Irish Mist', 'https://pebbletec.com/product/pebblesheen/irish-mist/'),
+    ('PebbleTec', 'Pebble Tec Elite', 'Crème de Menthe', 'https://pebbletec.com/product/pebbletec/creme-de-menthe/'),
+    ('PebbleTec', 'Pebble Tec Elite', 'Emerald Bay', 'https://pebbletec.com/product/pebbletec/emerald-bay/'),
+    ('PebbleTec', 'Pebble Tec Elite', 'Moonlight Grey', 'https://pebbletec.com/product/pebbletec/moonlight-grey/'),
+    ('PebbleTec', 'Pebble Tec Elite', 'Sky Blue', 'https://pebbletec.com/product/pebbletec/sky-blue/'),
+    ('PebbleTec', 'Pebble Tec Elite', 'Soft White', 'https://pebbletec.com/product/pebbletec/soft-white/'),
+    ('PebbleTec', 'Pebble Tec Elite', 'Tropical Breeze', 'https://pebbletec.com/product/pebbletec/tropical-breeze/'),
+    ('PebbleTec', 'Pebble Tec Premium', 'Black Marble', 'https://pebbletec.com/product/pebbletec/black-marble/'),
+    ('PebbleTec', 'Pebble Tec Premium', 'Black Pearl', 'https://pebbletec.com/product/pebbletec/black-pearl/'),
+    ('PebbleTec', 'Pebble Tec Premium', 'Blue Lagoon', 'https://pebbletec.com/product/pebbletec/blue-lagoon/'),
+    ('PebbleTec', 'Pebble Tec Premium', 'Midnight Blue', 'https://pebbletec.com/product/pebbletec/midnight-blue/'),
+    ('PebbleTec', 'Pebble Tec Standard', 'Caribbean Blue', 'https://pebbletec.com/product/pebbletec/caribbean-blue/'),
+    ('PebbleTec', 'Pebble Tec Standard', 'Sandy Beach', 'https://pebbletec.com/product/pebbletec/sandy-beach/'),
+    ('PebbleTec', 'Pebble Tec Standard', 'Tahoe Blue', 'https://pebbletec.com/product/pebbletec/tahoe-blue/'),
+    ('PebbleTec', 'Pebble Tec Standard', 'White Pearl', 'https://pebbletec.com/product/pebbletec/white-pearl/'),
+    ('PebbleTec', 'Pebble Tec Upgraded', 'Blue Wave', 'https://pebbletec.com/product/pebbletec/blue-wave/'),
+    ('StoneScapes', 'Mini Pebble Elite', 'Aqua Blue', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpabm/'),
+    ('StoneScapes', 'Mini Pebble Elite', 'Black', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpbm/'),
+    ('StoneScapes', 'Mini Pebble Elite', 'Cameroon', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpcm/'),
+    ('StoneScapes', 'Mini Pebble Elite', 'Midnight Blue', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpmbm/'),
+    ('StoneScapes', 'Mini Pebble Elite', 'Tropics Blue', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmptrbm/'),
+    ('StoneScapes', 'Mini Pebble Premium', 'Aqua White', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpawm/'),
+    ('StoneScapes', 'Mini Pebble Premium', 'Caribbean Blue', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpcbm/'),
+    ('StoneScapes', 'Mini Pebble Premium', 'Dapple Grey', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpdg/'),
+    ('StoneScapes', 'Mini Pebble Premium', 'Rubicon Bay', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmprb/'),
+    ('StoneScapes', 'Mini Pebble Standard White', 'Aqua Cool', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpacm/'),
+    ('StoneScapes', 'Mini Pebble Standard White', 'Salt & Pepper', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpspm/'),
+    ('StoneScapes', 'Mini Pebble Standard White', 'White', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpwm/'),
+    ('StoneScapes', 'Mini Pebble Ultra Elite', 'Astuto', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpa/'),
+    ('StoneScapes', 'Mini Pebble Upgrade', 'French Grey', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpfgm/'),
+    ('StoneScapes', 'Mini Pebble Upgrade', 'Sand', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpsm/'),
+    ('StoneScapes', 'Mini Pebble Upgrade', 'Tahoe Blue', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmptbm/'),
+    ('StoneScapes', 'Mini Pebble Upgrade Sheridan Rock', 'Aqua Cool', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpacm/'),
+    ('StoneScapes', 'Mini Pebble Upgrade Sheridan Rock', 'Salt & Pepper', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpspm/'),
+    ('StoneScapes', 'Mini Pebble Upgrade Sheridan Rock', 'White', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpwm/'),
+    ('StoneScapes', 'StoneScapes', 'Aqua Cool', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrpac/'),
+    ('StoneScapes', 'StoneScapes', 'Aqua White', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrpaw/'),
+    ('StoneScapes', 'StoneScapes', 'Astuto', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpa/'),
+    ('StoneScapes', 'StoneScapes', 'Black', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrpb/'),
+    ('StoneScapes', 'StoneScapes', 'Cameroon', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpcm/'),
+    ('StoneScapes', 'StoneScapes', 'Caribbean Blue', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrpcb/'),
+    ('StoneScapes', 'StoneScapes', 'French Gray', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrpfg/'),
+    ('StoneScapes', 'StoneScapes', 'Kenai Gray', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmkg/'),
+    ('StoneScapes', 'StoneScapes', 'Lake Tekapo', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmlt/'),
+    ('StoneScapes', 'StoneScapes', 'Midnight Blue', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrpmb/'),
+    ('StoneScapes', 'StoneScapes', 'Rubicon Bay', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmprb/'),
+    ('StoneScapes', 'StoneScapes', 'Salt & Pepper', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrpsp/'),
+    ('StoneScapes', 'StoneScapes', 'Sand', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrps/'),
+    ('StoneScapes', 'StoneScapes', 'Tahoe', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrptb/'),
+    ('StoneScapes', 'StoneScapes', 'Tropics Blue', 'https://www.nptpool.com/pool-finishes/all-finishes/ssrptrb/'),
+    ('WetEdge', 'Signature Matrix', 'Aqua', 'https://wetedgetechnologies.com/products/aqua/'),
+    ('WetEdge', 'Signature Matrix', 'Bali Blue', 'https://wetedgetechnologies.com/products/bali-blue/'),
+    ('WetEdge', 'Signature Matrix', 'Black', 'https://wetedgetechnologies.com/products/black/'),
+    ('WetEdge', 'Signature Matrix', 'Black Magic', 'https://wetedgetechnologies.com/products/black-magic/'),
+    ('WetEdge', 'Signature Matrix', 'Blue', 'https://wetedgetechnologies.com/products/blue/'),
+    ('WetEdge', 'Signature Matrix', 'Brilliant Blue', 'https://wetedgetechnologies.com/products/brilliant-blue/'),
+    ('WetEdge', 'Signature Matrix', 'Cadet Blue', 'https://wetedgetechnologies.com/products/cadet-blue/'),
+    ('WetEdge', 'Signature Matrix', 'Caribbean', 'https://wetedgetechnologies.com/products/caribbean/'),
+    ('WetEdge', 'Signature Matrix', 'Coastal Blue', 'https://wetedgetechnologies.com/products/coastal-blue/'),
+    ('WetEdge', 'Signature Matrix', 'Crystal Blue', 'https://wetedgetechnologies.com/products/crystal-blue/'),
+    ('WetEdge', 'Signature Matrix', 'Emerald', 'https://wetedgetechnologies.com/products/emerald/'),
+    ('WetEdge', 'Signature Matrix', 'Gold', 'https://wetedgetechnologies.com/products/gold/'),
+    ('WetEdge', 'Signature Matrix', 'Gulf White', 'https://wetedgetechnologies.com/products/gulf-white/'),
+    ('WetEdge', 'Signature Matrix', 'Laguna Blue', 'https://wetedgetechnologies.com/products/laguna-blue/'),
+    ('WetEdge', 'Signature Matrix', 'Midnight', 'https://wetedgetechnologies.com/products/midnight/'),
+    ('WetEdge', 'Signature Matrix', 'Picasso Blue', 'https://wetedgetechnologies.com/products/picasso-blue/'),
+    ('WetEdge', 'Signature Matrix', 'Plum', 'https://wetedgetechnologies.com/products/plum/'),
+    ('WetEdge', 'Signature Matrix', 'Sage', 'https://wetedgetechnologies.com/products/sage/'),
+    ('WetEdge', 'Signature Matrix', 'Slate', 'https://wetedgetechnologies.com/products/slate/'),
+    ('WetEdge', 'Signature Matrix', 'Summer Sky', 'https://wetedgetechnologies.com/products/summer-sky/'),
+    ('WetEdge', 'Signature Matrix', 'Tahoe', 'https://wetedgetechnologies.com/products/tahoe/'),
+    ('WetEdge', 'Signature Matrix', 'Tropical', 'https://wetedgetechnologies.com/products/tropical/'),
+    ('WetEdge', 'Signature Matrix', 'Turtle Beach', 'https://wetedgetechnologies.com/products/turtle-beach/'),
+]
+
+@migration
+def add_surface_product_urls(conn):
+    """Real product photo page URLs from each manufacturer's own site, researched to match
+    the seeded finish names -- same outbound-link pattern as materials.product_url for tile,
+    no images hosted or hotlinked in-app. Matched by (manufacturer, product_line, finish)
+    name, not product_id, since these rows were seeded via auto-increment and don't have a
+    guaranteed-stable ID across environments. 155 of 172 catalog finishes matched; the rest
+    (mostly StoneScapes colors no longer in National Pool Tile's current lineup, or two
+    Marquis Elite colors not in PMM's current swatch grid) found no confirmed match and are
+    left blank rather than guessed. StoneScapes is sourced from nptpool.com, the current
+    manufacturer of that line -- stonescapes.com itself no longer resolves to it. Marquis
+    finishes share one product-family page (a JS color-swatch grid), not individual URLs."""
+    for mfr_name, product_line, finish, url in SURFACE_PRODUCT_URLS:
+        conn.execute(
+            "UPDATE surface_products SET product_url=? WHERE product_id = ("
+            "  SELECT sp.product_id FROM surface_products sp "
+            "  JOIN surface_manufacturers sm ON sp.manufacturer_id=sm.manufacturer_id "
+            "  WHERE sm.manufacturer_name=? AND sp.product_line=? AND sp.finish=?)",
+            (url, mfr_name, product_line, finish)
+        )
+
+
+@migration
+def set_default_company_logo(conn):
+    """Seed the Bikini Pools of Florida logo as the default company logo, same base64
+    data-URI format as a manual upload via Admin -> Settings (upload_logo()) -- Playwright's
+    page.set_content() has no base URL, so a relative /static/... path wouldn't resolve when
+    rendering the quote PDF; a self-contained data URI is required, not a file reference.
+    Only sets it if logo_path is still empty, so it never clobbers a real upload."""
+    import base64
+    row = conn.execute("SELECT logo_path FROM company_settings WHERE id=1").fetchone()
+    if row and row[0]:
+        return
+    logo_file = os.path.join(os.path.dirname(__file__), 'static', 'bikini_pools_logo.webp')
+    if not os.path.exists(logo_file):
+        return
+    with open(logo_file, 'rb') as f:
+        data = base64.b64encode(f.read()).decode('utf-8')
+    conn.execute("UPDATE company_settings SET logo_path=? WHERE id=1", (f'data:image/webp;base64,{data}',))
+
+
+@migration
 def set_default_skimmer_sub(conn):
     """Skimmer Installation package items had no default sub on any package
     (default_sub_id='') -- labor priced at $0 whenever a package auto-populated a quote's

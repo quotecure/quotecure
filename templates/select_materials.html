@@ -35,6 +35,22 @@
 }
 .item-tab.active { background: #1e3a8a; color: white; border-color: #1e3a8a; }
 .item-tab .item-tab-sel { display: block; font-size: 11px; font-weight: 400; opacity: 0.85; margin-top: 2px; }
+
+.section-heading { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); margin: 0 0 14px; }
+.surface-reveal {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  border: 2px solid var(--border); border-radius: var(--radius); padding: 22px 26px;
+  background: var(--surface); margin-bottom: 14px;
+}
+.surface-reveal-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); }
+.surface-reveal-name { font-size: 20px; font-weight: 700; margin-top: 4px; }
+.surface-reveal-empty { font-size: 15px; color: var(--text3); margin-top: 4px; }
+.surface-explain { margin-bottom: 28px; }
+.surface-explain summary { cursor: pointer; font-size: 13px; color: var(--blue-light); font-weight: 600; list-style: none; }
+.surface-explain summary::-webkit-details-marker { display: none; }
+.surface-explain summary::before { content: "? "; }
+.surface-explain p { font-size: 13px; color: var(--text2); margin-top: 8px; line-height: 1.6; max-width: 640px; }
+.surface-section { margin-bottom: 40px; padding-bottom: 40px; border-bottom: 1px solid var(--border2); }
 </style>
 {% endblock %}
 {% block content %}
@@ -42,13 +58,92 @@
   <div class="sm-header">
     {% if package %}
     <div class="sm-badge">{{ package.badge }}</div>
-    <div class="sm-title">{{ package.name }} — Choose Your Tile</div>
-    <div class="sm-sub">Take a look through the options below and pick your favorite.</div>
+    <div class="sm-title">{{ package.name }} — Personalize Your Pool</div>
+    <div class="sm-sub">Take a look through the options below and pick your favorites.</div>
     {% else %}
-    <div class="sm-title">Choose Your Tile</div>
+    <div class="sm-title">Personalize Your Pool</div>
     {% endif %}
   </div>
 
+  <!-- ── Pool Surface Finish ─────────────────────────────────────────────── -->
+  <div class="surface-section">
+    <div class="section-heading">Pool Surface Finish</div>
+
+    {% if surface_view == 'browse' %}
+      <div class="mfr-tabs">
+        {% for mfr in surface_manufacturers %}
+        <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer={{ manufacturer }}&item_id={{ tile_item.id if tile_item else '' }}&surface_view=browse&surface_manufacturer_id={{ mfr.manufacturer_id }}"
+           class="mfr-tab {% if surface_manufacturer_id == mfr.manufacturer_id %}active{% endif %}">
+          {{ mfr.manufacturer_name }} ({{ surface_mfr_counts.get(mfr.manufacturer_id, 0) }})
+        </a>
+        {% endfor %}
+      </div>
+
+      {% if eligible_surfaces %}
+      <div class="tile-grid">
+        {% for s in eligible_surfaces %}
+        <div class="tile-card {% if surface_item and surface_item.product_id == s.product_id %}selected{% endif %}">
+          <div class="tile-category">{{ s.manufacturer_name }} · {{ s.product_line }}</div>
+          <div class="tile-name">{{ s.finish }}</div>
+          <div class="tile-actions">
+            {% if s.product_url %}
+            <a href="{{ s.product_url }}" target="_blank" class="btn btn-secondary btn-sm">View Photo</a>
+            {% endif %}
+            {% if surface_item %}
+            <form method="POST" action="/quotes/{{ quote.quote_id }}/select_materials/surface">
+              <input type="hidden" name="item_id" value="{{ surface_item.id }}">
+              <input type="hidden" name="product_id" value="{{ s.product_id }}">
+              <input type="hidden" name="package_id" value="{{ package.package_id if package else '' }}">
+              <button type="submit" class="btn btn-primary btn-sm" style="width:100%;">
+                {% if surface_item and surface_item.product_id == s.product_id %}Selected ✓{% else %}Select{% endif %}
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if surface_total_pages > 1 %}
+      <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:24px;">
+        {% if surface_page > 1 %}
+        <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&surface_view=browse&surface_manufacturer_id={{ surface_manufacturer_id }}&surface_page={{ surface_page - 1 }}" class="btn btn-secondary btn-sm">← Previous</a>
+        {% endif %}
+        <span style="font-size:12px;color:var(--text3);">Page {{ surface_page }} of {{ surface_total_pages }} &middot; {{ total_surfaces }} options total</span>
+        {% if surface_page < surface_total_pages %}
+        <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&surface_view=browse&surface_manufacturer_id={{ surface_manufacturer_id }}&surface_page={{ surface_page + 1 }}" class="btn btn-secondary btn-sm">Next →</a>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% else %}
+      <div style="color:var(--text3);padding:20px;">No surface finishes are currently set up for this package tier.</div>
+      {% endif %}
+
+      <div style="margin-top:18px;">
+        <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer={{ manufacturer }}&item_id={{ tile_item.id if tile_item else '' }}&surface_view=reveal" class="btn btn-secondary btn-sm">← Back to your surface</a>
+      </div>
+
+    {% else %}
+      <div class="surface-reveal">
+        <div>
+          <div class="surface-reveal-label">Your Pool Surface</div>
+          {% if surface_item and surface_item.product_label %}
+          <div class="surface-reveal-name">{{ surface_item.product_label }}</div>
+          {% else %}
+          <div class="surface-reveal-empty">No surface finish selected yet</div>
+          {% endif %}
+        </div>
+        {% if surface_item %}
+        <a href="/quotes/{{ quote.quote_id }}/select_materials?package_id={{ package.package_id if package else '' }}&manufacturer={{ manufacturer }}&item_id={{ tile_item.id if tile_item else '' }}&surface_view=browse" class="btn btn-secondary btn-sm">Change It</a>
+        {% endif %}
+      </div>
+      <details class="surface-explain">
+        <summary>What's a surface finish?</summary>
+        <p>The surface finish is the material lining the inside of your pool shell — it's what you actually see, stand on, and touch when you swim. This package includes {{ package.name if package else 'your selected' }}-tier options from Pebble Pros: textured aggregate finishes (small pebbles or stone blended into the material) that hold color and durability far longer than plain paint or standard plaster. Color and texture vary by finish — click "Change It" above to browse other options in your tier.</p>
+      </details>
+    {% endif %}
+  </div>
+
+  <div class="section-heading">Waterline Tile</div>
   {% if tile_items|length > 1 %}
   <div class="item-tabs">
     {% for ti in tile_items %}

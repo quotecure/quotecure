@@ -705,6 +705,39 @@ def _eligible_tiles_for_package(db, package_id, manufacturer='luv'):
     tile_query += " ORDER BY category, series"
     return db.execute(tile_query, tuple(params)).fetchall()
 
+def _eligible_surfaces_for_package(db, package_id, manufacturer_id=None):
+    """Surface finishes priced above the previous tier's threshold (by sort_order), at or
+    below this tier's own threshold -- unbounded above if this tier has no threshold set.
+    Mirrors _eligible_tiles_for_package exactly, banding on the Pebble Pros ('P1') rate
+    instead of tile's material cost. Only finishes with a real P1 rate are eligible -- of
+    172 catalog finishes, 89 have no rate yet and are excluded entirely (not sellable).
+    manufacturer_id filters to one manufacturer for a tab; omitted, returns all eligible."""
+    pkg = db.execute("SELECT * FROM packages WHERE package_id=?", (package_id,)).fetchone()
+    if not pkg:
+        return []
+    prev_threshold = db.execute(
+        "SELECT MAX(surface_price_threshold) FROM packages WHERE sort_order < ?", (pkg['sort_order'],)
+    ).fetchone()[0]
+    upper = pkg['surface_price_threshold']
+    q = ("SELECT sp.product_id, sp.product_line, sp.finish, sp.product_url, sar.rate, "
+         "sm.manufacturer_id, sm.manufacturer_name "
+         "FROM surface_products sp "
+         "JOIN surface_manufacturers sm ON sp.manufacturer_id=sm.manufacturer_id "
+         "JOIN surface_applicator_rates sar ON sp.product_id=sar.product_id AND sar.sub_id='P1' "
+         "WHERE sp.active='Y' AND sm.active='Y'")
+    params = []
+    if manufacturer_id:
+        q += " AND sm.manufacturer_id=?"
+        params.append(manufacturer_id)
+    if prev_threshold is not None:
+        q += " AND sar.rate > ?"
+        params.append(prev_threshold)
+    if upper is not None:
+        q += " AND sar.rate <= ?"
+        params.append(upper)
+    q += " ORDER BY sm.manufacturer_name, sp.product_line, sp.finish"
+    return db.execute(q, tuple(params)).fetchall()
+
 @app.route('/api/estimate_packages', methods=['POST'])
 @login_required
 def estimate_packages():
@@ -833,10 +866,41 @@ def select_materials(quote_id):
     page = min(page, total_pages)
     start = (page - 1) * PER_PAGE
     eligible_tiles = all_tiles[start:start + PER_PAGE]
+
+    # Surface finish (Surface Application, work_type_id=1) -- a single pick per quote, so
+    # no item selector like tile's cap/waterline choice. Defaults to a "here's your surface"
+    # reveal rather than a browsing grid -- most jobs just confirm the package's own default.
+    surface_item = db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND work_type_id=1 ORDER BY id LIMIT 1",
+        (quote_id,)
+    ).fetchone()
+    surface_view = request.args.get('surface_view', 'reveal')
+    if surface_view not in ('reveal', 'browse'):
+        surface_view = 'reveal'
+    surface_manufacturers = db.execute("SELECT * FROM surface_manufacturers WHERE active='Y' ORDER BY manufacturer_name").fetchall()
+    surface_mfr_counts = {}
+    if package_id:
+        for mfr in surface_manufacturers:
+            surface_mfr_counts[mfr['manufacturer_id']] = len(_eligible_surfaces_for_package(db, package_id, mfr['manufacturer_id']))
+    surface_manufacturer_id = request.args.get('surface_manufacturer_id', type=int)
+    if not surface_manufacturer_id or surface_mfr_counts.get(surface_manufacturer_id, 0) == 0:
+        surface_manufacturer_id = next((mid for mid, cnt in surface_mfr_counts.items() if cnt > 0), None)
+    all_surfaces = _eligible_surfaces_for_package(db, package_id, surface_manufacturer_id) if (package_id and surface_manufacturer_id) else []
+    surface_page = max(1, int(request.args.get('surface_page', 1) or 1))
+    surface_total_pages = max(1, (len(all_surfaces) + PER_PAGE - 1) // PER_PAGE)
+    surface_page = min(surface_page, surface_total_pages)
+    s_start = (surface_page - 1) * PER_PAGE
+    eligible_surfaces = all_surfaces[s_start:s_start + PER_PAGE]
+
     return render_template('select_materials.html', quote=quote, package=package,
                            tile_items=tile_items, tile_item=tile_item, eligible_tiles=eligible_tiles,
                            page=page, total_pages=total_pages, total_tiles=len(all_tiles),
-                           manufacturer=manufacturer, luv_count=luv_count, aim_count=aim_count)
+                           manufacturer=manufacturer, luv_count=luv_count, aim_count=aim_count,
+                           surface_item=surface_item, surface_view=surface_view,
+                           surface_manufacturers=surface_manufacturers, surface_mfr_counts=surface_mfr_counts,
+                           surface_manufacturer_id=surface_manufacturer_id, eligible_surfaces=eligible_surfaces,
+                           surface_page=surface_page, surface_total_pages=surface_total_pages,
+                           total_surfaces=len(all_surfaces))
 
 @app.route('/quotes/<int:quote_id>/select_materials/tile', methods=['POST'])
 @login_required
@@ -874,6 +938,51 @@ def select_material_tile(quote_id):
     page = request.form.get('page', '')
     manufacturer = request.form.get('manufacturer', '')
     return redirect(url_for('select_materials', quote_id=quote_id, package_id=package_id, page=page, manufacturer=manufacturer, item_id=item_id))
+
+@app.route('/quotes/<int:quote_id>/select_materials/surface', methods=['POST'])
+@login_required
+def select_material_surface(quote_id):
+    """Mirrors select_material_tile, but Surface Application prices through the labor side
+    (a Pebble Pros $/sqft rate), not a separate material component -- see the wt_id==1
+    special case in _compute_line_item_pricing. Swapping finish only touches labor_* and
+    product_*; material_* stays whatever it already was (always 0 for this work type)."""
+    db = get_db()
+    item_id = request.form.get('item_id')
+    product_id = request.form.get('product_id')
+    row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
+    if not row:
+        return redirect(url_for('select_materials', quote_id=quote_id))
+    sar = db.execute(
+        "SELECT sar.rate, sp.finish, sp.product_line, sm.manufacturer_name "
+        "FROM surface_applicator_rates sar "
+        "JOIN surface_products sp ON sar.product_id=sp.product_id "
+        "JOIN surface_manufacturers sm ON sp.manufacturer_id=sm.manufacturer_id "
+        "WHERE sar.sub_id=? AND sar.product_id=?",
+        (row['sub_id'] or 'P1', product_id)
+    ).fetchone()
+    if sar:
+        label = f"{sar['manufacturer_name']} {sar['product_line']} – {sar['finish']}"
+        can_override = bool(g.role and g.role['can_override_min_markup'])
+        qty = float(row['labor_quantity'])
+        markup = float(row['labor_markup_pct'])
+        min_m = float(row['labor_min_markup'] or 15)
+        l_cost, l_price, l_margin = calc_component(float(sar['rate']), qty, markup, min_m, can_override)
+        m_cost = float(row['material_total_cost'] or 0)
+        m_price = float(row['material_total_price'] or 0)
+        total_cost = round(l_cost + m_cost, 2)
+        total_price = round(l_price + m_price, 2)
+        total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
+        db.execute("""UPDATE quote_line_items SET
+                      product_id=?, product_label=?, labor_cost_per_unit=?,
+                      labor_total_cost=?, labor_total_price=?, labor_margin_pct=?,
+                      total_cost=?, total_price=?, total_margin_pct=? WHERE id=?""",
+                   (product_id, label, float(sar['rate']),
+                    l_cost, l_price, l_margin,
+                    total_cost, total_price, total_margin, item_id))
+        db.commit()
+        _recalc_quote(db, quote_id)
+    package_id = request.form.get('package_id', '')
+    return redirect(url_for('select_materials', quote_id=quote_id, package_id=package_id, surface_view='reveal'))
 
 @app.route('/quotes/<int:quote_id>')
 @login_required
@@ -2386,11 +2495,14 @@ def admin_packages():
 def edit_package(package_id):
     db = get_db()
     threshold = request.form.get('tile_price_threshold', '').strip()
-    db.execute("""UPDATE packages SET name=?,badge=?,price_range_label=?,life_expectancy_label=?,description=?,tile_price_threshold=?
+    surface_threshold = request.form.get('surface_price_threshold', '').strip()
+    db.execute("""UPDATE packages SET name=?,badge=?,price_range_label=?,life_expectancy_label=?,description=?,
+                  tile_price_threshold=?,surface_price_threshold=?
                   WHERE package_id=?""",
                (request.form['name'], request.form.get('badge',''),
                 request.form.get('price_range_label',''), request.form.get('life_expectancy_label',''),
-                request.form.get('description',''), float(threshold) if threshold else None, package_id))
+                request.form.get('description',''), float(threshold) if threshold else None,
+                float(surface_threshold) if surface_threshold else None, package_id))
     db.commit()
     return redirect(url_for('admin_packages'))
 
