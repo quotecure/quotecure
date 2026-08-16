@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Job Ledger dashboard redesign
+
+Replaced the ledger's original two-column cost-only summary with a 3-box dashboard, sketched as a mockup first and refined with Jim before building: **Quoted** (frozen at signing — cost, price, margin, tier, commission), **Actual** (the running numbers — cost so far, over/under, fixed price), **Payoff** (gross profit, margin, tier, commission, each with its delta from quoted inline). Tier is its own labeled row (a small badge) rather than a parenthetical next to margin, per Jim's note that if you want to know the tier, it should be a real data point. Added a progress bar in the header (X of Y items entered) for an at-a-glance read on how complete the picture is. The old separate Expected/Actual commission footer is gone — folded into the two boxes it belongs to.
+
 ## 2026-08-16 — Fixed stale commission on existing quotes/contracts
 
 Found via the Job Ledger's Expected-vs-Actual comparison: `quotes.commission` (and `change_orders.commission`) only recalculate when a line item is edited. When the tiered gross-profit commission model was deployed, it changed the *active policy*, but never touched any quote or CO that wasn't edited afterward — those kept their stale pre-tiered commission (flat % of price) forever, and a signed Contract can never recalculate again once locked, so this was permanent. Confirmed with Jim's real numbers: a contract showing $1,730.25 (10% flat of $17,302.49 price — the old formula) should have shown $424.22 (10% of $4,242.24 gross profit at a 24.52% margin — the correct tiered result). One-time backfill migration recomputes commission for every existing quote and change order from its own already-frozen cost/price, under today's active policy — nothing else (cost, price, line items) changes. Likely affects other real signed contracts too, not just test quotes.

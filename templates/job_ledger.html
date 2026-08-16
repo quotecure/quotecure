@@ -2,13 +2,18 @@
 {% block title %}Job Ledger — {{ quote.customer_name }}{% endblock %}
 {% block extra_css %}
 <style>
-.sum-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:20px; }
-.sum-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 18px; }
-.sum-lbl { font-size:10px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--text3); margin-bottom:4px; }
-.sum-val { font-size:20px; font-weight:700; font-family:'Chivo Mono',monospace; }
-.sum-val.green { color:#4ade80; }
-.sum-val.red { color:#f87171; }
-.sum-val.blue { color:#93c5fd; }
+.ledger-progress-track { width:140px; height:5px; background:var(--border2); border-radius:3px; overflow:hidden; margin-top:5px; }
+.ledger-progress-fill { height:100%; background:var(--blue-light); }
+.ledger-boxes { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px; }
+.ledger-box { background:var(--surface); border-radius:8px; padding:11px 14px; }
+.ledger-box-title { font-size:10px; color:var(--text3); font-weight:600; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:8px; }
+.ledger-row { display:flex; justify-content:space-between; align-items:center; font-size:12px; padding:3px 0; }
+.ledger-row .lbl { color:var(--text2); }
+.ledger-row .val { color:var(--text); font-weight:600; }
+.ledger-row .delta-up { color:#fca5a5; font-weight:400; }
+.ledger-row .delta-down { color:#86efac; font-weight:400; }
+.ledger-box-note { font-size:10px; color:var(--text3); padding:0 0 6px; }
+.ledger-box-divider { border-top:1px solid var(--border2); margin-top:4px; padding-top:6px; }
 .ledger-actual-input { width:110px; }
 .ledger-not-entered { color:var(--text3); font-style:italic; font-size:12px; }
 .ledger-edit-row td { background:var(--surface2); padding:14px 20px; border-bottom:2px solid var(--blue); }
@@ -16,32 +21,68 @@
 {% endblock %}
 {% block content %}
 <div class="page-wide">
-  <div class="page-header" style="margin-bottom:12px;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
     <div>
       <div class="page-title">Job Ledger — {{ quote.customer_name }}</div>
       <div class="page-subtitle">QT-{{ '%04d'|format(quote.quote_id) }} — signed {{ quote.signed_at }}</div>
     </div>
-    <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Contract</a>
+    <div style="display:flex;align-items:flex-start;gap:16px;">
+      <div style="text-align:right;">
+        <div style="font-size:10px;color:var(--text3);font-weight:600;">{{ totals.entered_count }} of {{ totals.total_items }} items entered</div>
+        <div class="ledger-progress-track"><div class="ledger-progress-fill" style="width:{{ totals.pct_entered }}%;"></div></div>
+      </div>
+      <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Contract</a>
+    </div>
   </div>
 
-  <div class="sum-grid">
-    <div class="sum-card">
-      <div class="sum-lbl">Quoted Cost</div>
-      <div class="sum-val">${{ '%.2f'|format(totals.total_quoted_cost) }}</div>
+  <div class="ledger-boxes">
+
+    <div class="ledger-box">
+      <div class="ledger-box-title">Quoted (at signing)</div>
+      <div class="ledger-row"><span class="lbl">Cost</span><span class="val">${{ '%.2f'|format(totals.total_quoted_cost) }}</span></div>
+      <div class="ledger-row"><span class="lbl">Price</span><span class="val">${{ '%.2f'|format(totals.total_price) }}</span></div>
+      <div class="ledger-row"><span class="lbl">Margin</span><span class="val">{{ totals.quoted_margin_pct }}%</span></div>
+      {% if totals.quoted_tier %}
+      <div class="ledger-row"><span class="lbl">Tier</span><span class="badge badge-blue">Tier {{ totals.quoted_tier }}</span></div>
+      {% endif %}
+      <div class="ledger-row ledger-box-divider"><span class="lbl">Commission</span><span class="val">${{ '%.2f'|format(totals.expected_commission) }}</span></div>
     </div>
-    <div class="sum-card">
-      <div class="sum-lbl">Actual Cost So Far</div>
-      <div class="sum-val blue">${{ '%.2f'|format(totals.total_actual_cost) }}</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:2px;">{{ totals.entered_count }} of {{ totals.total_items }} items entered</div>
+
+    <div class="ledger-box">
+      <div class="ledger-box-title">Actual (running)</div>
+      <div class="ledger-row"><span class="lbl">Cost so far</span><span class="val" style="color:#93c5fd;">${{ '%.2f'|format(totals.total_actual_cost) }}</span></div>
+      <div class="ledger-box-note">entered + remaining-quoted</div>
+      <div class="ledger-row ledger-box-divider">
+        <span class="lbl">{{ 'Under by' if totals.cost_diff < 0 else 'Over by' }}</span>
+        <span class="val" style="{% if totals.cost_diff > 0 %}color:#fca5a5;{% elif totals.cost_diff < 0 %}color:#86efac;{% endif %}">
+          {% if totals.cost_diff > 0 %}+${{ '%.2f'|format(totals.cost_diff) }}{% elif totals.cost_diff < 0 %}-${{ '%.2f'|format(-totals.cost_diff) }}{% else %}$0.00{% endif %}
+        </span>
+      </div>
+      <div class="ledger-row"><span class="lbl">Price (fixed)</span><span class="val">${{ '%.2f'|format(totals.total_price) }}</span></div>
     </div>
-    <div class="sum-card">
-      <div class="sum-lbl">{{ 'Running Under By' if totals.cost_diff < 0 else 'Running Over By' }}</div>
-      <div class="sum-val {{ 'green' if totals.cost_diff < 0 else 'red' if totals.cost_diff > 0 else '' }}">
-        {% if totals.cost_diff > 0 %}+${{ '%.2f'|format(totals.cost_diff) }}
-        {% elif totals.cost_diff < 0 %}-${{ '%.2f'|format(-totals.cost_diff) }}
-        {% else %}$0.00{% endif %}
+
+    <div class="ledger-box">
+      <div class="ledger-box-title">Payoff (right now)</div>
+      <div class="ledger-row">
+        <span class="lbl">Gross profit</span>
+        <span class="val">${{ '%.2f'|format(totals.actual_gross_profit) }}
+          {% if totals.gross_profit_diff > 0 %}<span class="delta-down">+${{ '%.2f'|format(totals.gross_profit_diff) }}</span>
+          {% elif totals.gross_profit_diff < 0 %}<span class="delta-up">-${{ '%.2f'|format(-totals.gross_profit_diff) }}</span>{% endif %}
+        </span>
+      </div>
+      <div class="ledger-row"><span class="lbl">Margin</span><span class="val">{{ totals.actual_margin_pct }}%</span></div>
+      {% if totals.actual_tier %}
+      <div class="ledger-row"><span class="lbl">Tier</span><span class="badge badge-blue">Tier {{ totals.actual_tier }}</span></div>
+      {% endif %}
+      <div class="ledger-row ledger-box-divider">
+        <span class="lbl">Commission</span>
+        <span class="val">${{ '%.2f'|format(totals.actual_commission) }}
+          {% if totals.commission_diff > 0 %}<span class="delta-down">+${{ '%.2f'|format(totals.commission_diff) }}</span>
+          {% elif totals.commission_diff < 0 %}<span class="delta-up">-${{ '%.2f'|format(-totals.commission_diff) }}</span>{% endif %}
+        </span>
       </div>
     </div>
+
   </div>
 
   <div class="table-wrap">
@@ -110,21 +151,6 @@
         {% endif %}
       </tbody>
     </table>
-  </div>
-
-  <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border2);display:flex;justify-content:flex-end;gap:36px;">
-    <div style="text-align:right;">
-      <div class="sum-lbl">Expected Commission</div>
-      <div class="sum-val" style="color:var(--text2);">${{ '%.2f'|format(totals.expected_commission) }}</div>
-    </div>
-    <div style="text-align:right;">
-      <div class="sum-lbl">Actual Commission</div>
-      <div class="sum-val">
-        ${{ '%.2f'|format(totals.actual_commission) }}
-        {% if totals.commission_diff > 0 %}<span style="font-size:12px;color:#4ade80;">+${{ '%.2f'|format(totals.commission_diff) }}</span>
-        {% elif totals.commission_diff < 0 %}<span style="font-size:12px;color:#f87171;">-${{ '%.2f'|format(-totals.commission_diff) }}</span>{% endif %}
-      </div>
-    </div>
   </div>
 
   {% if not can_edit %}

@@ -368,11 +368,15 @@ def _ledger_item_actuals(item):
     return resolved_labor, resolved_material, round(total, 2), (labor_entered and material_entered)
 
 def _ledger_totals(db, quote_id, items):
-    """Job-level ledger summary: quoted vs running-actual cost/diff, and Expected vs Actual
-    commission. Expected commission is whatever's already frozen on the quote + its signed
-    Change Orders (never recomputed here). Actual commission reruns the same
-    _compute_commission formula against the running actual cost, holding the signed sale
-    price fixed -- price doesn't change after signing, only cost does."""
+    """Job-level ledger summary: quoted vs running-actual cost/diff/margin/tier/gross-profit,
+    and Expected vs Actual commission. Expected commission is whatever's already frozen on
+    the quote + its signed Change Orders (never recomputed here); quoted_tier/margin are
+    instead freshly computed off the blended quoted cost/price, so on a contract with a
+    Change Order at a very different margin than the original quote, the tier badge and the
+    frozen commission figure can technically disagree slightly -- same known tier-blending
+    nuance as expected_commission vs actual_commission below. Actual commission/tier/margin
+    all rerun fresh against the running actual cost, holding the signed sale price fixed --
+    price doesn't change after signing, only cost does."""
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     signed_cos = db.execute(
         "SELECT total_cost, total_price, commission FROM change_orders WHERE quote_id=? AND status='signed'",
@@ -394,16 +398,40 @@ def _ledger_totals(db, quote_id, items):
     policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
     actual_commission = _compute_commission(policy, total_actual_cost, total_price)
 
+    quoted_gross_profit = total_price - total_quoted_cost
+    actual_gross_profit = total_price - total_actual_cost
+    quoted_margin_pct = (quoted_gross_profit / total_price * 100) if total_price else 0
+    actual_margin_pct = (actual_gross_profit / total_price * 100) if total_price else 0
+
+    def tier_for(margin_pct):
+        # Tier is a tiered_gp-specific concept -- flat-rate policies (pct_of_price/
+        # pct_of_margin) don't have one, so the UI hides the Tier row entirely for those.
+        if not policy or policy['method'] != 'tiered_gp':
+            return None
+        if margin_pct < float(policy['tier1_threshold']):
+            return 1
+        elif margin_pct < float(policy['tier2_threshold']):
+            return 2
+        return 3
+
     return {
         'total_quoted_cost': round(total_quoted_cost, 2),
         'total_actual_cost': round(total_actual_cost, 2),
         'cost_diff': round(total_actual_cost - total_quoted_cost, 2),
         'total_price': round(total_price, 2),
+        'quoted_gross_profit': round(quoted_gross_profit, 2),
+        'actual_gross_profit': round(actual_gross_profit, 2),
+        'gross_profit_diff': round(actual_gross_profit - quoted_gross_profit, 2),
+        'quoted_margin_pct': round(quoted_margin_pct, 1),
+        'actual_margin_pct': round(actual_margin_pct, 1),
+        'quoted_tier': tier_for(quoted_margin_pct),
+        'actual_tier': tier_for(actual_margin_pct),
         'expected_commission': round(expected_commission, 2),
         'actual_commission': round(actual_commission, 2),
         'commission_diff': round(actual_commission - expected_commission, 2),
         'entered_count': entered_count,
         'total_items': len(items),
+        'pct_entered': round(entered_count / len(items) * 100) if items else 0,
     }
 
 @app.route('/quotes/<int:quote_id>/ledger')
