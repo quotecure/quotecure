@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Larger logo on Quote/Change Order PDFs
+
+Bumped the logo from max-height 90px/max-width 200px to 140px/260px on both the Quote and Change Order preview/PDF templates — the previous size (chosen when the logo was first added) still read a little small on the printed page. Verified via a real generated PDF; header layout has no fixed height so it just grows to fit, no overlap with the QUOTE/date block.
+
 ## 2026-08-16 — Job Ledger dashboard redesign
 
 Replaced the ledger's original two-column cost-only summary with a 3-box dashboard, sketched as a mockup first and refined with Jim before building: **Quoted** (frozen at signing — cost, price, margin, tier, commission), **Actual** (the running numbers — cost so far, over/under, fixed price), **Payoff** (gross profit, margin, tier, commission, each with its delta from quoted inline). Tier is its own labeled row (a small badge) rather than a parenthetical next to margin, per Jim's note that if you want to know the tier, it should be a real data point. Added a progress bar in the header (X of Y items entered) for an at-a-glance read on how complete the picture is. The old separate Expected/Actual commission footer is gone — folded into the two boxes it belongs to.
