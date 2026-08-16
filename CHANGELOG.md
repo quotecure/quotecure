@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Fixed stale commission on existing quotes/contracts
+
+Found via the Job Ledger's Expected-vs-Actual comparison: `quotes.commission` (and `change_orders.commission`) only recalculate when a line item is edited. When the tiered gross-profit commission model was deployed, it changed the *active policy*, but never touched any quote or CO that wasn't edited afterward — those kept their stale pre-tiered commission (flat % of price) forever, and a signed Contract can never recalculate again once locked, so this was permanent. Confirmed with Jim's real numbers: a contract showing $1,730.25 (10% flat of $17,302.49 price — the old formula) should have shown $424.22 (10% of $4,242.24 gross profit at a 24.52% margin — the correct tiered result). One-time backfill migration recomputes commission for every existing quote and change order from its own already-frozen cost/price, under today's active policy — nothing else (cost, price, line items) changes. Likely affects other real signed contracts too, not just test quotes.
+
 ## 2026-08-16 — Job cost ledger (experimental)
 
 New per-contract Job Ledger: once a quote is signed, every effective work item (original line items + anything added/removed by signed Change Orders, reusing `_contract_effective_items`) can get a real actual labor/material cost entered as work happens, alongside the frozen quoted cost — visible over/under at a glance. Reached via a "📒 Job Ledger" button next to Create Change Order on a signed contract.

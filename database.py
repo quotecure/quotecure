@@ -1702,6 +1702,54 @@ def add_job_ledger(conn):
         conn.execute("UPDATE roles SET can_enter_actuals=1 WHERE role_name IN ('Owner', 'Coordinator')")
 
 
+@migration
+def backfill_commission_under_active_policy(conn):
+    """Found via the Job Ledger: quotes.commission / change_orders.commission only get
+    recalculated when a line item is edited (_recalc_quote / _recalc_change_order). When
+    the tiered gross-profit commission model was deployed, it changed the ACTIVE POLICY,
+    but never touched any quote/CO that wasn't edited afterward -- those kept their stale
+    pre-tiered commission (flat % of price) forever, since a signed Contract can never
+    recalculate again once locked. One-time backfill: recompute every quote's and every
+    change order's commission from its own already-frozen cost/price, under whichever
+    policy is active now. Nothing else (cost, price, margin, line items) changes."""
+    policy = conn.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
+    if not policy:
+        return
+    method = policy['method']
+    rate = float(policy['rate'] or 0)
+    tier1_threshold = float(policy['tier1_threshold'] or 20)
+    tier2_threshold = float(policy['tier2_threshold'] or 30)
+    tier1_rate = float(policy['tier1_rate'] or 8)
+    tier2_rate = float(policy['tier2_rate'] or 10)
+    tier3_rate = float(policy['tier3_rate'] or 12)
+
+    def compute(total_cost, total_price):
+        total_cost = float(total_cost or 0)
+        total_price = float(total_price or 0)
+        gross_profit = total_price - total_cost
+        if method == 'pct_of_price':
+            return total_price * rate / 100
+        if method == 'pct_of_margin':
+            return gross_profit * rate / 100
+        if method == 'tiered_gp':
+            margin_pct = (gross_profit / total_price * 100) if total_price else 0
+            if margin_pct < tier1_threshold:
+                tier_rate = tier1_rate
+            elif margin_pct < tier2_threshold:
+                tier_rate = tier2_rate
+            else:
+                tier_rate = tier3_rate
+            return gross_profit * tier_rate / 100
+        return 0
+
+    for row in conn.execute("SELECT quote_id, total_cost, total_price FROM quotes").fetchall():
+        conn.execute("UPDATE quotes SET commission=? WHERE quote_id=?",
+                     (round(compute(row[1], row[2]), 2), row[0]))
+    for row in conn.execute("SELECT id, total_cost, total_price FROM change_orders").fetchall():
+        conn.execute("UPDATE change_orders SET commission=? WHERE id=?",
+                     (round(compute(row[1], row[2]), 2), row[0]))
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
