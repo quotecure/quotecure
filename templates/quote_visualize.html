@@ -8,6 +8,34 @@
 .viz-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
 .viz-pair-col { text-align: center; }
 .viz-pair-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text3); margin-bottom: 8px; }
+
+/* Result/history images: much larger than the upload preview, and tappable to open in a
+   full-screen lightbox -- small on an iPad otherwise, per Jim's feedback. (Not a new tab:
+   these are base64 data URIs, and Chrome blocks target="_blank" navigation to data: URLs
+   as an anti-phishing measure, so a same-page lightbox is the only reliable way to enlarge
+   one -- it also works better on iPad than juggling browser tabs.) */
+.viz-result-img, .viz-history-img { max-width: 100%; max-height: 620px; border-radius: var(--radius-sm); display: block; margin: 0 auto; cursor: zoom-in; }
+.viz-img-wrap { display: block; position: relative; }
+.viz-img-wrap:hover .viz-img-hint { opacity: 1; }
+.viz-img-hint {
+  position: absolute; bottom: 10px; right: 10px; background: rgba(15,23,42,0.75); color: white;
+  font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 20px; opacity: 0;
+  transition: opacity 0.15s; pointer-events: none;
+}
+@media (max-width: 700px) {
+  .viz-pair { grid-template-columns: 1fr; }
+}
+.viz-lightbox {
+  display: none; position: fixed; inset: 0; z-index: 1000; background: rgba(4,8,16,0.92);
+  align-items: center; justify-content: center; padding: 24px; cursor: zoom-out;
+}
+.viz-lightbox.open { display: flex; }
+.viz-lightbox img { max-width: 100%; max-height: 100%; border-radius: var(--radius-sm); box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.viz-lightbox-close {
+  position: absolute; top: 18px; right: 22px; color: white; font-size: 28px; line-height: 1;
+  background: none; border: none; cursor: pointer; opacity: 0.8;
+}
+.viz-lightbox-close:hover { opacity: 1; }
 .viz-loading { display: none; align-items: center; gap: 10px; justify-content: center; padding: 30px; color: var(--text2); font-size: 13px; }
 .viz-loading.active { display: flex; }
 .viz-spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--blue-light); border-radius: 50%; animation: viz-spin 0.8s linear infinite; }
@@ -64,11 +92,17 @@
       <div class="viz-pair" id="viz-result-pair" style="display:none;">
         <div class="viz-pair-col">
           <div class="viz-pair-label">Before</div>
-          <img id="viz-result-original" class="viz-preview-img">
+          <div class="viz-img-wrap" onclick="openLightbox(this.querySelector('img').src)">
+            <img id="viz-result-original" class="viz-result-img">
+            <span class="viz-img-hint">⤢ Tap to Enlarge</span>
+          </div>
         </div>
         <div class="viz-pair-col">
           <div class="viz-pair-label">Rendered Concept</div>
-          <img id="viz-result-generated" class="viz-preview-img">
+          <div class="viz-img-wrap" onclick="openLightbox(this.querySelector('img').src)">
+            <img id="viz-result-generated" class="viz-result-img">
+            <span class="viz-img-hint">⤢ Tap to Enlarge</span>
+          </div>
         </div>
       </div>
     </div>
@@ -83,11 +117,17 @@
     <div class="viz-pair">
       <div class="viz-pair-col">
         <div class="viz-pair-label">Before</div>
-        <img src="{{ v.original_image }}" class="viz-preview-img">
+        <div class="viz-img-wrap" onclick="openLightbox(this.querySelector('img').src)">
+          <img src="{{ v.original_image }}" class="viz-history-img">
+          <span class="viz-img-hint">⤢ Tap to Enlarge</span>
+        </div>
       </div>
       <div class="viz-pair-col">
         <div class="viz-pair-label">Rendered Concept</div>
-        <img src="{{ v.generated_image }}" class="viz-preview-img">
+        <div class="viz-img-wrap" onclick="openLightbox(this.querySelector('img').src)">
+          <img src="{{ v.generated_image }}" class="viz-history-img">
+          <span class="viz-img-hint">⤢ Tap to Enlarge</span>
+        </div>
       </div>
     </div>
     {% elif v.status == 'error' %}
@@ -101,6 +141,23 @@
   {% endif %}
 </div>
 
+<div class="viz-lightbox" id="viz-lightbox" onclick="closeLightbox()">
+  <button class="viz-lightbox-close" onclick="closeLightbox()">&times;</button>
+  <img id="viz-lightbox-img" onclick="event.stopPropagation()">
+</div>
+
+<script>
+function openLightbox(src) {
+  document.getElementById('viz-lightbox-img').src = src;
+  document.getElementById('viz-lightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('viz-lightbox').classList.remove('open');
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeLightbox();
+});
+</script>
 <script>
 const QID = {{ quote.quote_id }};
 const fileInput = document.getElementById('viz-photo-input');

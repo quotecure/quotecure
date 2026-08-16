@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Larger Visualize images with tap-to-enlarge
+
+Before/after renderings on the Visualize page were capped at 340px tall — small, especially on an iPad. Bumped the display size substantially and added a tap-to-enlarge lightbox (full-screen overlay, tap backdrop/✕/Escape to close). Originally tried a plain `<a target="_blank">` to pop the image into its own tab, but every image in this app (visualizations, logo) is stored as a base64 data URI, and Chrome blocks `target="_blank"` navigation to `data:` URLs as an anti-phishing measure — silently does nothing, no error. A same-page lightbox sidesteps that entirely and works better on iPad besides (no tab-juggling).
+
 ## 2026-08-15 — Pool surface finish picker
 
 Added a picker for the pool interior surface finish (Surface Application), living on the same post-package-selection screen as the existing waterline tile picker (`select_materials.html`), tiered by package the same way tile is. Deliberately **not** a browsing grid by default — Jim's read on real usage was "90% just confirming the assigned surface, 5% want something different, 5% don't know what a surface finish even is." So the default view is a reveal card ("Your Pool Surface: PebbleTec Pebble Sheen – French Grey") with a "Change It" button that opens the full manufacturer-tabbed, price-tiered browsing grid (PebbleTec/StoneScapes/Marquis/WetEdge), plus a collapsed "What's a surface finish?" explainer for the confused 5%. New `packages.surface_price_threshold` column bands eligible finishes by Pebble Pros rate, same mechanic as `tile_price_threshold`, editable in Admin → Packages.
