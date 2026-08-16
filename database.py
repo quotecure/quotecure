@@ -1672,6 +1672,36 @@ def set_default_skimmer_sub(conn):
     conn.execute("UPDATE package_items SET default_sub_id='S9' WHERE work_type_id=11 AND (default_sub_id IS NULL OR default_sub_id='')")
 
 
+@migration
+def add_job_ledger(conn):
+    """Job cost ledger: after a quote becomes a signed Contract, actual labor/material cost
+    can be entered per work item (as invoices/labor come in) alongside the frozen quoted
+    cost, so the gap is visible and commission can be recalculated off real profit instead
+    of quoted profit. Deliberately not a separate ledger table -- actuals live directly on
+    quote_line_items and change_order_items (both already share identical column shapes,
+    per _contract_effective_items's docstring), so the existing effective-item resolver
+    keeps working unchanged and there's no parallel table to keep in sync. NULL means "not
+    entered yet", distinct from a real $0 actual. can_enter_actuals is a new per-role
+    permission (Owner/Coordinator get it, Sales doesn't) -- but Sales still has full VIEW
+    access including commission, per Jim's pro-transparency stance; the permission only
+    gates the input form, not the page."""
+    for table in ('quote_line_items', 'change_order_items'):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if 'actual_labor_cost' not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN actual_labor_cost REAL")
+        if 'actual_material_cost' not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN actual_material_cost REAL")
+        if 'actual_entered_by' not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN actual_entered_by TEXT DEFAULT ''")
+        if 'actual_entered_at' not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN actual_entered_at TEXT DEFAULT ''")
+
+    role_cols = {r[1] for r in conn.execute("PRAGMA table_info(roles)").fetchall()}
+    if 'can_enter_actuals' not in role_cols:
+        conn.execute("ALTER TABLE roles ADD COLUMN can_enter_actuals INTEGER DEFAULT 0")
+        conn.execute("UPDATE roles SET can_enter_actuals=1 WHERE role_name IN ('Owner', 'Coordinator')")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

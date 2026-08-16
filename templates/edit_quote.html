@@ -135,6 +135,7 @@
       <span style="font-size:12px;color:var(--text2);">Signed {{ quote.signed_at }} by {{ quote.signed_name }} — line items and details are locked. Changes go through a Change Order.</span>
     </div>
     <div style="display:flex;gap:8px;">
+      <a href="/quotes/{{ quote.quote_id }}/ledger" class="btn btn-secondary btn-sm">📒 Job Ledger</a>
       <form method="POST" action="/quotes/{{ quote.quote_id }}/change_orders" style="display:inline">
         <button class="btn btn-primary btn-sm" type="submit">+ Create Change Order</button>
       </form>

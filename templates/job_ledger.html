@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% block title %}Job Ledger — {{ quote.customer_name }}{% endblock %}
+{% block extra_css %}
+<style>
+.sum-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:20px; }
+.sum-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 18px; }
+.sum-lbl { font-size:10px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--text3); margin-bottom:4px; }
+.sum-val { font-size:20px; font-weight:700; font-family:'Chivo Mono',monospace; }
+.sum-val.green { color:#4ade80; }
+.sum-val.red { color:#f87171; }
+.sum-val.blue { color:#93c5fd; }
+.ledger-actual-input { width:110px; }
+.ledger-not-entered { color:var(--text3); font-style:italic; font-size:12px; }
+.ledger-edit-row td { background:var(--surface2); padding:14px 20px; border-bottom:2px solid var(--blue); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-wide">
+  <div class="page-header" style="margin-bottom:12px;">
+    <div>
+      <div class="page-title">Job Ledger — {{ quote.customer_name }}</div>
+      <div class="page-subtitle">QT-{{ '%04d'|format(quote.quote_id) }} — signed {{ quote.signed_at }}</div>
+    </div>
+    <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Contract</a>
+  </div>
+
+  <div class="sum-grid">
+    <div class="sum-card">
+      <div class="sum-lbl">Quoted Cost</div>
+      <div class="sum-val">${{ '%.2f'|format(totals.total_quoted_cost) }}</div>
+    </div>
+    <div class="sum-card">
+      <div class="sum-lbl">Actual Cost So Far</div>
+      <div class="sum-val blue">${{ '%.2f'|format(totals.total_actual_cost) }}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">{{ totals.entered_count }} of {{ totals.total_items }} items entered</div>
+    </div>
+    <div class="sum-card">
+      <div class="sum-lbl">{{ 'Running Under By' if totals.cost_diff < 0 else 'Running Over By' }}</div>
+      <div class="sum-val {{ 'green' if totals.cost_diff < 0 else 'red' if totals.cost_diff > 0 else '' }}">
+        {% if totals.cost_diff > 0 %}+${{ '%.2f'|format(totals.cost_diff) }}
+        {% elif totals.cost_diff < 0 %}-${{ '%.2f'|format(-totals.cost_diff) }}
+        {% else %}$0.00{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Work Item</th>
+          <th class="right">Quoted</th>
+          <th class="right">Actual</th>
+          <th class="right">Diff</th>
+          {% if can_edit %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        {% set diff = item.actual_total - item.total_cost %}
+        <tr>
+          <td>
+            {{ item.work_type_label or item.label }}
+            {% if item.has_material %}<div style="font-size:11px;color:var(--text3);">labor + material</div>{% endif %}
+          </td>
+          <td class="right mono">${{ '%.2f'|format(item.total_cost) }}</td>
+          <td class="right mono">
+            {% if item.fully_entered %}${{ '%.2f'|format(item.actual_total) }}
+            {% else %}<span class="ledger-not-entered">not entered</span>{% endif %}
+          </td>
+          <td class="right mono" style="{% if diff > 0 %}color:#f87171;{% elif diff < 0 %}color:#4ade80;{% endif %}">
+            {% if item.fully_entered %}
+              {% if diff > 0 %}+${{ '%.2f'|format(diff) }}{% elif diff < 0 %}-${{ '%.2f'|format(-diff) }}{% else %}$0.00{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          {% if can_edit %}
+          <td><button class="btn btn-secondary btn-sm" type="button" onclick="toggleActualForm({{ item.id }})">Edit</button></td>
+          {% endif %}
+        </tr>
+        {% if can_edit %}
+        <tr class="ledger-edit-row" id="edit-{{ item.id }}" style="display:none;">
+          <td colspan="5">
+            <form method="POST" action="/quotes/{{ quote.quote_id }}/ledger/{{ item.id }}/actual" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+              <input type="hidden" name="source" value="{{ item.source }}">
+              <div>
+                <label class="form-label">Actual Labor Cost</label>
+                <input class="form-control ledger-actual-input" type="number" step="0.01" name="actual_labor_cost"
+                       value="{{ item.actual_labor_cost if item.actual_labor_cost is not none else '' }}"
+                       placeholder="${{ '%.2f'|format(item.labor_total_cost or 0) }} quoted">
+              </div>
+              {% if item.has_material %}
+              <div>
+                <label class="form-label">Actual Material Cost</label>
+                <input class="form-control ledger-actual-input" type="number" step="0.01" name="actual_material_cost"
+                       value="{{ item.actual_material_cost if item.actual_material_cost is not none else '' }}"
+                       placeholder="${{ '%.2f'|format(item.material_total_cost or 0) }} quoted">
+              </div>
+              {% endif %}
+              <button class="btn btn-primary btn-sm" type="submit">Save</button>
+              {% if item.actual_entered_by %}
+              <span style="font-size:11px;color:var(--text3);">Last entered by {{ item.actual_entered_by }} — {{ item.actual_entered_at[:16] }}</span>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+        {% if not items %}
+        <tr><td colspan="{{ 5 if can_edit else 4 }}" style="text-align:center;padding:20px;color:var(--text3);">No work items on this contract yet.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border2);display:flex;justify-content:flex-end;gap:36px;">
+    <div style="text-align:right;">
+      <div class="sum-lbl">Expected Commission</div>
+      <div class="sum-val" style="color:var(--text2);">${{ '%.2f'|format(totals.expected_commission) }}</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="sum-lbl">Actual Commission</div>
+      <div class="sum-val">
+        ${{ '%.2f'|format(totals.actual_commission) }}
+        {% if totals.commission_diff > 0 %}<span style="font-size:12px;color:#4ade80;">+${{ '%.2f'|format(totals.commission_diff) }}</span>
+        {% elif totals.commission_diff < 0 %}<span style="font-size:12px;color:#f87171;">-${{ '%.2f'|format(-totals.commission_diff) }}</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if not can_edit %}
+  <div style="margin-top:16px;font-size:12px;color:var(--text3);">View only — ask an Owner or Coordinator to update actual costs.</div>
+  {% endif %}
+</div>
+<script>
+function toggleActualForm(id) {
+  const row = document.getElementById('edit-' + id);
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+{% endblock %}

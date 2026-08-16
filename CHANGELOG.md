@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Job cost ledger (experimental)
+
+New per-contract Job Ledger: once a quote is signed, every effective work item (original line items + anything added/removed by signed Change Orders, reusing `_contract_effective_items`) can get a real actual labor/material cost entered as work happens, alongside the frozen quoted cost — visible over/under at a glance. Reached via a "📒 Job Ledger" button next to Create Change Order on a signed contract.
+
+Design choices, per Jim's steer: actuals mirror whatever split the item already has (Surface Application shows one cost field, Tile shows two); an item left blank falls back to its quoted cost in the running total rather than counting as $0, so the total is always a current best estimate, not all-or-nothing; every actual entry records who entered it and when, for the eventual invoice-upload idea. Sales gets full view access including commission (pro-transparency), but only Owner/Coordinator (new `roles.can_enter_actuals` permission) can actually enter numbers.
+
+**Open design question surfaced while building this, not yet resolved**: "Expected Commission" is the sum of two independently-tiered calculations (the quote's own margin tier + each signed CO's own margin tier, exactly as originally paid). "Actual Commission" reruns the tiered formula ONCE against the combined running actual cost and combined price. Because the commission model has tier breakpoints by margin %, these two methodologies can disagree even at zero cost variance — a blended margin can cross a tier boundary that neither original document crossed on its own. Went with the blended approach (reflects true combined job economics) but flagging this is a real judgment call, not settled.
+
+Schema: `actual_labor_cost`, `actual_material_cost`, `actual_entered_by`, `actual_entered_at` added directly to `quote_line_items` and `change_order_items` (not a separate ledger table) — both already share identical column shapes, so the existing effective-item resolver keeps working unchanged with no parallel table to sync.
+
 ## 2026-08-16 — Larger Visualize images with tap-to-enlarge
 
 Before/after renderings on the Visualize page were capped at 340px tall — small, especially on an iPad. Bumped the display size substantially and added a tap-to-enlarge lightbox (full-screen overlay, tap backdrop/✕/Escape to close). Originally tried a plain `<a target="_blank">` to pop the image into its own tab, but every image in this app (visualizations, logo) is stored as a base64 data URI, and Chrome blocks `target="_blank"` navigation to `data:` URLs as an anti-phishing measure — silently does nothing, no error. A same-page lightbox sidesteps that entirely and works better on iPad besides (no tab-juggling).

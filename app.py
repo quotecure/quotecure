@@ -317,6 +317,139 @@ def _contract_effective_items(db, quote_id):
             effective[wt_id] = dict(item)
     return effective
 
+def _ledger_items(db, quote_id):
+    """Every work item on a signed contract that needs actual-cost tracking: the current
+    effective catalog items (_contract_effective_items) plus every freeform line from
+    signed Change Orders (freeform items aren't keyed by work_type_id, so the resolver
+    doesn't cover them). Each dict gets 'source' ('quote_line_item' or 'change_order_item',
+    telling the save route which table to UPDATE) and 'has_material' (whether the original
+    quote priced a material component at all -- freeform items never do -- so the UI shows
+    one actual-cost field or two, mirroring the split the item already has)."""
+    def _tag(row):
+        d = dict(row)
+        d['source'] = 'change_order_item' if 'change_order_id' in d else 'quote_line_item'
+        d['has_material'] = float(d.get('material_total_cost') or 0) > 0
+        return d
+
+    items = [_tag(row) for row in _contract_effective_items(db, quote_id).values()]
+    freeform = db.execute(
+        "SELECT coi.* FROM change_order_items coi "
+        "JOIN change_orders co ON coi.change_order_id = co.id "
+        "WHERE co.quote_id=? AND co.status='signed' AND coi.kind='freeform' "
+        "ORDER BY co.co_number, coi.sort_order",
+        (quote_id,)
+    ).fetchall()
+    items += [_tag(row) for row in freeform]
+    return items
+
+def _ledger_item_actuals(item):
+    """(actual_labor, actual_material, actual_total, fully_entered) for one ledger item.
+    Falls back to the quoted amount for any component not yet entered, so the running total
+    is always a current best estimate rather than all-or-nothing -- an item with a labor
+    invoice in but no material invoice yet still contributes its real labor cost.
+
+    Freeform Change Order items never populate labor_total_cost/material_total_cost (only
+    total_cost/total_price -- see add_freeform_change_order_item) but still surface a single
+    actual-cost field via has_material=False, same as any other one-part item. Detect that
+    "blended" shape and fall back to total_cost instead of the (always-zero) labor_total_cost,
+    or the freeform item would silently price at $0 until its actual is entered."""
+    quoted_labor = float(item.get('labor_total_cost') or 0)
+    quoted_material = float(item.get('material_total_cost') or 0)
+    quoted_total = float(item.get('total_cost') or 0)
+    if quoted_labor == 0 and quoted_material == 0 and quoted_total != 0:
+        quoted_labor = quoted_total
+    actual_labor = item.get('actual_labor_cost')
+    actual_material = item.get('actual_material_cost')
+    labor_entered = actual_labor is not None
+    material_entered = (actual_material is not None) or not item['has_material']
+    resolved_labor = float(actual_labor) if labor_entered else quoted_labor
+    resolved_material = float(actual_material) if actual_material is not None else quoted_material
+    total = resolved_labor + (resolved_material if item['has_material'] else 0)
+    return resolved_labor, resolved_material, round(total, 2), (labor_entered and material_entered)
+
+def _ledger_totals(db, quote_id, items):
+    """Job-level ledger summary: quoted vs running-actual cost/diff, and Expected vs Actual
+    commission. Expected commission is whatever's already frozen on the quote + its signed
+    Change Orders (never recomputed here). Actual commission reruns the same
+    _compute_commission formula against the running actual cost, holding the signed sale
+    price fixed -- price doesn't change after signing, only cost does."""
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    signed_cos = db.execute(
+        "SELECT total_cost, total_price, commission FROM change_orders WHERE quote_id=? AND status='signed'",
+        (quote_id,)
+    ).fetchall()
+
+    total_quoted_cost = float(quote['total_cost'] or 0) + sum(float(c['total_cost'] or 0) for c in signed_cos)
+    total_price = float(quote['total_price'] or 0) + sum(float(c['total_price'] or 0) for c in signed_cos)
+    expected_commission = float(quote['commission'] or 0) + sum(float(c['commission'] or 0) for c in signed_cos)
+
+    total_actual_cost = 0.0
+    entered_count = 0
+    for item in items:
+        _, _, item_total, fully_entered = _ledger_item_actuals(item)
+        total_actual_cost += item_total
+        if fully_entered:
+            entered_count += 1
+
+    policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
+    actual_commission = _compute_commission(policy, total_actual_cost, total_price)
+
+    return {
+        'total_quoted_cost': round(total_quoted_cost, 2),
+        'total_actual_cost': round(total_actual_cost, 2),
+        'cost_diff': round(total_actual_cost - total_quoted_cost, 2),
+        'total_price': round(total_price, 2),
+        'expected_commission': round(expected_commission, 2),
+        'actual_commission': round(actual_commission, 2),
+        'commission_diff': round(actual_commission - expected_commission, 2),
+        'entered_count': entered_count,
+        'total_items': len(items),
+    }
+
+@app.route('/quotes/<int:quote_id>/ledger')
+@login_required
+def job_ledger(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote or quote['status'] != 'contract':
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    items = _ledger_items(db, quote_id)
+    for item in items:
+        item['actual_labor'], item['actual_material'], item['actual_total'], item['fully_entered'] = _ledger_item_actuals(item)
+    totals = _ledger_totals(db, quote_id, items)
+    can_edit = bool(g.role and g.role['can_enter_actuals'])
+    return render_template('job_ledger.html', quote=quote, items=items, totals=totals, can_edit=can_edit)
+
+@app.route('/quotes/<int:quote_id>/ledger/<int:item_id>/actual', methods=['POST'])
+@require_permission('can_enter_actuals')
+def save_ledger_actual(quote_id, item_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote or quote['status'] != 'contract':
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    source = request.form.get('source')
+    if source == 'change_order_item':
+        owned = db.execute(
+            "SELECT coi.id FROM change_order_items coi JOIN change_orders co ON coi.change_order_id=co.id "
+            "WHERE coi.id=? AND co.quote_id=?", (item_id, quote_id)
+        ).fetchone()
+        table = 'change_order_items'
+    else:
+        owned = db.execute("SELECT id FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
+        table = 'quote_line_items'
+    if owned:
+        labor_raw = request.form.get('actual_labor_cost', '').strip()
+        material_raw = request.form.get('actual_material_cost', '').strip()
+        actual_labor = float(labor_raw) if labor_raw != '' else None
+        actual_material = float(material_raw) if material_raw != '' else None
+        entered_by = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+        db.execute(
+            f"UPDATE {table} SET actual_labor_cost=?, actual_material_cost=?, actual_entered_by=?, actual_entered_at=now()::text WHERE id=?",
+            (actual_labor, actual_material, entered_by, item_id)
+        )
+        db.commit()
+    return redirect(url_for('job_ledger', quote_id=quote_id))
+
 def _insert_change_order_item(db, co_id, item, kind, action, label, sort_order,
                                source_line_item_id=None, source_change_order_item_id=None):
     """item is a dict shaped like _price_catalog_item's output, quote_line_items, or a
