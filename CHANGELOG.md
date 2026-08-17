@@ -4,6 +4,21 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Leak Detection qualifier auto-selects by spa; fixed two more Skimmer bugs
+
+Follow-up to the Leak Detection qualifiers shipped just before this: Jim wanted the correct
+variant (pool vs. pool & spa) chosen automatically from the quote's own `has_spa` dimension
+instead of staff picking between two visible chips. `edit_quote()`'s `qualifiers_by_wt` now
+filters out whichever Leak Detection qualifier doesn't match the quote's `has_spa` value, so
+only one ever renders on Surface Application.
+
+While verifying the Skimmer fixes from earlier today against real usage, found two more real bugs, both specific to *adding a Skimmer line item after the fact* (the auto-populated default-template/package path was already fine):
+
+1. **Manually-added items came in labor-only.** The "Add optional item"/"Add line item" form (`addNrRow` in `edit_quote.html`) always POSTed `material_id: null, material_cost_per_unit: 0` regardless of which work type was selected — unlike the auto-populate paths, it never looked up the work type's own material default. Skimmer (and anything else with a `default_material_id`) silently lost its material every time staff added it manually instead of via a package/template. Fixed by having `onNrWorkType` fetch the selected work type's material default (extended the previously-unused `/api/work_type_defaults` endpoint to return it) and `addNrRow` send it.
+2. **Changing a line item's sub did nothing but flash.** `editCell()`'s dropdown is opened via an `onclick` on the `<td>` itself; clicking the resulting `<select>` to open its native dropdown re-fires that same `onclick` (the click bubbles), which tore the select back down and rebuilt it mid-click — so picking a sub other than the default never registered, it just flashed and reverted. Fixed with a re-entrancy guard (`if (td === activeCell) return;`) so a click on the field already being edited no longer restarts it. This affected every editable dropdown field (sub, unit), not just Skimmer — Skimmer's default (Robert) just happened to be the case that surfaced it, since most other items are added via package defaults and rarely have their sub changed afterward.
+
+Both verified live against the local dev server (not just `test_client`): opened a real quote in the browser, drove the actual `<select>`/form-add flow, and confirmed the DB rows end up correct.
+
 ## 2026-08-16 — Surface Removal min cost, Advanced Leak Detection sub, Leak Detection qualifiers
 
 Three small pricing/catalog additions requested together:

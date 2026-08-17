@@ -1202,6 +1202,12 @@ def edit_quote(quote_id):
     qualifier_rows = db.execute("SELECT * FROM qualifiers WHERE active='Y' ORDER BY label").fetchall()
     qualifiers_by_wt = {}
     for q in qualifier_rows:
+        # Leak Detection has two variants (pool vs. pool & spa) that only differ by
+        # whether the job has a spa — show just the one that matches this quote's
+        # dimensions instead of making staff pick the right one manually.
+        if q['work_type_id'] == 1 and q['label'] in ('Leak Detection', 'Leak Detection – Pool & Spa'):
+            if bool(quote['has_spa']) != ('Spa' in q['label']):
+                continue
         qualifiers_by_wt.setdefault(q['work_type_id'], []).append(dict(q))
     additives = db.execute("SELECT * FROM surface_additives WHERE active='Y' ORDER BY label").fetchall()
     return render_template('edit_quote.html', quote=quote, line_items=line_items,
@@ -1620,11 +1626,20 @@ def get_rate():
 def work_type_defaults():
     db = get_db()
     wt_id = request.args.get('work_type_id')
-    wt = db.execute("SELECT default_markup,min_markup,min_margin,unit FROM work_types WHERE work_type_id=?", (wt_id,)).fetchone()
-    if wt:
-        return jsonify({'default_markup': wt['default_markup'], 'min_markup': wt['min_markup'],
-                        'min_margin': wt['min_margin'], 'unit': wt['unit']})
-    return jsonify({'default_markup': 30, 'min_markup': 10, 'min_margin': 9.1, 'unit': ''})
+    wt = db.execute("SELECT default_markup,min_markup,min_margin,unit,default_material_id FROM work_types WHERE work_type_id=?", (wt_id,)).fetchone()
+    if not wt:
+        return jsonify({'default_markup': 30, 'min_markup': 10, 'min_margin': 9.1, 'unit': '',
+                        'material_id': None, 'material_cost': 0})
+    material_id = None
+    material_cost = 0
+    if wt['default_material_id']:
+        mat = db.execute("SELECT cost_per_quote_unit FROM materials WHERE material_id=?", (wt['default_material_id'],)).fetchone()
+        if mat:
+            material_id = wt['default_material_id']
+            material_cost = mat['cost_per_quote_unit']
+    return jsonify({'default_markup': wt['default_markup'], 'min_markup': wt['min_markup'],
+                    'min_margin': wt['min_margin'], 'unit': wt['unit'],
+                    'material_id': material_id, 'material_cost': material_cost})
 
 @app.route('/api/products_for_applicator')
 @login_required
