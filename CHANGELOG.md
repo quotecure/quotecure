@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-17 — Swapped the PDF header title font to bold sans
+
+Follow-up to the header redesign below: the italic serif "QUOTE"/"CHANGE ORDER" title read as too frilly. Swapped to bold black DM Sans (weight 800) instead — big and chunky, matching the rest of the document's sans-serif system instead of introducing a second typeface.
+
 ## 2026-08-17 — Redesigned Quote/Change Order PDF header
 
 Header on both the Quote and Change Order PDFs is now three columns instead of the old two-column logo-left/title-right layout: logo stays large on the left, the document title ("QUOTE" / "CHANGE ORDER") sits centered in an italic serif display font (DM Serif Display) instead of the old bold sans-serif, and company info (address, phone, email, license/CPC number) moved to the right alongside the date and valid-until date. Dropped the QT-#### number from both — Change Orders keep their own CO #N since that's operationally necessary to tell multiple COs on one contract apart, but the parent quote number added no value on the printed document itself.
