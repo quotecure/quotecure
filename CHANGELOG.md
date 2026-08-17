@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-17 — Terms & Conditions Library
+
+Replaced the single on/off "Include Terms" checkbox with a library of named terms documents. Started as a bug report (terms weren't showing on the PDF — turned out `company_settings.terms_text` had just never been filled in), then grew into a real feature request: Jim wants full formatting control (upload an actual PDF instead of fighting plain-text paragraph rules) and needs multiple different terms sets depending on the job (a general set, plus narrower ones like "Paver Only Terms" for jobs that are just pavers).
+
+New `terms_documents` table (label, plain-text body, optional uploaded PDF, one flagged as default) managed from a new "Terms & Conditions Library" card in Admin → Company Settings — add a document with either a PDF or plain text (PDF wins if both are present), mark one as default, delete non-default ones (soft-deleted, so any quote still pointing at a removed one keeps working). The quote edit page's checkbox is now a dropdown selecting which document applies, defaulting new quotes to whichever is flagged default. A document with an uploaded PDF gets those pages appended directly onto the generated quote PDF via `pypdf`; one with only plain text renders inline exactly like the old checkbox did. Change Orders don't get a terms document merged in — they get a fixed sentence instead ("All terms and conditions of the original signed contract remain in full force and effect except as expressly modified by this Change Order"), since a CO is a short addendum to an already-terms-bearing contract, not a place to restate everything.
+
+Migration seeds one "General Terms" document from whatever was in the old `terms_text` field and backfills existing quotes' selection from their old `include_terms` flag, so nothing changes for anyone who hadn't touched anything — `include_terms` and `terms_text` are left in place, unused, per this codebase's no-drop-column convention.
+
 ## 2026-08-17 — Fixed labor markup control not updating on split (Skimmer-style) rows
 
 Reported: on Skimmer, moving the material markup arrows updated the material cost/price correctly, but moving the labor markup arrows changed the item's overall total behind the scenes without the labor %, margin, or price ever visibly updating.

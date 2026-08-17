@@ -947,12 +947,15 @@ def estimate_packages():
 def new_quote():
     if request.method == 'POST':
         db = get_db()
+        default_terms = db.execute("SELECT id FROM terms_documents WHERE is_default=1 AND active=1 LIMIT 1").fetchone()
+        default_terms_id = default_terms[0] if default_terms else None
         db.execute("""INSERT INTO quotes (customer_name,address,salesperson,
                       pool_perimeter,pool_shallow,pool_deep,pool_sqft,
                       has_spa,spa_perimeter,spa_depth,spa_sqft,
                       has_shelf,shelf_sqft,total_surface_sqft,
-                      steps_lf,benches_lf,swimouts_lf,customer_email,water_surface_sqft,deck_sqft)
-                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      steps_lf,benches_lf,swimouts_lf,customer_email,water_surface_sqft,deck_sqft,
+                      terms_document_id)
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (request.form['customer_name'], request.form.get('address',''),
                     request.form.get('salesperson',''),
                     float(request.form.get('pool_perimeter',0) or 0),
@@ -971,7 +974,8 @@ def new_quote():
                     float(request.form.get('swimouts_lf',0) or 0),
                     request.form.get('customer_email','').strip(),
                     float(request.form.get('water_surface_sqft',0) or 0),
-                    float(request.form.get('deck_sqft',0) or 0)))
+                    float(request.form.get('deck_sqft',0) or 0),
+                    default_terms_id))
         db.commit()
         qid = db.execute("SELECT lastval()").fetchone()[0]
 
@@ -1210,6 +1214,7 @@ def edit_quote(quote_id):
                 continue
         qualifiers_by_wt.setdefault(q['work_type_id'], []).append(dict(q))
     additives = db.execute("SELECT * FROM surface_additives WHERE active='Y' ORDER BY label").fetchall()
+    terms_docs = db.execute("SELECT id,label FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
     return render_template('edit_quote.html', quote=quote, line_items=line_items,
                            optional_items=optional_items, optional_total=optional_total,
                            declined_items=declined_items,
@@ -1218,7 +1223,7 @@ def edit_quote(quote_id):
                            contract_total=contract_total, change_orders=change_orders,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            qualifiers_by_wt=qualifiers_by_wt, additives=additives,
-                           estimated_days_total=estimated_days_total)
+                           estimated_days_total=estimated_days_total, terms_docs=terms_docs)
 
 @app.route('/quotes/<int:quote_id>/customer_view')
 @login_required
@@ -2136,14 +2141,14 @@ def collect_payment_schedule_item(quote_id, schedule_id):
     ).fetchone()[0] or 0)
     return jsonify({'success': True, 'total_paid': round(total_paid, 2)})
 
-@app.route('/quotes/<int:quote_id>/toggle_terms', methods=['POST'])
+@app.route('/quotes/<int:quote_id>/set_terms_document', methods=['POST'])
 @login_required
-def toggle_terms(quote_id):
+def set_quote_terms_document(quote_id):
     db = get_db()
-    include_terms = 1 if request.json.get('include_terms') else 0
-    db.execute("UPDATE quotes SET include_terms=? WHERE quote_id=?", (include_terms, quote_id))
+    terms_document_id = request.json.get('terms_document_id') or None
+    db.execute("UPDATE quotes SET terms_document_id=? WHERE quote_id=?", (terms_document_id, quote_id))
     db.commit()
-    return jsonify({'include_terms': bool(include_terms)})
+    return jsonify({'terms_document_id': terms_document_id})
 
 @app.route('/quotes/<int:quote_id>/payment_schedule/regenerate', methods=['POST'])
 @login_required
@@ -2176,7 +2181,8 @@ def admin_settings():
         db.commit()
         return redirect(url_for('admin_settings'))
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
-    return render_template('admin_settings.html', settings=settings)
+    terms_docs = db.execute("SELECT * FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
+    return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs)
 
 @app.route('/admin/settings/email_config', methods=['POST'])
 @require_permission('can_edit_commission_policy')
@@ -2190,6 +2196,45 @@ def update_email_config():
     else:
         db.execute("UPDATE company_settings SET gmail_address=? WHERE id=1", (gmail_address,))
     db.commit()
+    return redirect(url_for('admin_settings'))
+
+@app.route('/admin/settings/terms/add', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def add_terms_document():
+    db = get_db()
+    label = request.form.get('label', '').strip()
+    body_text = request.form.get('body_text', '')
+    if not label:
+        return redirect(url_for('admin_settings'))
+    pdf_data = ''
+    f = request.files.get('pdf')
+    if f and f.filename:
+        file_bytes = f.read()
+        if _validate_pdf_upload(file_bytes, f.filename):
+            import base64
+            pdf_data = base64.b64encode(file_bytes).decode('utf-8')
+    db.execute("INSERT INTO terms_documents (label,body_text,pdf_data) VALUES (?,?,?)",
+               (label, body_text, pdf_data))
+    db.commit()
+    return redirect(url_for('admin_settings'))
+
+@app.route('/admin/settings/terms/<int:doc_id>/set_default', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def set_default_terms_document(doc_id):
+    db = get_db()
+    db.execute("UPDATE terms_documents SET is_default=0")
+    db.execute("UPDATE terms_documents SET is_default=1 WHERE id=?", (doc_id,))
+    db.commit()
+    return redirect(url_for('admin_settings'))
+
+@app.route('/admin/settings/terms/<int:doc_id>/delete', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def delete_terms_document(doc_id):
+    db = get_db()
+    row = db.execute("SELECT is_default FROM terms_documents WHERE id=?", (doc_id,)).fetchone()
+    if row and not row['is_default']:
+        db.execute("UPDATE terms_documents SET active=0 WHERE id=?", (doc_id,))
+        db.commit()
     return redirect(url_for('admin_settings'))
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2208,12 +2253,14 @@ def _quote_preview_html(quote_id):
     declined_items = [i for i in all_items if i['is_optional'] and i['is_declined']]
     schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    terms_doc = db.execute("SELECT * FROM terms_documents WHERE id=?", (quote['terms_document_id'],)).fetchone() if quote['terms_document_id'] else None
     from datetime import date, timedelta
     today = date.today()
     valid_until = today + timedelta(days=settings['quote_validity_days'] if settings else 30)
     return render_template('quote_preview.html', quote=quote, line_items=line_items,
                            optional_items=optional_items, declined_items=declined_items,
                            schedule=schedule, settings=settings, current_role=g.role,
+                           terms_doc=terms_doc,
                            today=today.strftime('%B %d, %Y'),
                            valid_until=valid_until.strftime('%B %d, %Y'))
 
@@ -2347,6 +2394,33 @@ def _generate_quote_pdf_bytes(html):
         browser.close()
     return pdf_bytes
 
+def _append_terms_pdf(pdf_bytes, terms_doc):
+    """Appends a terms document's own PDF pages onto the end of a generated quote PDF.
+    A no-op when the quote has no terms document selected or that document has no uploaded
+    PDF (the plain-text fallback renders inline in the HTML before this ever runs, so
+    there's nothing to append in that case)."""
+    if not terms_doc or not terms_doc['pdf_data']:
+        return pdf_bytes
+    from pypdf import PdfReader, PdfWriter
+    import base64, io
+    writer = PdfWriter()
+    writer.append(PdfReader(io.BytesIO(pdf_bytes)))
+    writer.append(PdfReader(io.BytesIO(base64.b64decode(terms_doc['pdf_data']))))
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+def _validate_pdf_upload(file_bytes, filename):
+    """No upload validation precedent exists anywhere in this codebase (upload_logo has
+    none) -- this is the first, so kept simple: extension, magic bytes, and a size cap."""
+    if not filename or not filename.lower().endswith('.pdf'):
+        return False
+    if not file_bytes.startswith(b'%PDF-'):
+        return False
+    if len(file_bytes) > 10 * 1024 * 1024:
+        return False
+    return True
+
 def _send_quote_email(to_email, subject, body_text, pdf_bytes, quote_id, gmail_address, gmail_app_password):
     import smtplib
     from email.mime.multipart import MIMEMultipart
@@ -2458,6 +2532,8 @@ def email_quote(quote_id):
     try:
         html = _quote_preview_html(quote_id)
         pdf_bytes = _generate_quote_pdf_bytes(html)
+        terms_doc = db.execute("SELECT * FROM terms_documents WHERE id=?", (quote['terms_document_id'],)).fetchone() if quote['terms_document_id'] else None
+        pdf_bytes = _append_terms_pdf(pdf_bytes, terms_doc)
         company_name = settings['company_name'] if settings else 'Your Company'
         subject = f"Your Quote from {company_name} — QT-{quote_id:04d}"
         body = (f"Hi {quote['customer_name']},\n\n"

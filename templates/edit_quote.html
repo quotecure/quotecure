@@ -177,10 +177,14 @@
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;user-select:none;">
-        <input type="checkbox" id="include-terms-chk" onchange="toggleTerms(this.checked)"
-               {{ 'checked' if quote.include_terms is none or quote.include_terms }}>
-        Include Terms
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);">
+        Terms:
+        <select id="terms-doc-select" class="form-control" style="width:auto;padding:4px 8px;font-size:12px;" onchange="changeTermsDoc(this.value)">
+          <option value="">— None —</option>
+          {% for td in terms_docs %}
+          <option value="{{ td.id }}" {{ 'selected' if quote.terms_document_id == td.id }}>{{ td.label }}</option>
+          {% endfor %}
+        </select>
       </label>
       <a href="/quotes/{{ quote.quote_id }}/preview" class="btn btn-primary" target="_blank">📄 Preview</a>
       <button class="btn btn-secondary" type="button" onclick="emailQuote()" id="email-quote-btn">✉️ Email Quote</button>
@@ -811,11 +815,11 @@ async function emailQuote() {
   btn.textContent = original;
 }
 
-// ── Include terms toggle ─────────────────────────────────────────
-async function toggleTerms(checked) {
-  await fetch('/quotes/' + QID + '/toggle_terms', {
+// ── Terms document picker ────────────────────────────────────────
+async function changeTermsDoc(docId) {
+  await fetch('/quotes/' + QID + '/set_terms_document', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({include_terms: checked})
+    body: JSON.stringify({terms_document_id: docId || null})
   });
 }
 

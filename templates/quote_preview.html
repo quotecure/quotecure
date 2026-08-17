@@ -232,11 +232,16 @@
   {% endif %}
 
   <!-- Terms & Conditions -->
-  {% if quote.include_terms and settings and settings.terms_text %}
+  {% if terms_doc and terms_doc.pdf_data %}
+  <div class="terms-section">
+    <div class="terms-title">Terms &amp; Conditions</div>
+    <div class="terms-body">See attached "{{ terms_doc.label }}" document.</div>
+  </div>
+  {% elif terms_doc and terms_doc.body_text %}
   <div class="terms-section">
     <div class="terms-title">Terms &amp; Conditions</div>
     <div class="terms-body">
-      {% for para in settings.terms_text.replace('\r\n', '\n').split('\n\n') %}
+      {% for para in terms_doc.body_text.replace('\r\n', '\n').split('\n\n') %}
       {% if para.strip() %}<p>{{ para.replace('\n', ' ') }}</p>{% endif %}
       {% endfor %}
     </div>

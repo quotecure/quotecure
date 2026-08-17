@@ -44,11 +44,6 @@
               <input class="form-control" name="tax_rate_pct" type="number" step="0.01" value="{{ settings.tax_rate_pct if settings.tax_rate_pct is not none else 7.0 }}">
             </div>
           </div>
-          <div class="form-group" style="margin-top:16px;">
-            <label class="form-label">Terms &amp; Conditions</label>
-            <textarea class="form-control" name="terms_text" rows="10" style="width:100%;resize:vertical;font-family:inherit;" placeholder="Standard contract terms shown on quotes when 'Include Terms' is on.">{{ settings.terms_text or '' }}</textarea>
-            <div style="font-size:11px;color:var(--text3);margin-top:6px;">Shown on the customer PDF when a quote has "Include Terms" turned on. Plain text — blank lines become paragraph breaks.</div>
-          </div>
           <div style="margin-top:24px;">
             <button class="btn btn-primary" type="submit">Save Settings</button>
           </div>
@@ -106,6 +101,74 @@
           <button class="btn btn-primary" type="submit">Save</button>
         </form>
       </div>
+    </div>
+  </div>
+
+  <!-- Terms & Conditions Library -->
+  <div class="card" style="margin-top:24px;">
+    <div class="card-header"><div class="card-title">Terms &amp; Conditions Library</div></div>
+    <div class="card-body">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:14px;">
+        Each quote picks one of these from a dropdown. Upload a PDF for full control over formatting — it gets appended to the end of the quote PDF. Without a PDF, the plain text below renders as paragraphs instead (blank lines become paragraph breaks).
+      </div>
+      {% if terms_docs %}
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+        <thead>
+          <tr style="text-align:left;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;">
+            <th style="padding:6px 8px;">Label</th>
+            <th style="padding:6px 8px;">Content</th>
+            <th style="padding:6px 8px;">Default</th>
+            <th style="padding:6px 8px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for td in terms_docs %}
+          <tr style="border-top:1px solid var(--border);">
+            <td style="padding:8px;">{{ td.label }}</td>
+            <td style="padding:8px;font-size:12px;color:var(--text2);">{% if td.pdf_data %}PDF attached{% elif td.body_text %}Text only{% else %}Empty{% endif %}</td>
+            <td style="padding:8px;">
+              {% if td.is_default %}
+              <span class="badge badge-blue">Default</span>
+              {% else %}
+              <form method="POST" action="/admin/settings/terms/{{ td.id }}/set_default" style="display:inline;">
+                <button class="btn btn-sm" type="submit">Make Default</button>
+              </form>
+              {% endif %}
+            </td>
+            <td style="padding:8px;">
+              {% if not td.is_default %}
+              <form method="POST" action="/admin/settings/terms/{{ td.id }}/delete" style="display:inline;" onsubmit="return confirm('Remove this terms document?');">
+                <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div style="text-align:center;padding:24px;background:var(--bg);border:2px dashed var(--border);border-radius:6px;margin-bottom:20px;color:var(--text3);">
+        No terms documents yet
+      </div>
+      {% endif %}
+
+      <form method="POST" action="/admin/settings/terms/add" enctype="multipart/form-data">
+        <div class="form-row form-row-2">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Label</label>
+            <input class="form-control" name="label" placeholder="e.g. Paver Only Terms" required>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Upload PDF (optional)</label>
+            <input class="form-control" name="pdf" type="file" accept="application/pdf">
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:16px;">
+          <label class="form-label">Plain Text (used only if no PDF is uploaded)</label>
+          <textarea class="form-control" name="body_text" rows="6" style="width:100%;resize:vertical;font-family:inherit;"></textarea>
+        </div>
+        <button class="btn btn-primary" type="submit" style="margin-top:12px;">Add Terms Document</button>
+      </form>
     </div>
   </div>
 </div>
