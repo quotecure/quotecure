@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Surface Removal min cost, Advanced Leak Detection sub, Leak Detection qualifiers
+
+Three small pricing/catalog additions requested together:
+
+1. **Surface Removal minimum cost of $2,600 for Pro Hydroblasters.** Added `sub_rates.min_total_cost` (nullable, sub+work-type specific — only set for Pro Hydroblasters/Surface Removal so far). Small jobs where `rate × qty` would compute below the floor now get bumped up to it, with price rescaled at the item's existing markup%; jobs already above the floor, and other subs doing the same work type, are unaffected. Had to add the same floor check to *two* independent pricing code paths — `_compute_line_item_pricing` (the automatic, dimension-driven path used by packages/quick-add) and `_price_catalog_item`/`build_line_item` (the manual "Add Item" path, which never queries `sub_rates` at all) — since they don't share a pricing implementation.
+2. **Advanced Leak Detection** added as a new sub, wired as the default sub for the existing Leak Detection work type (id 19).
+3. **Leak Detection qualifiers** added to Surface Application (pool: $400, pool & spa: $500) — plain qualifier rows, no new mechanism needed; qualifiers already get marked up by the item's own markup% automatically.
+
 ## 2026-08-16 — Fixed Skimmer material never selectable in the UI
 
 Follow-up to the same-day Skimmer pricing fix: even with the Skimmer material now existing in the database, it could never appear in the material picker on `edit_quote.html`, because that route's materials query was hardcoded to `WHERE work_type_id IN (4,5,6)` (tile/coping only). Removed the restriction — the template already scopes materials correctly per line item (`mat.work_type_id == item.work_type_id`), so this just needed the Python query to stop pre-filtering. Same fix applied to the Change Order builder's materials query, though that page turned out to already work correctly via a separate, unrestricted `/api/materials_for_work_type` endpoint — the hardcoded query there was simply unused dead code.

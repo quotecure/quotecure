@@ -1715,6 +1715,56 @@ def add_job_ledger(conn):
 
 
 @migration
+def add_advanced_leak_detection_sub(conn):
+    """Advanced Leak Detection: the sub for the Leak Detection work type. No rate given
+    yet -- Jim asked to add the sub as the default, not a price -- so labor prices at $0
+    until a real sub_rate is entered via Admin -> Sub Rates."""
+    sub = conn.execute("SELECT sub_id FROM subs WHERE name='Advanced Leak Detection'").fetchone()
+    if sub:
+        sub_id = sub[0]
+    else:
+        nums = []
+        for r in conn.execute("SELECT sub_id FROM subs").fetchall():
+            try: nums.append(int(r[0].replace('S', '').replace('s', '')))
+            except: pass
+        sub_id = 'S' + str(max(nums) + 1 if nums else 1)
+        conn.execute("INSERT INTO subs (sub_id,name,active,phone) VALUES (?,?,'Y','')", (sub_id, 'Advanced Leak Detection'))
+    conn.execute("UPDATE work_types SET default_sub_id=? WHERE work_type_id=19 AND (default_sub_id IS NULL OR default_sub_id='')", (sub_id,))
+
+
+@migration
+def add_sub_rate_min_total_cost(conn):
+    """A real minimum charge some subs have regardless of computed job size (rate*qty) --
+    distinct from min_job_price (a work-type-wide price floor) since this is sub-specific
+    and scoped to labor cost, not the whole item's price. Pro Hydroblasters (S2) won't do a
+    Surface Removal job for less than $2,600 no matter how small the pool."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(sub_rates)").fetchall()}
+    if 'min_total_cost' not in cols:
+        conn.execute("ALTER TABLE sub_rates ADD COLUMN min_total_cost REAL")
+    conn.execute("UPDATE sub_rates SET min_total_cost=2600 WHERE sub_id='S2' AND work_type_id=2")
+
+
+@migration
+def add_leak_detection_qualifier(conn):
+    """Leak Detection as a toggleable qualifier on Surface Application, not its own work
+    type -- staff check it when leak detection is bundled into a resurfacing job. A normal
+    (non is_freight) qualifier: its dollar amount adds straight into the item's cost, and
+    the item's own markup% applies to the combined total same as any other cost -- exactly
+    the behavior _rollup_item_totals already gives every non-freight qualifier, no new
+    mechanism needed. Two rows since the amount differs by scope; staff pick the one that
+    matches the job (has_spa doesn't drive an automatic qualifier choice anywhere today)."""
+    for label, amount in (('Leak Detection', 400.0), ('Leak Detection – Pool & Spa', 500.0)):
+        existing = conn.execute(
+            "SELECT qualifier_id FROM qualifiers WHERE work_type_id=1 AND label=?", (label,)
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO qualifiers (work_type_id,label,amount,active,is_freight) VALUES (1,?,?,?,0)",
+                (label, amount, 'Y')
+            )
+
+
+@migration
 def backfill_commission_under_active_policy(conn):
     """Found via the Job Ledger: quotes.commission / change_orders.commission only get
     recalculated when a line item is edited (_recalc_quote / _recalc_change_order). When

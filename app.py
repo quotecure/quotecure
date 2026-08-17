@@ -175,6 +175,9 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
     wt: dict with work_type_id, work_type, unit, cost_structure, default_markup, min_markup, description.
     dims: dict with pool_perimeter, has_spa, spa_perimeter, steps_lf, benches_lf, swimouts_lf,
           total_surface_sqft (or pool_sqft), has_shelf, deck_sqft (Paver Installation/Sealing only).
+    A sub_rates row can also carry a min_total_cost -- a real minimum charge from that sub
+    for that work type (e.g. Pro Hydroblasters' $2,600 Surface Removal minimum), applied
+    after the normal rate*qty calculation, price rescaled at the same markup%.
     Returns a dict with every quote_line_items column this produces."""
     wt_id = wt['work_type_id']
     sub_name = ''
@@ -192,7 +195,7 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
         if s:
             sub_name = s['name']
         rate_row = db.execute(
-            "SELECT rate, unit FROM sub_rates WHERE sub_id=? AND work_type_id=?",
+            "SELECT rate, unit, min_total_cost FROM sub_rates WHERE sub_id=? AND work_type_id=?",
             (default_sub_id, wt_id)
         ).fetchone()
         if rate_row:
@@ -254,6 +257,14 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
     markup = float(wt.get('default_markup', 30))
     min_markup = float(wt.get('min_markup', 10))
     l_cost, l_price, l_margin = calc_component(labor_cpu, qty, markup, min_markup, can_override)
+    # A sub-specific cost floor (e.g. Pro Hydroblasters always charges at least $2,600 for
+    # Surface Removal, no matter how small the pool) -- represents a real minimum charge
+    # from the sub, not a markup policy, so it's not can_override-bypassable like
+    # min_markup/min_job_price are. Rescales price at the same markup% so margin doesn't
+    # erode just because a small job got floored up to the sub's real minimum.
+    if rate_row and rate_row['min_total_cost'] and l_cost < float(rate_row['min_total_cost']):
+        l_cost = float(rate_row['min_total_cost'])
+        l_price = round(l_cost * (1 + markup / 100), 2)
     m_cost, m_price, m_margin = calc_component(mat_cpu, mat_qty, markup, 10, can_override)
     total_cost = round(l_cost + m_cost, 2)
     total_price = round(l_price + m_price, 2)
@@ -1289,9 +1300,10 @@ def edit_quote_details(quote_id):
 def _price_catalog_item(db, quote, data):
     """Shared pricing body for a catalog-based line item: resolves sub/material/product
     labels, composes the Surface Application/Removal pool+spa+sunshelf label, and prices
-    it through build_line_item() + the min-job-price floor. Used by both add_line_item
-    (a normal quote's line items) and a Change Order's catalog Add, so both price
-    identically -- this is the one pricing engine, not two."""
+    it through build_line_item() + a sub-specific cost floor (sub_rates.min_total_cost) +
+    the min-job-price floor. Used by both add_line_item (a normal quote's line items) and
+    a Change Order's catalog Add, so both price identically -- this is the one pricing
+    engine, not two."""
     work_type_id = data.get('work_type_id')
     wt = db.execute("SELECT * FROM work_types WHERE work_type_id=?", (work_type_id,)).fetchone()
 
@@ -1340,6 +1352,25 @@ def _price_catalog_item(db, quote, data):
 
     can_override = bool(g.role and g.role['can_override_min_markup'])
     item = build_line_item(data, wt_dict, sub_name, product_label, material_label, can_override, quote)
+
+    # Sub-specific cost floor (e.g. Pro Hydroblasters' $2,600 Surface Removal minimum) --
+    # build_line_item() takes labor_cost_per_unit straight from staff-entered data and never
+    # looks at sub_rates itself, so this floor has to be re-applied here, mirroring how
+    # _compute_line_item_pricing (the OTHER pricing path, for quick-add/package auto-
+    # populate) already enforces it. Rescales price at the item's own labor markup%, not the
+    # work type's default, since staff may have typed in a different markup.
+    if sub_id and work_type_id:
+        rate_row = db.execute(
+            "SELECT min_total_cost FROM sub_rates WHERE sub_id=? AND work_type_id=?", (sub_id, work_type_id)
+        ).fetchone()
+        if rate_row and rate_row['min_total_cost'] and item['labor_total_cost'] < float(rate_row['min_total_cost']):
+            floored_cost = float(rate_row['min_total_cost'])
+            floored_price = round(floored_cost * (1 + item['labor_markup_pct'] / 100), 2)
+            item['total_cost'] = round(item['total_cost'] - item['labor_total_cost'] + floored_cost, 2)
+            item['total_price'] = round(item['total_price'] - item['labor_total_price'] + floored_price, 2)
+            item['labor_total_cost'] = floored_cost
+            item['labor_total_price'] = floored_price
+
     item['total_cost'], item['total_price'], item['total_margin_pct'] = _apply_min_job_price(
         db, item['work_type_id'], item['total_cost'], item['total_price'])
     return item
