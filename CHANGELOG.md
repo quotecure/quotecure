@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-17 — Redesigned Quote/Change Order PDF header
+
+Header on both the Quote and Change Order PDFs is now three columns instead of the old two-column logo-left/title-right layout: logo stays large on the left, the document title ("QUOTE" / "CHANGE ORDER") sits centered in an italic serif display font (DM Serif Display) instead of the old bold sans-serif, and company info (address, phone, email, license/CPC number) moved to the right alongside the date and valid-until date. Dropped the QT-#### number from both — Change Orders keep their own CO #N since that's operationally necessary to tell multiple COs on one contract apart, but the parent quote number added no value on the printed document itself.
+
 ## 2026-08-17 — Terms & Conditions Library
 
 Replaced the single on/off "Include Terms" checkbox with a library of named terms documents. Started as a bug report (terms weren't showing on the PDF — turned out `company_settings.terms_text` had just never been filled in), then grew into a real feature request: Jim wants full formatting control (upload an actual PDF instead of fighting plain-text paragraph rules) and needs multiple different terms sets depending on the job (a general set, plus narrower ones like "Paver Only Terms" for jobs that are just pavers).
