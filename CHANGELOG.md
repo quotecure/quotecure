@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Fixed Skimmer material never selectable in the UI
+
+Follow-up to the same-day Skimmer pricing fix: even with the Skimmer material now existing in the database, it could never appear in the material picker on `edit_quote.html`, because that route's materials query was hardcoded to `WHERE work_type_id IN (4,5,6)` (tile/coping only). Removed the restriction — the template already scopes materials correctly per line item (`mat.work_type_id == item.work_type_id`), so this just needed the Python query to stop pre-filtering. Same fix applied to the Change Order builder's materials query, though that page turned out to already work correctly via a separate, unrestricted `/api/materials_for_work_type` endpoint — the hardcoded query there was simply unused dead code.
+
 ## 2026-08-16 — Fixed Skimmer Installation pricing at $0
 
 Reported: Skimmer's labor was missing when added via a package, and its material was missing when added as an individual line item. Root cause was two bugs stacked on each other:

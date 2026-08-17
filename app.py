@@ -592,7 +592,7 @@ def change_order_builder(quote_id, co_id):
     subs = db.execute("SELECT * FROM subs WHERE active='Y' ORDER BY name").fetchall()
     materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
-                              WHERE m.active='Y' AND m.work_type_id IN (4,5,6)
+                              WHERE m.active='Y'
                               ORDER BY m.category, m.series""").fetchall()
     manufacturers = db.execute("SELECT * FROM surface_manufacturers WHERE active='Y' ORDER BY manufacturer_name").fetchall()
     prior_cos = db.execute("SELECT * FROM change_orders WHERE quote_id=? AND id!=? ORDER BY co_number", (quote_id, co_id)).fetchall()
@@ -1186,7 +1186,7 @@ def edit_quote(quote_id):
 
     materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
-                              WHERE m.active='Y' AND m.work_type_id IN (4,5,6)
+                              WHERE m.active='Y'
                               ORDER BY m.category, m.series""").fetchall()
     qualifier_rows = db.execute("SELECT * FROM qualifiers WHERE active='Y' ORDER BY label").fetchall()
     qualifiers_by_wt = {}
