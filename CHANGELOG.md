@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-17 — Fixed doubled "Marquis" label; editable email body before sending
+
+Two unrelated fixes:
+
+**Marquis surface finish showing as "Marquis (Premix Marbletite)Marquis – Bluestone".** Every surface product label anywhere in the app is built as `f"{manufacturer_name} {product_line} – {finish}"`. Marquis was seeded with `manufacturer_name='Marquis (Premix Marbletite)'` and `product_line='Marquis'`, so the word "Marquis" appeared twice, run together with no space. Renamed the manufacturer to "Premix Marbletite" (the real manufacturer, PMM) and the product line to "Marquis Series" (matching what's actually printed on the product), via a migration that updates the existing rows retroactively — `init_pebble_pros_surfaces` only inserts-if-missing on every startup, so editing just the seed code would have inserted a second manufacturer row instead of fixing the one already there.
+
+**Email body is now editable before sending.** "Email Quote" used to send immediately with a hardcoded subject/body. It now opens an inline compose panel (mirroring the existing description-editor pattern) pre-filled with the same default subject/body as before — staff can edit either before hitting Send, or just send as-is with no extra clicks. Backend gained a `/quotes/<id>/email_defaults` endpoint and `email_quote` now accepts optional `subject`/`body` overrides, falling back to the same defaults it always used when nothing's provided.
+
 ## 2026-08-17 — Swapped the PDF header title font to bold sans
 
 Follow-up to the header redesign below: the italic serif "QUOTE"/"CHANGE ORDER" title read as too frilly. Swapped to bold black DM Sans (weight 800) instead — big and chunky, matching the rest of the document's sans-serif system instead of introducing a second typeface.

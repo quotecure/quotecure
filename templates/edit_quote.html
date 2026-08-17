@@ -187,10 +187,24 @@
         </select>
       </label>
       <a href="/quotes/{{ quote.quote_id }}/preview" class="btn btn-primary" target="_blank">📄 Preview</a>
-      <button class="btn btn-secondary" type="button" onclick="emailQuote()" id="email-quote-btn">✉️ Email Quote</button>
+      <button class="btn btn-secondary" type="button" onclick="openEmailPanel()" id="email-quote-btn">✉️ Email Quote</button>
       <a href="/quotes/{{ quote.quote_id }}/visualize" class="btn btn-secondary">🎨 Visualize</a>
       <a href="/quotes/{{ quote.quote_id }}/edit_details" class="btn btn-secondary">Edit Details</a>
       <a href="/quotes" class="btn btn-secondary">← Quotes</a>
+    </div>
+  </div>
+
+  <!-- Email compose panel (inline, hidden by default) -->
+  <div id="email-panel-row" style="display:none;margin-bottom:20px;">
+    <div class="product-picker open">
+      <label class="nr-label">Subject</label>
+      <input class="nr-input" id="email-subject-inp" style="width:100%;">
+      <label class="nr-label" style="margin-top:10px;">Message</label>
+      <textarea class="nr-input" id="email-body-inp" rows="6" style="width:100%;resize:vertical;height:auto;"></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" type="button" onclick="closeEmailPanel()">Cancel</button>
+        <button class="btn btn-primary btn-sm" type="button" onclick="sendEmailQuote()" id="email-send-btn">Send</button>
+      </div>
     </div>
   </div>
 
@@ -798,15 +812,38 @@ function updateRowDOM(id, d) {
 }
 
 // ── Email quote ───────────────────────────────────────────────────
-async function emailQuote() {
-  const btn = document.getElementById('email-quote-btn');
+async function openEmailPanel() {
+  if (LOCKED) { lockedAlert(); return; }
+  const row = document.getElementById('email-panel-row');
+  row.style.display = 'block';
+  const r = await fetch('/quotes/' + QID + '/email_defaults');
+  const d = await r.json();
+  if (r.ok) {
+    document.getElementById('email-subject-inp').value = d.subject;
+    document.getElementById('email-body-inp').value = d.body;
+  }
+  document.getElementById('email-subject-inp').focus();
+}
+
+function closeEmailPanel() {
+  document.getElementById('email-panel-row').style.display = 'none';
+}
+
+async function sendEmailQuote() {
+  const btn = document.getElementById('email-send-btn');
   const original = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Sending…';
   try {
-    const resp = await fetch('/quotes/' + QID + '/email', {method: 'POST'});
+    const resp = await fetch('/quotes/' + QID + '/email', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        subject: document.getElementById('email-subject-inp').value,
+        body: document.getElementById('email-body-inp').value
+      })
+    });
     const d = await resp.json();
-    if (resp.ok) alert('Quote emailed to ' + d.sent_to);
+    if (resp.ok) { alert('Quote emailed to ' + d.sent_to); closeEmailPanel(); }
     else alert(d.error || 'Could not send the email.');
   } catch (e) {
     alert('Could not send the email: ' + e);

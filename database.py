@@ -1866,6 +1866,22 @@ def add_terms_documents_library(conn):
         c.execute("UPDATE quotes SET terms_document_id=? WHERE include_terms=1", (default_id,))
 
 
+@migration
+def rename_marquis_manufacturer(conn):
+    """'Marquis' is the product line, not the manufacturer -- the real manufacturer is
+    Premix Marbletite (PMM). Seeding manufacturer_name='Marquis (Premix Marbletite)' and
+    product_line='Marquis' produced a doubled-up display label everywhere a surface product
+    gets shown ('Marquis (Premix Marbletite)Marquis – Bluestone', since every label is
+    built as f"{manufacturer_name} {product_line} – {finish}"). init_pebble_pros_surfaces
+    runs on every startup but only inserts-if-missing, so fixing the seed code alone would
+    have just inserted a second manufacturer row alongside the old one -- this retroactively
+    renames the existing rows instead."""
+    conn.execute("UPDATE surface_manufacturers SET manufacturer_name='Premix Marbletite' WHERE manufacturer_name='Marquis (Premix Marbletite)'")
+    conn.execute("""UPDATE surface_products SET product_line='Marquis Series'
+                     WHERE product_line='Marquis' AND manufacturer_id=(
+                         SELECT manufacturer_id FROM surface_manufacturers WHERE manufacturer_name='Premix Marbletite')""")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
@@ -1878,7 +1894,7 @@ def init_pebble_pros_surfaces(conn):
     manufacturers = [
         ('PebbleTec', 'Y'),
         ('StoneScapes', 'Y'),
-        ('Marquis (Premix Marbletite)', 'Y'),
+        ('Premix Marbletite', 'Y'),
         ('WetEdge', 'Y'),
     ]
     for name, active in manufacturers:
@@ -1981,7 +1997,7 @@ def init_pebble_pros_surfaces(conn):
         ('Quartz Base', 'Panama',              6.75, 1030, 1130),
     ]
     for tier, finish, rate, spa6, spa7 in marquis:
-        add_product_with_rate('Marquis (Premix Marbletite)', 'Marquis', finish, tier, rate, spa6, spa7)
+        add_product_with_rate('Premix Marbletite', 'Marquis Series', finish, tier, rate, spa6, spa7)
 
     # ── WetEdge Signature Matrix ──────────────────────────────────────────────
     wetedge = [

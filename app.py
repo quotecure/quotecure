@@ -2514,6 +2514,25 @@ def delete_visualization(quote_id, viz_id):
     db.commit()
     return jsonify({'success': True})
 
+def _default_quote_email(quote, settings, quote_id):
+    company_name = settings['company_name'] if settings else 'Your Company'
+    subject = f"Your Quote from {company_name} — QT-{quote_id:04d}"
+    body = (f"Hi {quote['customer_name']},\n\n"
+            f"Please find your quote attached.\n\n"
+            f"Thank you,\n{quote['salesperson'] or company_name}")
+    return subject, body
+
+@app.route('/quotes/<int:quote_id>/email_defaults')
+@login_required
+def quote_email_defaults(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return jsonify({'error': 'Quote not found'}), 404
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    subject, body = _default_quote_email(quote, settings, quote_id)
+    return jsonify({'subject': subject, 'body': body})
+
 @app.route('/quotes/<int:quote_id>/email', methods=['POST'])
 @login_required
 def email_quote(quote_id):
@@ -2529,16 +2548,15 @@ def email_quote(quote_id):
     gmail_app_password = settings['gmail_app_password'] if settings else ''
     if not gmail_address or not gmail_app_password:
         return jsonify({'error': 'Email sending isn\'t set up yet. Add your Gmail address and App Password in Admin → Company Settings.'}), 400
+    default_subject, default_body = _default_quote_email(quote, settings, quote_id)
+    data = request.get_json(silent=True) or {}
+    subject = (data.get('subject') or '').strip() or default_subject
+    body = data.get('body') if data.get('body') is not None and data.get('body').strip() else default_body
     try:
         html = _quote_preview_html(quote_id)
         pdf_bytes = _generate_quote_pdf_bytes(html)
         terms_doc = db.execute("SELECT * FROM terms_documents WHERE id=?", (quote['terms_document_id'],)).fetchone() if quote['terms_document_id'] else None
         pdf_bytes = _append_terms_pdf(pdf_bytes, terms_doc)
-        company_name = settings['company_name'] if settings else 'Your Company'
-        subject = f"Your Quote from {company_name} — QT-{quote_id:04d}"
-        body = (f"Hi {quote['customer_name']},\n\n"
-                f"Please find your quote attached.\n\n"
-                f"Thank you,\n{quote['salesperson'] or company_name}")
         _send_quote_email(to_email, subject, body, pdf_bytes, quote_id, gmail_address, gmail_app_password)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
