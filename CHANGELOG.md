@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-17 — Fixed labor markup control not updating on split (Skimmer-style) rows
+
+Reported: on Skimmer, moving the material markup arrows updated the material cost/price correctly, but moving the labor markup arrows changed the item's overall total behind the scenes without the labor %, margin, or price ever visibly updating.
+
+Root cause: `adjMarkup()` in `edit_quote.html` looks up the on-page elements to update by id, but its id-guessing logic (`key = component === 'labor' ? '' : '-mat'`) only matched the *non-split* row layout, where there's a single unsuffixed markup control (`mv-{id}`) since labor is the only component. Split rows (labor and material shown as two separate lines — Skimmer is the case that surfaced this, but any work type with both a labor and material cost hits it) suffix every id, `mv-labor-{id}` and `mv-mat-{id}`. Material's `-mat` guess happened to match the real id; labor's empty-string guess didn't, so its elements were never found and silently never updated. The server-side price change was real (confirmed `min_markup` is still enforced backend-side regardless of what's displayed) — this was a display-only bug, not a pricing one. Fixed by trying the split id first and falling back to the non-split id.
+
 ## 2026-08-16 — Wiped all quotes for a fresh start
 
 At Jim's request: cleared every quote/contract and everything tied to one (line items, change orders + their items, payment schedules, visualizations) so the app starts clean. Catalog data — work types, subs, materials, pricing, packages, commission policy — is untouched, only the transactional quote data is gone.

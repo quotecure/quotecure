@@ -952,8 +952,14 @@ async function ppSaveMaterial(id) {
 // ── Markup stepper ────────────────────────────────────────────────
 async function adjMarkup(id, component, delta) {
   if (LOCKED) { lockedAlert(); return; }
-  const key = component === 'labor' ? '' : '-mat';
-  const mvEl = document.getElementById('mv' + key + '-' + id) || document.getElementById('mv-' + id);
+  // Split rows (labor+material shown separately, e.g. Skimmer) suffix every id with
+  // -labor-/-mat-; non-split rows (the common case) have no suffix at all since there's
+  // only one markup control. Try the split id first, fall back to the non-split one --
+  // labor's old unconditional '' key only ever matched the non-split id, so a split row's
+  // labor markup click silently updated nothing on screen (material's '-mat' key happened
+  // to match either way, which is why only labor looked broken).
+  const suffix = component === 'labor' ? '-labor' : '-mat';
+  const mvEl = document.getElementById('mv' + suffix + '-' + id) || document.getElementById('mv-' + id);
   const cur = parseFloat(mvEl?.textContent) || 0;
   const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/markup', {
     method: 'POST', headers: {'Content-Type':'application/json'},
@@ -962,9 +968,9 @@ async function adjMarkup(id, component, delta) {
   if (!resp.ok) return;
   const d = await resp.json();
   if (mvEl) mvEl.textContent = d.markup_pct.toFixed(0) + '%';
-  const marginEl = document.getElementById('margin' + (component==='labor'?'':'- mat') + '-' + id);
+  const marginEl = document.getElementById('margin' + suffix + '-' + id) || document.getElementById('margin-' + id);
   if (marginEl) marginEl.textContent = d.margin_pct.toFixed(0) + '%';
-  const priceEl = document.getElementById('price' + (component==='labor'?'':'-mat') + '-' + id);
+  const priceEl = document.getElementById('price' + suffix + '-' + id) || document.getElementById('price-' + id);
   if (priceEl) priceEl.textContent = '$' + d.component_price.toFixed(2);
   if (document.getElementById('price-' + id)) document.getElementById('price-' + id).textContent = '$' + d.item_total_price.toFixed(2);
   if (document.getElementById('margin-' + id)) document.getElementById('margin-' + id).textContent = d.item_total_margin.toFixed(0) + '%';
