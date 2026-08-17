@@ -66,6 +66,7 @@ def setup():
         init_materials(db)
         init_company_settings(db)
         init_pebble_pros_surfaces(db)
+        init_skimmer_material(db)
         db.close()
         _initialized = True
     # Load current user into g

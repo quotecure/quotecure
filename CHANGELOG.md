@@ -4,6 +4,15 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Fixed Skimmer Installation pricing at $0
+
+Reported: Skimmer's labor was missing when added via a package, and its material was missing when added as an individual line item. Root cause was two bugs stacked on each other:
+
+1. `init_materials()` (seeds LUV Tile, NPT, SCP Pool Supply, Flagstone, and 100+ materials) guarded on "does *any* supplier already exist" rather than checking for one it actually seeds — on this environment, a later migration (`add_light_fixtures`) inserted its own suppliers first, so this guard went true prematurely and the entire seed list silently never ran. Fixed the guard to check for `'LUV Tile'` specifically, and made the supplier insert itself resilient to a partial prior seed (`'Flagstone'` already existed here from an earlier defensive migration — a blind `executemany` would have hit the `UNIQUE` constraint and thrown).
+2. `init_skimmer_material()` — the function that seeds the actual Skimmer material and wires up `work_types.default_sub_id`/`default_material_id` — was imported in `app.py` but never called in `setup()`. Dead code; the Skimmer material has never existed in any environment. Also fixed its `default_sub_id` from `''` to `'S9'` (Robert) — it was written before Robert became the skimmer-install default elsewhere this session and never got updated to match.
+
+Both are now wired up and idempotent. Verified: Skimmer Installation now shows real labor ($400, Robert) and material ($200, SCP Pool Supply) whether added via a package, the default quote template, or manually as an individual line item.
+
 ## 2026-08-16 — Larger logo on Quote/Change Order PDFs
 
 Bumped the logo from max-height 90px/max-width 200px to 140px/260px on both the Quote and Change Order preview/PDF templates — the previous size (chosen when the logo was first added) still read a little small on the printed page. Verified via a real generated PDF; header layout has no fixed height so it just grows to fit, no overlap with the QUOTE/date block.

@@ -349,18 +349,30 @@ def init_auth(conn):
     conn.commit()
 
 def init_materials(conn):
+    """Seeds LUV Tile (100+ materials), NPT, SCP Pool Supply, and Flagstone. Guarded on
+    'LUV Tile' specifically, not a generic supplier count -- a generic count guard meant
+    "already seeded", but on any environment where a later migration (e.g.
+    add_light_fixtures) inserts its own suppliers before this function's first run, that
+    guard goes true prematurely and this entire seed list -- every tile material this app
+    has -- silently never runs. Found via a real report: Skimmer material missing when
+    manually added as a line item, traced back to this exact bug (init_skimmer_material
+    needs 'SCP Pool Supply', which this function was supposed to have seeded)."""
     c = conn.cursor()
-    if c.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0] > 0:
+    if c.execute("SELECT COUNT(*) FROM suppliers WHERE name='LUV Tile'").fetchone()[0] > 0:
         return
 
-    # Seed suppliers
+    # Seed suppliers -- insert-if-missing per row, not executemany, since 'Flagstone' may
+    # already exist on an environment that hit this same bug and got a defensive supplier
+    # seeded elsewhere first (suppliers.name is UNIQUE, so a blind executemany would 500).
     suppliers = [
         ('LUV Tile', '', 'Waterline tile supplier', 'Y'),
         ('NPT', '', 'National Pool Tile', 'Y'),
         ('SCP Pool Supply', '', 'Equipment and materials distributor', 'Y'),
         ('Flagstone', '', 'Paver supplier', 'Y'),
     ]
-    c.executemany("INSERT INTO suppliers (name,contact,notes,active) VALUES (?,?,?,?)", suppliers)
+    for name, contact, notes, active in suppliers:
+        if not c.execute("SELECT 1 FROM suppliers WHERE name=?", (name,)).fetchone():
+            c.execute("INSERT INTO suppliers (name,contact,notes,active) VALUES (?,?,?,?)", (name, contact, notes, active))
 
     luv_id = c.execute("SELECT supplier_id FROM suppliers WHERE name='LUV Tile'").fetchone()[0]
 
@@ -1912,7 +1924,14 @@ def init_pebble_pros_surfaces(conn):
     print(f'Seeded {total} Pebble Pros surface products across 4 product lines')
 
 def init_skimmer_material(conn):
-    """Seed skimmer material and set work type defaults. Run after suppliers are seeded."""
+    """Seed skimmer material and set work type defaults. Run after suppliers are seeded.
+
+    Was imported in app.py but never actually called in setup() -- dead code, so the
+    Skimmer material never got seeded on any environment, and manually adding Skimmer
+    Installation as a line item always showed no material. default_sub_id is now 'S9'
+    (Robert), not '' -- this was written before Robert became the skimmer-install default
+    elsewhere this session (see set_default_skimmer_sub) and never got updated to match,
+    so plain (non-package) Skimmer additions still priced labor at $0 too."""
     c = conn.cursor()
     sup = c.execute("SELECT supplier_id FROM suppliers WHERE name='SCP Pool Supply'").fetchone()
     if not sup:
@@ -1928,6 +1947,6 @@ def init_skimmer_material(conn):
         print(f'Skimmer material seeded (id={mat_id})')
     else:
         mat_id = existing['material_id']
-    c.execute("UPDATE work_types SET default_material_id=?, default_markup=150.0, default_sub_id='' WHERE work_type_id=11",
+    c.execute("UPDATE work_types SET default_material_id=?, default_markup=150.0, default_sub_id='S9' WHERE work_type_id=11",
               (mat_id,))
     conn.commit()
