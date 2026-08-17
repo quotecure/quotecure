@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-16 — Wiped all quotes for a fresh start
+
+At Jim's request: cleared every quote/contract and everything tied to one (line items, change orders + their items, payment schedules, visualizations) so the app starts clean. Catalog data — work types, subs, materials, pricing, packages, commission policy — is untouched, only the transactional quote data is gone.
+
+Implemented as a one-time migration (`wipe_all_quotes_2026_08_16`) rather than a manual DB command, so it runs automatically and identically on local dev and production via the normal deploy path, and is tracked in `schema_migrations` like every other change here. Before deleting, it copies each affected table into a same-named `_archive_20260816` table in the same database — genuinely irreversible for the live tables otherwise, so that's the undo path if anything turns out to be needed later. Also restarts the `quotes` id sequence at 1, so the next quote created is QT-0001 again.
+
 ## 2026-08-16 — Leak Detection qualifier auto-selects by spa; fixed two more Skimmer bugs
 
 Follow-up to the Leak Detection qualifiers shipped just before this: Jim wanted the correct

@@ -1812,6 +1812,27 @@ def backfill_commission_under_active_policy(conn):
                      (round(compute(row[1], row[2]), 2), row[0]))
 
 
+@migration
+def wipe_all_quotes_2026_08_16(conn):
+    """One-time reset at Jim's request: clear out every quote/contract and everything tied
+    to one (line items, change orders + their items, payment schedules, visualizations) so
+    the app starts fresh. Catalog data (work types, subs, materials, pricing, packages) is
+    untouched. Copies each table into a same-named _archive_20260816 table before deleting
+    -- this is genuinely irreversible for the live tables otherwise, so the archive is the
+    undo path if anything here turns out to be needed later. Also restarts the quotes id
+    sequence at 1 so the next quote created after the reset is QT-0001 again."""
+    for table in ('change_order_items', 'change_orders', 'quote_line_items',
+                  'payment_schedules', 'quote_visualizations', 'quotes'):
+        conn.execute(f"CREATE TABLE IF NOT EXISTS {table}_archive_20260816 AS SELECT * FROM {table}")
+    conn.execute("DELETE FROM change_order_items")
+    conn.execute("DELETE FROM change_orders")
+    conn.execute("DELETE FROM quote_line_items")
+    conn.execute("DELETE FROM payment_schedules")
+    conn.execute("DELETE FROM quote_visualizations")
+    conn.execute("DELETE FROM quotes")
+    conn.execute("ALTER SEQUENCE quotes_quote_id_seq RESTART WITH 1")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
