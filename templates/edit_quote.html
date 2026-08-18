@@ -402,13 +402,25 @@
                 <label class="nr-label">Material</label>
                 <select class="nr-input" id="pp-mat-{{ item.id }}" onchange="ppSaveMaterial({{ item.id }})">
                   <option value="">— None —</option>
+                  {% set ns = namespace(cat='') %}
                   {% for mat in materials %}
-                  {% if mat.work_type_id == item.work_type_id or item.work_type_id in [4,5,6] %}
+                  {# Cap Tile/Waterline Tile/Coping (4,5,6) all draw from the same tile
+                     catalog, seeded under work_type_id=4 regardless of which of those three
+                     it ends up installed as -- so for those three, scope to wt=4 specifically
+                     rather than every active material system-wide (pavers, lights, skimmer
+                     parts, ...), which made this a 185-option wall staff couldn't use. #}
+                  {% if mat.work_type_id == item.work_type_id or (item.work_type_id in [4,5,6] and mat.work_type_id == 4) %}
+                  {% if mat.category != ns.cat %}
+                  {% if ns.cat %}</optgroup>{% endif %}
+                  <optgroup label="{{ mat.category }}">
+                  {% set ns.cat = mat.category %}
+                  {% endif %}
                   <option value="{{ mat.material_id }}" data-cost="{{ mat.cost_per_quote_unit }}" {{ 'selected' if item.material_id == mat.material_id }}>
                     {{ mat.series }} — ${{ '%.2f'|format(mat.cost_per_quote_unit) }}/{{ mat.quote_unit }}
                   </option>
                   {% endif %}
                   {% endfor %}
+                  {% if ns.cat %}</optgroup>{% endif %}
                 </select>
               </div>
               <button class="btn btn-secondary btn-sm" onclick="toggleProductPicker({{ item.id }})">Done</button>
