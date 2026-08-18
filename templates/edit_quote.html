@@ -1046,6 +1046,7 @@ function closeNewRow(section) {
 }
 
 let nrMaterialDefault = {};
+let nrMarkupOverride = {};
 
 async function onNrWorkType(section) {
   const sel = document.getElementById('nr-wt-' + section);
@@ -1055,6 +1056,7 @@ async function onNrWorkType(section) {
   const defSub = opt?.dataset?.sub || '';
   const defMarkup = opt?.dataset?.markup || 30;
   nrMaterialDefault[section] = null;
+  nrMarkupOverride[section] = null;
 
   // Set unit
   const unitSel = document.getElementById('nr-unit-' + section);
@@ -1092,6 +1094,7 @@ async function onNrWorkType(section) {
     const rd = await rr.json();
     if (rd.rate !== null) {
       document.getElementById('nr-cpu-' + section).value = rd.rate;
+      nrMarkupOverride[section] = rd.markup_pct;
       if (rd.unit) {
         [...unitSel.options].forEach(o => o.selected = o.value === rd.unit);
         if (rd.unit === 'each') document.getElementById('nr-qty-' + section).value = 1;
@@ -1109,8 +1112,10 @@ async function onNrSub(section) {
   if (!subId || !wtId) return;
   const r = await fetch('/api/rate?sub_id=' + subId + '&work_type_id=' + wtId);
   const d = await r.json();
+  nrMarkupOverride[section] = null;
   if (d.rate !== null) {
     document.getElementById('nr-cpu-' + section).value = d.rate;
+    nrMarkupOverride[section] = d.markup_pct;
     if (d.unit) {
       const unitSel = document.getElementById('nr-unit-' + section);
       [...unitSel.options].forEach(o => o.selected = o.value === d.unit);
@@ -1126,7 +1131,8 @@ function calcNrPreview(section) {
   const qty = parseFloat(document.getElementById('nr-qty-' + section).value) || 0;
   const cpu = parseFloat(document.getElementById('nr-cpu-' + section).value) || 0;
   const wtSel = document.getElementById('nr-wt-' + section);
-  const markup = parseFloat(wtSel.selectedOptions[0]?.dataset?.markup || 30);
+  const override = nrMarkupOverride[section];
+  const markup = override != null ? parseFloat(override) : parseFloat(wtSel.selectedOptions[0]?.dataset?.markup || 30);
   const total = qty * cpu * (1 + markup/100);
   const margin = markup / (100 + markup) * 100;
   const el = document.getElementById('nr-preview-' + section);
@@ -1138,7 +1144,8 @@ async function addNrRow(section) {
   if (LOCKED) { lockedAlert(); return; }
   const wtId = document.getElementById('nr-wt-' + section).value;
   if (!wtId) { alert('Select a work type.'); return; }
-  const markup = document.getElementById('nr-wt-' + section).selectedOptions[0]?.dataset?.markup || 30;
+  const override = nrMarkupOverride[section];
+  const markup = override != null ? override : (document.getElementById('nr-wt-' + section).selectedOptions[0]?.dataset?.markup || 30);
   const matDefault = nrMaterialDefault[section];
   const payload = {
     work_type_id: wtId,

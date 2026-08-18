@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-17 — Per-sub markup override; corrected G&B pavers/tile rates
+
+**Sub-specific markup.** Previously every sub doing a given work type shared the same markup% (`work_types.default_markup`) — only cost could differ between subs, never margin. Added `sub_rates.markup_pct` (nullable — NULL keeps today's shared-default behavior for every existing rate) so one sub can carry its own margin. Robert's Surface Prep now uses his real numbers: $400 cost at 100% markup → $800 price, replacing an earlier back-calculated "fake cost" of $615.38 that was reverse-engineered to hit $800 under the old shared 30% markup instead of reflecting what Robert actually charges. Blue Gator Pool Preps (same work type, different sub) is untouched — still $800 cost at the normal 30%. Wired into both the automatic pricing path (`_compute_line_item_pricing`) and the manual "Add Item" form, which now pre-fills the sub's own markup via `/api/rate` instead of always defaulting to the work type's shared markup.
+
+**Correction**: G & B Flooring's rates got mixed up in the previous entry below — tile and pavers are both priced "per foot/sqft" so the numbers got swapped. Waterline Tile Installation is back to a per-linear-foot price, now $13.00/lf (not the $2.50 entered by mistake, which was actually meant for pavers). Both of G&B's paver rates (general Paver Installation and the separate Flagstone Pavers line) are now $2.50/sqft (was $2.10/sqft).
+
 ## 2026-08-17 — Sub rate updates: Robert's/Blue Gator's Surface Prep, G&B tile
 
 Three rate updates at Jim's request:

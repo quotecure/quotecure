@@ -1900,6 +1900,35 @@ def update_surface_prep_and_tile_rates(conn):
     conn.execute("UPDATE sub_rates SET rate=2.50 WHERE sub_id='S3' AND work_type_id=4")
 
 
+@migration
+def fix_gb_flooring_tile_and_paver_rates(conn):
+    """Correction to update_surface_prep_and_tile_rates: Jim mixed up tile and pavers when
+    giving the previous numbers. G & B Flooring's Waterline Tile Installation rate goes
+    back to a per-linear-foot price ($13.00/lf, not the $2.50 entered by mistake -- that
+    number was actually meant for pavers, which are priced per sqft). Their two paver rates
+    (general Paver Installation and the separate Flagstone Pavers line) both become
+    $2.50/sqft (were $2.10/sqft)."""
+    conn.execute("UPDATE sub_rates SET rate=13.00 WHERE sub_id='S3' AND work_type_id=4")
+    conn.execute("UPDATE sub_rates SET rate=2.50 WHERE sub_id='S3' AND work_type_id IN (7, 38)")
+
+
+@migration
+def add_sub_rate_markup_override(conn):
+    """A sub can now carry its own markup%, distinct from the work type's shared
+    default_markup -- previously two subs doing the same work type were always priced at
+    the same margin, only cost could differ. NULL (every existing row) keeps today's
+    behavior exactly, falling back to work_types.default_markup. Robert's real numbers for
+    Surface Prep: he actually costs $400, at 100% markup -> $800 price -- replacing the
+    $615.38 'fake cost' from update_surface_prep_and_tile_rates, which was back-calculated
+    to hit $800 under the old shared 30% markup rather than reflecting what Robert really
+    charges. Blue Gator Pool Preps (same work type, different sub) is untouched -- still
+    $800 cost at the work type's normal 30% markup, its own independent number."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(sub_rates)").fetchall()}
+    if 'markup_pct' not in cols:
+        conn.execute("ALTER TABLE sub_rates ADD COLUMN markup_pct REAL")
+    conn.execute("UPDATE sub_rates SET rate=400.00, markup_pct=100.00 WHERE sub_id='S9' AND work_type_id=3")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

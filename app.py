@@ -177,7 +177,9 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
           total_surface_sqft (or pool_sqft), has_shelf, deck_sqft (Paver Installation/Sealing only).
     A sub_rates row can also carry a min_total_cost -- a real minimum charge from that sub
     for that work type (e.g. Pro Hydroblasters' $2,600 Surface Removal minimum), applied
-    after the normal rate*qty calculation, price rescaled at the same markup%.
+    after the normal rate*qty calculation, price rescaled at the same markup% -- and a
+    markup_pct override, letting one sub carry a different margin than others doing the
+    same work type (e.g. Robert's 100% Surface Prep markup vs. another sub's default).
     Returns a dict with every quote_line_items column this produces."""
     wt_id = wt['work_type_id']
     sub_name = ''
@@ -195,7 +197,7 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
         if s:
             sub_name = s['name']
         rate_row = db.execute(
-            "SELECT rate, unit, min_total_cost FROM sub_rates WHERE sub_id=? AND work_type_id=?",
+            "SELECT rate, unit, min_total_cost, markup_pct FROM sub_rates WHERE sub_id=? AND work_type_id=?",
             (default_sub_id, wt_id)
         ).fetchone()
         if rate_row:
@@ -254,7 +256,14 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
         if len(parts) > 1:
             wt_label = wt_label + ' — ' + ' & '.join(parts)
 
-    markup = float(wt.get('default_markup', 30))
+    # A sub can carry its own markup% (sub_rates.markup_pct), overriding the work type's
+    # shared default -- e.g. Robert's Surface Prep prices at 100% markup while another sub
+    # doing the same work type keeps a different margin. NULL (the common case) falls back
+    # to the work type's default_markup exactly as before.
+    if rate_row and rate_row['markup_pct'] is not None:
+        markup = float(rate_row['markup_pct'])
+    else:
+        markup = float(wt.get('default_markup', 30))
     min_markup = float(wt.get('min_markup', 10))
     l_cost, l_price, l_margin = calc_component(labor_cpu, qty, markup, min_markup, can_override)
     # A sub-specific cost floor (e.g. Pro Hydroblasters always charges at least $2,600 for
@@ -1620,11 +1629,15 @@ def get_rate():
         row = db.execute("SELECT rate FROM surface_applicator_rates WHERE sub_id=? AND product_id=?",
                          (sub_id, product_id)).fetchone()
     elif sub_id and work_type_id:
-        row = db.execute("SELECT rate, unit FROM sub_rates WHERE sub_id=? AND work_type_id=?",
+        row = db.execute("SELECT rate, unit, markup_pct FROM sub_rates WHERE sub_id=? AND work_type_id=?",
                          (sub_id, work_type_id)).fetchone()
     else:
         row = None
-    return jsonify({'rate': row['rate'] if row else None, 'unit': row['unit'] if row else None})
+    return jsonify({
+        'rate': row['rate'] if row else None,
+        'unit': row['unit'] if row else None,
+        'markup_pct': row['markup_pct'] if row and 'markup_pct' in row.keys() else None,
+    })
 
 @app.route('/api/work_type_defaults')
 @login_required
