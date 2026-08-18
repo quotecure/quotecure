@@ -4,6 +4,13 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-17 — Sub rate updates: Robert's/Blue Gator's Surface Prep, G&B tile
+
+Three rate updates at Jim's request:
+- Robert's Surface Prep rate set so the **default price** (at the standard 30% markup) comes out to $800 — cost set to $615.38 (800 / 1.3), landing the actual default price at $799.99 due to unavoidable 2-decimal rounding at both the cost and price steps. Confirmed via the real pricing engine.
+- Blue Gator Pool Preps added as a second Surface Prep sub at an $800 flat **cost** (not price) — same flat-rate 'each' pattern as Robert's row, just a different number since it's cost rather than target price.
+- G & B Flooring's Waterline Tile Installation rate corrected to $2.50/lf (was $12.00/lf).
+
 ## 2026-08-17 — Fixed doubled "Marquis" label; editable email body before sending
 
 Two unrelated fixes:

@@ -1882,6 +1882,24 @@ def rename_marquis_manufacturer(conn):
                          SELECT manufacturer_id FROM surface_manufacturers WHERE manufacturer_name='Premix Marbletite')""")
 
 
+@migration
+def update_surface_prep_and_tile_rates(conn):
+    """Rate updates at Jim's request:
+    - Robert's Surface Prep rate (sub_rates.rate is a COST, applied through the work type's
+      30% default markup) set so the resulting DEFAULT PRICE comes out to $800, not cost:
+      800 / 1.3 = 615.38 -> rounds to a $799.99 default price, a cent off $800 due to
+      unavoidable 2-decimal rounding at both the cost and price steps of calc_component.
+    - Blue Gator Pool Preps -- a different sub, same Surface Prep work type -- added at an
+      $800 flat COST (not price), same 'each' flat-rate pattern as Robert's row.
+    - G & B Flooring's Waterline Tile Installation rate corrected to $2.50/lf (was $12.00/lf)."""
+    conn.execute("UPDATE sub_rates SET rate=615.38 WHERE sub_id='S9' AND work_type_id=3")
+    if not conn.execute("SELECT 1 FROM sub_rates WHERE sub_id='S5' AND work_type_id=3").fetchone():
+        conn.execute("INSERT INTO sub_rates (sub_id,work_type_id,rate,unit,notes) VALUES ('S5',3,800.00,'each','flat rate surface prep')")
+    else:
+        conn.execute("UPDATE sub_rates SET rate=800.00 WHERE sub_id='S5' AND work_type_id=3")
+    conn.execute("UPDATE sub_rates SET rate=2.50 WHERE sub_id='S3' AND work_type_id=4")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
