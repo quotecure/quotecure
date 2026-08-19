@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-17 — Added Tile Removal qualifier ($3/lf); qualifiers can now be per-unit
+
+New "Tile Removal" qualifier on Cap Tile and Waterline Tile Installation at $3/linear foot — the first *per-unit* qualifier in the app; every prior one (Leak Detection, Freight) is a flat dollar amount regardless of the item's size. `qualifiers.per_unit` marks a qualifier as $/unit instead of flat; a new shared `_qualifier_cost()` helper computes each qualifier's dollar contribution fresh every time an item's totals are recalculated (not snapshotted once at toggle time), so if staff edit the item's linear footage after applying Tile Removal, the charge stays correct automatically instead of going stale. Verified end-to-end: toggling it on at 80 lf added $240; editing the quantity to 100 lf afterward updated it to $300 with no re-toggle needed.
+
 ## 2026-08-17 — Fixed tile material dropdown showing 185 unrelated materials
 
 Reported as "can't change a tile in place, have to delete and re-add the line." The in-place edit mechanism itself (click the material name → dropdown → pick a different one → saves and recomputes cost/price) was already working correctly — verified by driving it directly. The real problem: for Cap Tile/Waterline Tile/Coping items, the dropdown showed *every* active material system-wide (185 of them — pavers, pool lights, skimmer parts, all mixed in with the tile options), because those three work types all draw from one shared tile catalog seeded under a single work_type_id, and the template's scoping condition bypassed filtering entirely for them instead of narrowing to that catalog specifically. Narrowed it to just the ~122 actual tile materials, and grouped them into `<optgroup>`s by category (6x6 Porcelain, Glass, Mosaic Waterline, Upgrade Waterline) so the list is actually browsable. A wall of 185 alphabetized, uncategorized options across every material type in the business is exactly the kind of thing that looks broken even when the underlying save logic isn't.

@@ -1535,6 +1535,16 @@ def quick_add_line_item(quote_id):
         'quote_total_price': updated_quote['total_price'],
     })
 
+def _qualifier_cost(q, item_row):
+    """A qualifier snapshot's 'amount' is either a flat dollar figure, or -- when 'per_unit'
+    is set -- a $/unit rate multiplied by the item's own labor_quantity (e.g. Tile Removal
+    at $3/lf). Shared by every place that sums an item's qualifiers_json, so a per-unit
+    qualifier stays in sync if the item's quantity is edited after it was applied, rather
+    than a dollar amount snapshotted once and going stale."""
+    if q.get('per_unit'):
+        return float(q['amount']) * float(item_row['labor_quantity'] or 0)
+    return float(q['amount'])
+
 def _rollup_item_totals(db, item_id):
     """Recompute a line item's total_cost/total_price/total_margin_pct from labor + material +
     qualifiers, using the item's labor markup to price the qualifier cost. Call after any edit
@@ -1543,8 +1553,8 @@ def _rollup_item_totals(db, item_id):
     quals = json.loads(row['qualifiers_json'] or '[]')
     pass_through_ids = {r['qualifier_id'] for r in db.execute(
         "SELECT qualifier_id FROM qualifiers WHERE is_freight=1").fetchall()}
-    markup_cost = sum(q['amount'] for q in quals if q['id'] not in pass_through_ids)
-    pass_through_cost = sum(q['amount'] for q in quals if q['id'] in pass_through_ids)
+    markup_cost = sum(_qualifier_cost(q, row) for q in quals if q['id'] not in pass_through_ids)
+    pass_through_cost = sum(_qualifier_cost(q, row) for q in quals if q['id'] in pass_through_ids)
     q_price = round(markup_cost * (1 + float(row['labor_markup_pct'] or 0) / 100), 2) + round(pass_through_cost, 2)
     q_cost = round(markup_cost + pass_through_cost, 2)
 
@@ -3079,7 +3089,7 @@ def toggle_qualifier(quote_id, item_id):
     data = request.json
     qualifier_id = int(data.get('qualifier_id'))
     checked = bool(data.get('checked'))
-    row = db.execute("SELECT qualifiers_json FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
+    row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
     if not row:
         return jsonify({'error': 'Not found'}), 404
     quals = json.loads(row['qualifiers_json'] or '[]')
@@ -3087,8 +3097,8 @@ def toggle_qualifier(quote_id, item_id):
     qrow = db.execute("SELECT * FROM qualifiers WHERE qualifier_id=?", (qualifier_id,)).fetchone()
     if checked:
         if qrow:
-            quals.append({'id': qualifier_id, 'label': qrow['label'], 'amount': float(qrow['amount'])})
-    qualifiers_total_cost = round(sum(q['amount'] for q in quals), 2)
+            quals.append({'id': qualifier_id, 'label': qrow['label'], 'amount': float(qrow['amount']), 'per_unit': bool(qrow['per_unit'])})
+    qualifiers_total_cost = round(sum(_qualifier_cost(q, row) for q in quals), 2)
     db.execute("UPDATE quote_line_items SET qualifiers_json=?,qualifiers_total_cost=? WHERE id=?",
                (json.dumps(quals), qualifiers_total_cost, item_id))
     total_cost, total_price, total_margin = _rollup_item_totals(db, item_id)
@@ -3098,7 +3108,7 @@ def toggle_qualifier(quote_id, item_id):
     other_item_cleared = False
     if checked and qrow and qrow['is_freight']:
         other_items = db.execute(
-            "SELECT id, qualifiers_json FROM quote_line_items WHERE quote_id=? AND id!=?",
+            "SELECT * FROM quote_line_items WHERE quote_id=? AND id!=?",
             (quote_id, item_id)
         ).fetchall()
         for other in other_items:
@@ -3110,7 +3120,7 @@ def toggle_qualifier(quote_id, item_id):
             }
             if other_freight_ids:
                 filtered = [q for q in other_quals if q['id'] not in other_freight_ids]
-                filtered_cost = round(sum(q['amount'] for q in filtered), 2)
+                filtered_cost = round(sum(_qualifier_cost(q, other) for q in filtered), 2)
                 db.execute("UPDATE quote_line_items SET qualifiers_json=?,qualifiers_total_cost=? WHERE id=?",
                            (json.dumps(filtered), filtered_cost, other['id']))
                 _rollup_item_totals(db, other['id'])

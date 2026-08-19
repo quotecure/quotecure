@@ -287,7 +287,7 @@
             <span class="qual-chip {% if applied %}on{% endif %}"
                   id="qual-{{ item.id }}-{{ ql.qualifier_id }}"
                   onclick="toggleQualifier({{ item.id }}, {{ ql.qualifier_id }}, {{ (not applied)|tojson }})">
-              {{ ql.label }} (+${{ '%.0f'|format(ql.amount) }})
+              {% if ql.per_unit %}{{ ql.label }} (+${{ '%.2f'|format(ql.amount) }}/{{ item.labor_unit }}){% else %}{{ ql.label }} (+${{ '%.0f'|format(ql.amount) }}){% endif %}
             </span>
             {% endfor %}
             {% if item.work_type_id in (6, 7) %}

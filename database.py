@@ -1929,6 +1929,30 @@ def add_sub_rate_markup_override(conn):
     conn.execute("UPDATE sub_rates SET rate=400.00, markup_pct=100.00 WHERE sub_id='S9' AND work_type_id=3")
 
 
+@migration
+def add_tile_removal_qualifier(conn):
+    """Tile Removal as a toggleable qualifier on Cap Tile and Waterline Tile Installation, at
+    $3/linear foot -- the first PER-UNIT qualifier (every prior one, like Leak Detection, is a
+    flat dollar amount). qualifiers.amount is reused as the $/unit rate when per_unit=1;
+    _qualifier_cost() multiplies it by the item's own labor_quantity, computed fresh on every
+    rollup (not snapshotted once), so it stays correct if the item's footage is edited after
+    the qualifier is applied. NULL/0 (every existing qualifier) keeps today's flat-amount
+    behavior exactly."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(qualifiers)").fetchall()}
+    if 'per_unit' not in cols:
+        conn.execute("ALTER TABLE qualifiers ADD COLUMN per_unit INTEGER DEFAULT 0")
+    for wt_id in (4, 5):
+        existing = conn.execute(
+            "SELECT qualifier_id FROM qualifiers WHERE work_type_id=? AND label=?",
+            (wt_id, 'Tile Removal')
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO qualifiers (work_type_id,label,amount,active,is_freight,per_unit) VALUES (?,?,?,?,?,?)",
+                (wt_id, 'Tile Removal', 3.00, 'Y', 0, 1)
+            )
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
