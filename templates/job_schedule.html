@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% block title %}Schedule — {{ quote.customer_name }}{% endblock %}
+{% block extra_css %}
+<style>
+.sched-edit-row td { background:var(--surface2); padding:14px 20px; border-bottom:2px solid var(--blue); }
+.sched-input { width:150px; }
+.sched-reminder { background:var(--surface); border:1px solid var(--border2); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:12px; color:var(--text2); display:flex; justify-content:space-between; align-items:center; gap:12px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-wide">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+    <div>
+      <div class="page-title">Schedule — {{ quote.customer_name }}</div>
+      <div class="page-subtitle">QT-{{ '%04d'|format(quote.quote_id) }} — signed {{ quote.signed_at }} — status: {{ 'in progress' if quote.status == 'in_progress' else quote.status }}</div>
+    </div>
+    <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Contract</a>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Work Item</th>
+          <th>Sub</th>
+          <th>Scheduled Start</th>
+          <th>Est. End</th>
+          <th>Status</th>
+          {% if can_edit %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td>{{ item.work_type_label or item.label }}</td>
+          <td>{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</td>
+          <td class="mono">{{ item.scheduled_start_date or '—' }}</td>
+          <td class="mono">{{ item.estimated_end_date or '—' }}</td>
+          <td>
+            <span class="badge badge-{{ 'green' if item.schedule_status == 'done' else 'amber' if item.schedule_status == 'in_progress' else 'blue' }}">
+              {{ 'in progress' if item.schedule_status == 'in_progress' else item.schedule_status.replace('_', ' ') }}
+            </span>
+            {% if item.confirmed_at %}<div style="font-size:10px;color:var(--text3);margin-top:2px;">confirmed by {{ item.confirmed_by }}</div>{% endif %}
+            {% if item.confirmed_at and item.sub_id and not item.sub_email %}<div style="font-size:10px;color:#f87171;margin-top:2px;">no email on file for {{ item.sub_name }} — let them know yourself</div>{% endif %}
+          </td>
+          {% if can_edit %}
+          <td style="white-space:nowrap;">
+            {% if item.needs_confirmation %}
+            <form method="POST" action="/quotes/{{ quote.quote_id }}/schedule/{{ item.id }}/confirm" style="display:inline;">
+              <input type="hidden" name="source" value="{{ item.source }}">
+              <button class="btn btn-primary btn-sm" type="submit">Confirm start</button>
+            </form>
+            {% endif %}
+            <button class="btn btn-secondary btn-sm" type="button" onclick="toggleScheduleForm({{ item.id }})">Edit</button>
+          </td>
+          {% endif %}
+        </tr>
+        {% if can_edit %}
+        <tr class="sched-edit-row" id="edit-{{ item.id }}" style="display:none;">
+          <td colspan="6">
+            <div style="display:flex;gap:24px;flex-wrap:wrap;">
+              <form method="POST" action="/quotes/{{ quote.quote_id }}/schedule/{{ item.id }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+                <input type="hidden" name="source" value="{{ item.source }}">
+                <div>
+                  <label class="form-label">Sub</label>
+                  <select class="form-control sched-input" name="sub_id">
+                    <option value="">— None —</option>
+                    {% for s in subs %}
+                    <option value="{{ s.sub_id }}" {{ 'selected' if item.sub_id == s.sub_id }}>{{ s.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label">Scheduled Start</label>
+                  <input class="form-control sched-input" type="date" name="scheduled_start_date" value="{{ item.scheduled_start_date }}">
+                </div>
+                <button class="btn btn-primary btn-sm" type="submit">Save</button>
+              </form>
+              <form method="POST" action="/quotes/{{ quote.quote_id }}/schedule/{{ item.id }}/actual" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+                <input type="hidden" name="source" value="{{ item.source }}">
+                <div>
+                  <label class="form-label">Actual Start</label>
+                  <input class="form-control sched-input" type="date" name="actual_start_date" value="{{ item.actual_start_date }}">
+                </div>
+                <div>
+                  <label class="form-label">Actual Finish</label>
+                  <input class="form-control sched-input" type="date" name="actual_finish_date" value="{{ item.actual_finish_date }}">
+                </div>
+                <button class="btn btn-primary btn-sm" type="submit">Save</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+        {% if not items %}
+        <tr><td colspan="{{ 6 if can_edit else 5 }}" style="text-align:center;padding:20px;color:var(--text3);">No schedulable work items on this contract.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if not can_edit %}
+  <div style="margin-top:16px;font-size:12px;color:var(--text3);">View only — ask an Owner or Coordinator to update the schedule.</div>
+  {% endif %}
+</div>
+<script>
+function toggleScheduleForm(id) {
+  const row = document.getElementById('edit-' + id);
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+{% endblock %}

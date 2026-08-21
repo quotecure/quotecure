@@ -48,7 +48,7 @@
             <td><a href="/quotes/{{ q.quote_id }}">{{ q.customer_name }}</a></td>
             <td style="color:var(--text2)">{{ q.address or '—' }}</td>
             <td style="color:var(--text2)">{{ q.salesperson or '—' }}</td>
-            <td><span class="badge badge-{{ 'purple' if q.status == 'contract' else 'green' if q.status == 'sent' else 'blue' if q.status == 'draft' else 'amber' }}">{{ q.status }}</span></td>
+            <td><span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status in ('sent', 'complete') else 'blue' if q.status == 'draft' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span></td>
             <td class="right mono">${{ '%.2f'|format(q.total_cost) }}</td>
             <td class="right mono" style="font-weight:600">${{ '%.2f'|format(q.total_price) }}</td>
             <td class="right"><span class="pill pill-margin">{{ '%.0f'|format(q.total_margin) }}%</span></td>

@@ -128,13 +128,14 @@
 {% block content %}
 <div class="page-wide">
 
-  {% if quote.status == 'contract' %}
+  {% if quote.status in ('contract', 'in_progress', 'complete') %}
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;margin-bottom:12px;background:#78350f22;border:1px solid #78350f;border-radius:var(--radius);">
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#fbbf24;background:#78350f44;border:1px solid #78350f;border-radius:4px;padding:2px 8px;">🔒 Contract</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#fbbf24;background:#78350f44;border:1px solid #78350f;border-radius:4px;padding:2px 8px;">🔒 {{ 'In Progress' if quote.status == 'in_progress' else 'Complete' if quote.status == 'complete' else 'Contract' }}</span>
       <span style="font-size:12px;color:var(--text2);">Signed {{ quote.signed_at }} by {{ quote.signed_name }} — line items and details are locked. Changes go through a Change Order.</span>
     </div>
     <div style="display:flex;gap:8px;">
+      <a href="/quotes/{{ quote.quote_id }}/schedule" class="btn btn-secondary btn-sm">🗓️ Schedule</a>
       <a href="/quotes/{{ quote.quote_id }}/ledger" class="btn btn-secondary btn-sm">📒 Job Ledger</a>
       <form method="POST" action="/quotes/{{ quote.quote_id }}/change_orders" style="display:inline">
         <button class="btn btn-primary btn-sm" type="submit">+ Create Change Order</button>
@@ -662,7 +663,7 @@
     </div>
     {% endfor %}
     <div class="paid-summary">
-      <div class="paid-summary-row"><span>{{ 'Contract Total' if quote.status == 'contract' else 'Quote Total' }}</span><span class="val">${{ '%.2f'|format(contract_total or 0) }}</span></div>
+      <div class="paid-summary-row"><span>{{ 'Contract Total' if quote.status in ('contract', 'in_progress', 'complete') else 'Quote Total' }}</span><span class="val">${{ '%.2f'|format(contract_total or 0) }}</span></div>
       <div class="paid-summary-row total"><span>Total Paid</span><span class="val" id="paid-total">${{ '%.2f'|format(schedule|selectattr('collected')|sum(attribute='collected_amount')|default(0)) }}</span></div>
       <div class="paid-summary-row remaining"><span>Remaining Balance</span><span class="val" id="paid-remaining">${{ '%.2f'|format((contract_total or 0) - (schedule|selectattr('collected')|sum(attribute='collected_amount')|default(0))) }}</span></div>
     </div>
@@ -677,7 +678,7 @@ const POOL_SQFT = {{ quote.total_surface_sqft or quote.pool_sqft or 0 }};
 const POOL_LF = {{ (quote.pool_perimeter or 0) + (quote.spa_perimeter if quote.has_spa else 0)
                     + (quote.steps_lf or 0) + (quote.benches_lf or 0) + (quote.swimouts_lf or 0) }};
 const DRAWS = {{ schedule_json | default("[]") | safe }};
-const LOCKED = {{ 'true' if quote.status == 'contract' else 'false' }};
+const LOCKED = {{ 'true' if quote.status in ('contract', 'in_progress', 'complete') else 'false' }};
 const TIER_POLICY = {{ ({
       'active': 1 if (commission_policy and commission_policy.method == 'tiered_gp') else 0,
       't1': commission_policy.tier1_threshold if commission_policy else 20,

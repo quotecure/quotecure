@@ -140,10 +140,14 @@ def quotes_list():
     db = get_db()
     tab = request.args.get('tab', 'quotes')
     if tab == 'contracts':
-        quotes = db.execute("SELECT * FROM quotes WHERE status='contract' ORDER BY signed_at DESC").fetchall()
+        quotes = db.execute(
+            "SELECT * FROM quotes WHERE status IN ('contract','in_progress','complete') ORDER BY signed_at DESC"
+        ).fetchall()
     else:
         tab = 'quotes'
-        quotes = db.execute("SELECT * FROM quotes WHERE status!='contract' ORDER BY created_at DESC").fetchall()
+        quotes = db.execute(
+            "SELECT * FROM quotes WHERE status='draft' OR status='sent' ORDER BY created_at DESC"
+        ).fetchall()
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
     return render_template('quotes.html', quotes=quotes, commission_policy=commission_policy, active_tab=tab)
 
@@ -460,7 +464,7 @@ def _ledger_totals(db, quote_id, items):
 def job_ledger(quote_id):
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    if not quote or quote['status'] != 'contract':
+    if not quote or not _is_locked_contract(db, quote_id):
         return redirect(url_for('edit_quote', quote_id=quote_id))
     items = _ledger_items(db, quote_id)
     for item in items:
@@ -474,7 +478,7 @@ def job_ledger(quote_id):
 def save_ledger_actual(quote_id, item_id):
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    if not quote or quote['status'] != 'contract':
+    if not quote or not _is_locked_contract(db, quote_id):
         return redirect(url_for('edit_quote', quote_id=quote_id))
     source = request.form.get('source')
     if source == 'change_order_item':
@@ -498,6 +502,136 @@ def save_ledger_actual(quote_id, item_id):
         )
         db.commit()
     return redirect(url_for('job_ledger', quote_id=quote_id))
+
+@app.route('/quotes/<int:quote_id>/schedule')
+@login_required
+def job_schedule(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote or not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    items = _schedule_items(db, quote_id)
+    subs = db.execute("SELECT sub_id, name FROM subs WHERE active='Y' ORDER BY name").fetchall()
+    can_edit = bool(g.role and g.role['can_enter_actuals'])
+    return render_template('job_schedule.html', quote=quote, items=items, subs=subs, can_edit=can_edit)
+
+def _owned_schedule_item(db, quote_id, item_id, source):
+    """Same ownership-verification pattern as save_ledger_actual: confirms item_id actually
+    belongs to this quote (directly, or via one of its change orders) before any schedule
+    field gets written, and returns which table to write to."""
+    if source == 'change_order_item':
+        owned = db.execute(
+            "SELECT coi.id FROM change_order_items coi JOIN change_orders co ON coi.change_order_id=co.id "
+            "WHERE coi.id=? AND co.quote_id=?", (item_id, quote_id)
+        ).fetchone()
+        return ('change_order_items', bool(owned))
+    owned = db.execute("SELECT id FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
+    return ('quote_line_items', bool(owned))
+
+@app.route('/quotes/<int:quote_id>/schedule/<int:item_id>', methods=['POST'])
+@require_permission('can_enter_actuals')
+def save_schedule(quote_id, item_id):
+    db = get_db()
+    if not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    source = request.form.get('source')
+    table, owned = _owned_schedule_item(db, quote_id, item_id, source)
+    if owned:
+        start_date = request.form.get('scheduled_start_date', '').strip()
+        sub_id = request.form.get('sub_id', '').strip()
+        sub_name = ''
+        if sub_id:
+            s = db.execute("SELECT name FROM subs WHERE sub_id=?", (sub_id,)).fetchone()
+            sub_name = s['name'] if s else ''
+        db.execute(
+            f"UPDATE {table} SET scheduled_start_date=?, sub_id=?, sub_name=? WHERE id=?",
+            (start_date, sub_id, sub_name, item_id)
+        )
+        db.commit()
+    return redirect(url_for('job_schedule', quote_id=quote_id))
+
+@app.route('/quotes/<int:quote_id>/schedule/<int:item_id>/actual', methods=['POST'])
+@require_permission('can_enter_actuals')
+def save_schedule_actual(quote_id, item_id):
+    db = get_db()
+    if not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    source = request.form.get('source')
+    table, owned = _owned_schedule_item(db, quote_id, item_id, source)
+    if owned:
+        actual_start = request.form.get('actual_start_date', '').strip()
+        actual_finish = request.form.get('actual_finish_date', '').strip()
+        status = 'done' if actual_finish else ('in_progress' if actual_start else 'not_started')
+        db.execute(
+            f"UPDATE {table} SET actual_start_date=?, actual_finish_date=?, schedule_status=? WHERE id=?",
+            (actual_start, actual_finish, status, item_id)
+        )
+        _maybe_advance_quote_status(db, quote_id)
+        db.commit()
+    return redirect(url_for('job_schedule', quote_id=quote_id))
+
+@app.route('/quotes/<int:quote_id>/schedule/<int:item_id>/confirm', methods=['POST'])
+@require_permission('can_enter_actuals')
+def confirm_schedule(quote_id, item_id):
+    db = get_db()
+    if not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    source = request.form.get('source')
+    table, owned = _owned_schedule_item(db, quote_id, item_id, source)
+    if owned:
+        item = db.execute(f"SELECT * FROM {table} WHERE id=?", (item_id,)).fetchone()
+        confirmed_by = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+        db.execute(
+            f"UPDATE {table} SET confirmed_at=now()::text, confirmed_by=? WHERE id=?",
+            (confirmed_by, item_id)
+        )
+        db.commit()
+        sub = db.execute("SELECT name, email FROM subs WHERE sub_id=?", (item['sub_id'],)).fetchone() if item['sub_id'] else None
+        if sub and sub['email']:
+            quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+            settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+            gmail_address = settings['gmail_address'] if settings else ''
+            gmail_app_password = settings['gmail_app_password'] if settings else ''
+            if gmail_address and gmail_app_password:
+                try:
+                    _send_plain_email(
+                        sub['email'],
+                        f"Scheduled: {item['work_type_label']} — {quote['customer_name']}",
+                        (f"Hi {sub['name']},\n\n"
+                         f"You're confirmed to start {item['work_type_label']} at {quote['customer_name']} "
+                         f"on {item['scheduled_start_date']}.\n\n"
+                         f"Thanks,\n{confirmed_by}"),
+                        gmail_address, gmail_app_password
+                    )
+                except Exception:
+                    pass
+    return redirect(url_for('job_schedule', quote_id=quote_id))
+
+@app.route('/schedule')
+@login_required
+def schedule_overview():
+    """Every scheduled work item across every active contract, sorted by sub then start
+    date -- deliberately a sorted list, not a calendar grid (no calendar UI exists anywhere
+    in this app yet, and a list already surfaces the double-booking problem this exists to
+    solve: two rows for the same sub with overlapping dates land right next to each other)."""
+    db = get_db()
+    quotes = db.execute(
+        "SELECT quote_id, customer_name FROM quotes WHERE status IN ('contract','in_progress','complete')"
+    ).fetchall()
+    all_items = []
+    reminders = []
+    for q in quotes:
+        for item in _schedule_items(db, q['quote_id']):
+            if not item.get('scheduled_start_date'):
+                continue
+            item['quote_id'] = q['quote_id']
+            item['customer_name'] = q['customer_name']
+            all_items.append(item)
+            if item['needs_confirmation']:
+                reminders.append(item)
+    all_items.sort(key=lambda i: (i.get('sub_name') or '~', i['scheduled_start_date']))
+    reminders.sort(key=lambda i: i['scheduled_start_date'])
+    return render_template('schedule_overview.html', items=all_items, reminders=reminders)
 
 def _insert_change_order_item(db, co_id, item, kind, action, label, sort_order,
                                source_line_item_id=None, source_change_order_item_id=None):
@@ -577,7 +711,7 @@ def _recalc_change_order(db, co_id):
 def create_change_order(quote_id):
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    if not quote or quote['status'] != 'contract':
+    if not quote or not _is_locked_contract(db, quote_id):
         return redirect(url_for('edit_quote', quote_id=quote_id))
     max_co = db.execute("SELECT MAX(co_number) FROM change_orders WHERE quote_id=?", (quote_id,)).fetchone()[0]
     co_number = (max_co or 0) + 1
@@ -1572,8 +1706,11 @@ def _rollup_item_totals(db, item_id):
     return total_cost, total_price, total_margin
 
 def _is_locked_contract(db, quote_id):
+    """True once a quote has been signed, for as long as it stays in the signed lifecycle
+    (contract -> in_progress -> complete) -- line items stay locked, Change Orders stay the
+    only way to change scope, the whole way through, not just at the moment of signing."""
     q = db.execute("SELECT status FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    return bool(q and q['status'] == 'contract')
+    return bool(q and q['status'] in ('contract', 'in_progress', 'complete'))
 
 def _estimated_timeline_days(db, line_items):
     """Rough job duration: sum of each distinct work type's estimated_days across a
@@ -1589,6 +1726,84 @@ def _estimated_timeline_days(db, line_items):
             seen.add(wt_id)
             total += wt_days.get(wt_id, 0.0)
     return round(total, 1)
+
+SCHEDULE_REMINDER_LEAD_DAYS = 1
+
+def _add_business_days(start_date, n):
+    """start_date + n business days, skipping Sat/Sun -- not a holiday calendar, just
+    'skip weekends', matching the level of precision the PM actually asked for."""
+    from datetime import timedelta
+    d = start_date
+    added = 0
+    while added < n:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            added += 1
+    return d
+
+def _business_days_before(target_date, n):
+    """The date that's n business days before target_date -- the mirror of
+    _add_business_days, used to compute when a start-date reminder should first appear
+    (e.g. a Monday start with n=1 reminds the previous Friday)."""
+    from datetime import timedelta
+    d = target_date
+    subtracted = 0
+    while subtracted < n:
+        d -= timedelta(days=1)
+        if d.weekday() < 5:
+            subtracted += 1
+    return d
+
+def _schedule_items(db, quote_id):
+    """Every schedulable work item on a signed contract: the current effective catalog
+    items (_contract_effective_items), tagged with 'source' like _ledger_items, plus a live-
+    computed estimated_end_date (start + that work type's estimated_days, business days --
+    not stored, so it stays correct if estimated_days is edited later) and whether it
+    currently needs a PM reminder. Freeform Change Order items are excluded -- they have no
+    work_type_id/estimated_days to schedule against, unlike the Ledger which does track
+    freeform items for cost."""
+    from datetime import date
+    wt_days = {r['work_type_id']: float(r['estimated_days'] or 0)
+               for r in db.execute("SELECT work_type_id, estimated_days FROM work_types").fetchall()}
+    today = date.today()
+    items = []
+    for row in _contract_effective_items(db, quote_id).values():
+        d = dict(row)
+        d['source'] = 'change_order_item' if 'change_order_id' in d else 'quote_line_item'
+        d['estimated_end_date'] = ''
+        d['sub_email'] = ''
+        if d.get('sub_id'):
+            s = db.execute("SELECT email FROM subs WHERE sub_id=?", (d['sub_id'],)).fetchone()
+            d['sub_email'] = s['email'] if s else ''
+        if d.get('scheduled_start_date'):
+            start = date.fromisoformat(d['scheduled_start_date'])
+            days = wt_days.get(d['work_type_id'], 0.0)
+            end = _add_business_days(start, int(days)) if days else start
+            d['estimated_end_date'] = end.isoformat()
+        d['needs_confirmation'] = bool(
+            d.get('scheduled_start_date')
+            and d.get('schedule_status', 'not_started') == 'not_started'
+            and not d.get('confirmed_at')
+            and today >= _business_days_before(date.fromisoformat(d['scheduled_start_date']), SCHEDULE_REMINDER_LEAD_DAYS)
+        )
+        items.append(d)
+    return items
+
+def _maybe_advance_quote_status(db, quote_id):
+    """contract -> in_progress the first time any schedulable item gets an actual start
+    date; in_progress -> complete once every schedulable item has an actual finish date.
+    Called after any write that sets actual_start_date/actual_finish_date, same
+    'recompute after every mutating write' style as _recalc_quote."""
+    quote = db.execute("SELECT status FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote or quote['status'] not in ('contract', 'in_progress'):
+        return
+    items = _schedule_items(db, quote_id)
+    if not items:
+        return
+    if quote['status'] == 'contract' and any(i.get('actual_start_date') for i in items):
+        db.execute("UPDATE quotes SET status='in_progress' WHERE quote_id=?", (quote_id,))
+    elif quote['status'] == 'in_progress' and all(i.get('actual_finish_date') for i in items):
+        db.execute("UPDATE quotes SET status='complete' WHERE quote_id=?", (quote_id,))
 
 def _recalc_quote(db, quote_id):
     if _is_locked_contract(db, quote_id):
@@ -2457,6 +2672,22 @@ def _send_quote_email(to_email, subject, body_text, pdf_bytes, quote_id, gmail_a
     part = MIMEApplication(pdf_bytes, Name=f'Quote_{quote_id:04d}.pdf')
     part['Content-Disposition'] = f'attachment; filename="Quote_{quote_id:04d}.pdf"'
     msg.attach(part)
+    with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as server:
+        server.starttls()
+        server.login(gmail_address, gmail_app_password)
+        server.sendmail(gmail_address, [to_email], msg.as_string())
+
+def _send_plain_email(to_email, subject, body_text, gmail_address, gmail_app_password):
+    """Same delivery mechanism as _send_quote_email, without the PDF attachment it hard-
+    requires -- used for the schedule confirm-and-notify step, which has nothing to attach."""
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    msg = MIMEMultipart()
+    msg['From'] = gmail_address
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body_text))
     with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as server:
         server.starttls()
         server.login(gmail_address, gmail_app_password)

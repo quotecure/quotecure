@@ -1953,6 +1953,58 @@ def add_tile_removal_qualifier(conn):
             )
 
 
+@migration
+def add_job_scheduler(conn):
+    """Time equivalent of the Job Ledger's quoted-vs-actual cost tracking: a PM assigns a
+    sub and a scheduled_start_date to each schedulable work item on a signed contract
+    (duration comes from work_types.estimated_days, computed live rather than stored so it
+    stays correct if estimated_days is edited later), gets a reminder to confirm a day
+    before it starts, and actual_start_date/actual_finish_date get tracked against the
+    estimate. Columns go directly on quote_line_items/change_order_items, same reasoning as
+    add_job_ledger: no second table to keep in sync, _contract_effective_items keeps working
+    unchanged. Only catalog items with a work_type_id are schedulable -- freeform Change
+    Order lines have no estimated_days to compute against, a deliberate scope difference
+    from the Ledger (which does track freeform items for cost).
+
+    Also fixes a real risk this migration would otherwise introduce: adding quotes.status
+    values 'in_progress'/'complete' is not safe as an isolated addition, because "is this a
+    signed contract" was checked via a literal status=='contract' string comparison in
+    multiple places, not one shared concept -- _is_locked_contract (now updated in app.py to
+    check status IN ('contract','in_progress','complete')) plus three call sites that
+    bypassed it entirely (job_ledger, save_ledger_actual, create_change_order -- all now
+    routed through _is_locked_contract instead) and quotes_list's tab filters (now explicit
+    IN/OR lists, not a bare negation, so a future status can't silently leak into the wrong
+    tab again). Without this fix-up, a job moving past 'contract' would have silently
+    unlocked its own line items, lost Job Ledger access, been unable to get new Change
+    Orders, and vanished from the Contracts tab."""
+    for table in ('quote_line_items', 'change_order_items'):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for col, ddl in (
+            ('scheduled_start_date', "TEXT DEFAULT ''"),
+            ('schedule_status', "TEXT DEFAULT 'not_started'"),
+            ('confirmed_at', "TEXT DEFAULT ''"),
+            ('confirmed_by', "TEXT DEFAULT ''"),
+            ('actual_start_date', "TEXT DEFAULT ''"),
+            ('actual_finish_date', "TEXT DEFAULT ''"),
+        ):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+
+
+@migration
+def add_sub_email(conn):
+    """Email address for subs, alongside the existing phone field -- used by the Job
+    Scheduler's confirm-and-notify step when a sub has one on file. add_sub_contact_phone's
+    own docstring notes phone was added because most subs don't really use email and the
+    long-term intent was text/WhatsApp delivery instead; there's no SMS infrastructure to
+    reach for yet, so this is a best-effort channel for now, not assumed reliable -- the
+    confirm flow falls back to telling the PM to notify the sub directly when no email is on
+    file, rather than silently doing nothing."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(subs)").fetchall()}
+    if 'email' not in cols:
+        conn.execute("ALTER TABLE subs ADD COLUMN email TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

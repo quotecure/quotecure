@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}Schedule — QuoteCure{% endblock %}
+{% block content %}
+<div class="page-wide">
+  <div class="page-title">Schedule</div>
+  <div class="page-subtitle">Every scheduled work item across active contracts, sorted by sub and start date</div>
+
+  {% if reminders %}
+  <div style="background:#78350f22;border:1px solid #78350f;border-radius:var(--radius);padding:12px 16px;margin:16px 0;">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#fbbf24;margin-bottom:8px;">Needs confirming</div>
+    {% for r in reminders %}
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;">
+      <span>{{ r.work_type_label }} — {{ r.customer_name }} {% if r.sub_name %}({{ r.sub_name }}){% endif %} — starts {{ r.scheduled_start_date }}</span>
+      <a href="/quotes/{{ r.quote_id }}/schedule" class="btn btn-primary btn-sm">Review</a>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="table-wrap" style="margin-top:16px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Sub</th>
+          <th>Customer</th>
+          <th>Work Item</th>
+          <th>Start</th>
+          <th>Est. End</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td>{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</td>
+          <td><a href="/quotes/{{ item.quote_id }}/schedule">{{ item.customer_name }}</a></td>
+          <td>{{ item.work_type_label or item.label }}</td>
+          <td class="mono">{{ item.scheduled_start_date }}</td>
+          <td class="mono">{{ item.estimated_end_date or '—' }}</td>
+          <td>
+            <span class="badge badge-{{ 'green' if item.schedule_status == 'done' else 'amber' if item.schedule_status == 'in_progress' else 'blue' }}">
+              {{ 'in progress' if item.schedule_status == 'in_progress' else item.schedule_status.replace('_', ' ') }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not items %}
+        <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3);">No scheduled work items yet.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
