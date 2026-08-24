@@ -509,7 +509,7 @@
               <select class="nr-input" id="nr-wt-{{ section }}" onchange="onNrWorkType('{{ section }}')">
                 <option value="">— Select —</option>
                 {% for wt in work_types %}
-                <option value="{{ wt.work_type_id }}" data-unit="{{ wt.unit }}" data-markup="{{ wt.default_markup }}" data-min="{{ wt.min_markup }}" data-sub="{{ wt.default_sub_id or '' }}">{{ wt.work_type }}</option>
+                <option value="{{ wt.work_type_id }}" data-unit="{{ wt.unit }}" data-markup="{{ wt.default_markup }}" data-min="{{ wt.min_markup }}" data-sub="{{ wt.default_sub_id or '' }}" data-deck="{{ '1' if wt.work_type in DECK_SQFT_WORK_TYPES else '' }}">{{ wt.work_type }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -675,6 +675,7 @@
 <script>
 const QID = {{ quote.quote_id }};
 const POOL_SQFT = {{ quote.total_surface_sqft or quote.pool_sqft or 0 }};
+const DECK_SQFT = {{ quote.deck_sqft or 0 }};
 const POOL_LF = {{ (quote.pool_perimeter or 0) + (quote.spa_perimeter if quote.has_spa else 0)
                     + (quote.steps_lf or 0) + (quote.benches_lf or 0) + (quote.swimouts_lf or 0) }};
 const DRAWS = {{ schedule_json | default("[]") | safe }};
@@ -1075,9 +1076,14 @@ async function onNrWorkType(section) {
   const unitSel = document.getElementById('nr-unit-' + section);
   [...unitSel.options].forEach(o => o.selected = o.value === unit);
 
-  // Set qty
+  // Set qty -- deck-sqft work types (pavers, textured decking) use the deck/paver area,
+  // not the pool's own interior surface sqft, same distinction _compute_line_item_pricing
+  // already makes for the automatic pricing path (DECK_SQFT_WORK_TYPES, matched via the
+  // data-deck flag on this option, set from that same Python set).
+  const isDeck = opt?.dataset?.deck === '1';
   let qty = '';
-  if (unit === 'sqft' && POOL_SQFT) qty = POOL_SQFT;
+  if (unit === 'sqft' && isDeck && DECK_SQFT) qty = DECK_SQFT;
+  else if (unit === 'sqft' && POOL_SQFT) qty = POOL_SQFT;
   else if (unit === 'lf' && POOL_LF) qty = POOL_LF;
   else qty = 1;
   document.getElementById('nr-qty-' + section).value = qty;
@@ -1111,7 +1117,7 @@ async function onNrWorkType(section) {
       if (rd.unit) {
         [...unitSel.options].forEach(o => o.selected = o.value === rd.unit);
         if (rd.unit === 'each') document.getElementById('nr-qty-' + section).value = 1;
-        else if (rd.unit === 'sqft') document.getElementById('nr-qty-' + section).value = POOL_SQFT;
+        else if (rd.unit === 'sqft') document.getElementById('nr-qty-' + section).value = (isDeck && DECK_SQFT) ? DECK_SQFT : POOL_SQFT;
         else if (rd.unit === 'lf') document.getElementById('nr-qty-' + section).value = POOL_LF;
       }
     }
@@ -1123,6 +1129,7 @@ async function onNrSub(section) {
   const wtId = document.getElementById('nr-wt-' + section).value;
   const subId = document.getElementById('nr-sub-' + section).value;
   if (!subId || !wtId) return;
+  const isDeck = document.getElementById('nr-wt-' + section).selectedOptions[0]?.dataset?.deck === '1';
   const r = await fetch('/api/rate?sub_id=' + subId + '&work_type_id=' + wtId);
   const d = await r.json();
   nrMarkupOverride[section] = null;
@@ -1133,7 +1140,7 @@ async function onNrSub(section) {
       const unitSel = document.getElementById('nr-unit-' + section);
       [...unitSel.options].forEach(o => o.selected = o.value === d.unit);
       if (d.unit === 'each') document.getElementById('nr-qty-' + section).value = 1;
-      else if (d.unit === 'sqft') document.getElementById('nr-qty-' + section).value = POOL_SQFT;
+      else if (d.unit === 'sqft') document.getElementById('nr-qty-' + section).value = (isDeck && DECK_SQFT) ? DECK_SQFT : POOL_SQFT;
       else if (d.unit === 'lf') document.getElementById('nr-qty-' + section).value = POOL_LF;
     }
   }

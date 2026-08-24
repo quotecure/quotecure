@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-21 — Fixed Paver Installation (and other deck-sqft items) pulling pool sqft when added manually
+
+The automatic pricing path (package/template auto-populate) has always correctly used the deck/paver area for Paver Installation, Paver Sealing, Flagstone Pavers, and Textured Decking (`DECK_SQFT_WORK_TYPES` in app.py) — but the manual "Add Item" form's quantity auto-fill never knew about that distinction and always used the pool's own interior surface sqft for any sqft-unit work type. Exposed `DECK_SQFT_WORK_TYPES` to Jinja as a shared global (one list, not a duplicated one in the template) so the work-type dropdown can flag deck-sqft items with a `data-deck` attribute, added a `DECK_SQFT` JS constant, and updated all four quantity auto-fill sites in the Add Item form to use it. Verified live: Paver Installation now correctly auto-fills from `deck_sqft` (900) instead of the pool's `total_surface_sqft` (640); confirmed no regression on a normal sqft item (Surface Removal still uses the pool figure).
+
 ## 2026-08-21 — AI visualization now appears on the quote PDF
 
 If a customer's before/after AI visualization was generated for a quote, it now shows up as its own page at the very end of both the customer preview and the emailed PDF — a "Before" / "After" pair with the package name, on its own page (`page-break-before`) after the signature and validity notice, not squeezed in anywhere else. Only a *completed* visualization shows (a pending or failed generation is silently excluded); if a customer tried more than once, the most recent completed one is used. Since `/preview` and the PDF export share the same renderer (`_quote_preview_html`), this needed one query and one template block, not a separate PDF-specific code path — images are already stored as base64 data URIs in `quote_visualizations`, so Playwright renders them natively, no PDF-merge step like the Terms Library needed for uploaded PDFs.

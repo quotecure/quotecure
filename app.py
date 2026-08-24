@@ -173,6 +173,10 @@ DECK_SQFT_WORK_TYPES = {
     'Paver Installation', 'Paver Sealing', 'Flagstone Pavers',
     'Textured Decking – Knockdown', 'Textured Decking – Variegated',
 }
+# Exposed to Jinja so templates can flag these work types (e.g. a data-deck attribute on
+# the manual Add Item form's work-type options) without duplicating this list a second
+# time -- one set, shared by the automatic pricing path below and any template that needs it.
+app.jinja_env.globals['DECK_SQFT_WORK_TYPES'] = DECK_SQFT_WORK_TYPES
 
 def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims, can_override):
     """Full pricing for one work-type item given a sub/material default and quote dimensions.
