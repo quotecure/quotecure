@@ -994,12 +994,27 @@ def email_change_order(quote_id, co_id):
 
 AIM_CATEGORY = 'Glass (Artistry In Mosaics)'
 
-def _eligible_tiles_for_package(db, package_id, manufacturer='luv'):
+CAP_TILE_CATEGORY = 'Cap Tile Trim'
+
+def _eligible_tiles_for_package(db, package_id, manufacturer='luv', cap_tile=False):
     """Waterline tile priced above the previous tier's threshold (by sort_order), at or
     below this tier's own threshold -- unbounded above if this tier has no threshold set.
     manufacturer='luv' (default) excludes Artistry In Mosaics' Glass line entirely --
     manufacturers are shown as distinct sets, never mixed in one list -- pass 'aim' to
-    see only that line instead."""
+    see only that line instead.
+
+    cap_tile=True switches entirely to the Cap Tile Trim category and ignores both the
+    package price-tier banding and the luv/aim split -- Cap Tile Trim is a separate product
+    line from waterline tile (different pricing scale, no AIM equivalent), so package tiers
+    that band waterline tile by price don't mean anything for it. Without this, Cap Tile
+    Trim rows (added 2026-08-24) would otherwise get swept into the price-banded waterline
+    list by coincidence of cost_per_quote_unit falling in a tier's range."""
+    if cap_tile:
+        return db.execute(
+            "SELECT material_id, category, series, cost_per_quote_unit, product_url "
+            "FROM materials WHERE work_type_id=4 AND active='Y' AND category=? ORDER BY series",
+            (CAP_TILE_CATEGORY,)
+        ).fetchall()
     pkg = db.execute("SELECT * FROM packages WHERE package_id=?", (package_id,)).fetchone()
     if not pkg:
         return []
@@ -1008,8 +1023,8 @@ def _eligible_tiles_for_package(db, package_id, manufacturer='luv'):
     ).fetchone()[0]
     upper = pkg['tile_price_threshold']
     tile_query = ("SELECT material_id, category, series, cost_per_quote_unit, product_url "
-                   "FROM materials WHERE work_type_id=4 AND active='Y'")
-    params = []
+                   "FROM materials WHERE work_type_id=4 AND active='Y' AND category != ?")
+    params = [CAP_TILE_CATEGORY]
     if manufacturer == 'aim':
         tile_query += " AND category = ?"
         params.append(AIM_CATEGORY)
@@ -1182,9 +1197,10 @@ def select_materials(quote_id):
     manufacturer = request.args.get('manufacturer', 'luv')
     if manufacturer not in ('luv', 'aim'):
         manufacturer = 'luv'
-    all_tiles = _eligible_tiles_for_package(db, package_id, manufacturer) if package_id else []
-    aim_count = len(_eligible_tiles_for_package(db, package_id, 'aim')) if package_id else 0
-    luv_count = len(_eligible_tiles_for_package(db, package_id, 'luv')) if package_id else 0
+    is_cap_tile_item = bool(tile_item and tile_item['work_type_id'] == 5)
+    all_tiles = _eligible_tiles_for_package(db, package_id, manufacturer, cap_tile=is_cap_tile_item) if (package_id or is_cap_tile_item) else []
+    aim_count = 0 if is_cap_tile_item else (len(_eligible_tiles_for_package(db, package_id, 'aim')) if package_id else 0)
+    luv_count = len(all_tiles) if is_cap_tile_item else (len(_eligible_tiles_for_package(db, package_id, 'luv')) if package_id else 0)
     PER_PAGE = 6
     page = max(1, int(request.args.get('page', 1) or 1))
     total_pages = max(1, (len(all_tiles) + PER_PAGE - 1) // PER_PAGE)
