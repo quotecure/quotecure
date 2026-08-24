@@ -2208,34 +2208,59 @@ def init_cap_tile_trim_materials(conn):
     cost_per_quote_unit. `series` holds the display name shown in the picker (matches how
     every other tile material in this table uses series, not item_code, for its label);
     item_code is just a short internal reference. Insert-if-missing by item_code, safe to
-    run on every startup."""
+    run on every startup.
+
+    The first version of this seed (CT-6X6MUD etc., first deployed 2026-08-24) misread the
+    price sheet's jumbled two-column PDF layout and paired the "2 X 6 FROST PROOF TRIMS"
+    header with the wrong column -- those 6 items are actually under that page's "Depth
+    Markers" header (pool depth signage, not cap tile trim at all), confirmed by none of
+    them resolving to a real product on luvtile.com. The DELETE below retroactively removes
+    them from any environment that already ran the old seed (same pattern as
+    rename_marquis_manufacturer). The real "2x6" trim products are the 13 A42-2xxx items
+    below, verified live against luvtile.com/search-results/a42<code> (e.g. a422685 ->
+    "A42-2685 / NON SKID SAPPHIRE BLUE MIX") -- confirmed by Jim as what should actually be
+    recommended. The A360 "6x6" series was correct in the original seed and is unchanged."""
     c = conn.cursor()
+
+    wrong_codes = ['CT-6X6MUD', 'CT-6X6WALL', 'CT-6X6NS', 'CT-6X6NSND', 'CT-6X12NSND', 'CT-4X4WALL']
+    c.execute(
+        "DELETE FROM materials WHERE category='Cap Tile Trim' AND item_code IN (%s)" %
+        ','.join('?' for _ in wrong_codes), tuple(wrong_codes))
+
     sup = c.execute("SELECT supplier_id FROM suppliers WHERE name='LUV Tile'").fetchone()
     if not sup:
+        conn.commit()
         return
     supplier_id = sup['supplier_id']
 
     items = [
-        # (item_code, series/display name, raw_price)
-        ('CT-6X6MUD', '6x6 Mud', 12.30),
-        ('CT-6X6WALL', '6x6 Wall', 6.10),
-        ('CT-6X6NS', '6x6 Non-Skid', 7.95),
-        ('CT-6X6NSND', '6x6 Non-Skid Int. (No Diving)', 11.00),
-        ('CT-6X12NSND', '6x12 Non-Skid (No Diving)', 14.50),
-        ('CT-4X4WALL', '4x4 Wall', 4.55),
-        ('A360-20', 'A360-20 Gloss Turq/Blue', 3.65),
-        ('A360-NS20', 'A360-NS20 N.S. Turq/Blue', 3.90),
-        ('A360-83', 'A360-83 Gloss French Blue', 3.65),
-        ('A360-NS83', 'A360-NS83 N.S. French Blue', 3.90),
-        ('A360-85', 'A360-85 Gloss Sapphire Mix', 3.65),
-        ('A360-NS85', 'A360-NS85 N.S. Sapphire Mix', 3.90),
-        ('A360-87', 'A360-87 Blueberry', 3.65),
-        ('A360-NS87', 'A360-NS87 N.S. Blueberry', 3.90),
-        ('A360-730-740', 'A360-730&740 (Smooth Only)', 3.90),
+        # (item_code, series/display name, raw_price, product_url)
+        ('A360-20', 'A360-20 Gloss Turq/Blue', 3.65, ''),
+        ('A360-NS20', 'A360-NS20 N.S. Turq/Blue', 3.90, ''),
+        ('A360-83', 'A360-83 Gloss French Blue', 3.65, ''),
+        ('A360-NS83', 'A360-NS83 N.S. French Blue', 3.90, ''),
+        ('A360-85', 'A360-85 Gloss Sapphire Mix', 3.65, ''),
+        ('A360-NS85', 'A360-NS85 N.S. Sapphire Mix', 3.90, ''),
+        ('A360-87', 'A360-87 Blueberry', 3.65, ''),
+        ('A360-NS87', 'A360-NS87 N.S. Blueberry', 3.90, ''),
+        ('A360-730-740', 'A360-730&740 (Smooth Only)', 3.90, ''),
+        ('A42-2268', 'A42-2268 / Creme', 2.65, 'https://www.luvtile.com/search-results/a422268'),
+        ('A42-2285', 'A42-2285 / Sapphire Mix', 2.65, 'https://www.luvtile.com/search-results/a422285'),
+        ('A42-9974', 'A42-9974 / Stone Blue', 2.65, 'https://www.luvtile.com/search-results/a429974'),
+        ('A42-2220', 'A42-2220 / Turq/Blue', 2.65, 'https://www.luvtile.com/search-results/a422220'),
+        ('A42-2228', 'A42-2228 / Marine', 2.65, 'https://www.luvtile.com/search-results/a422228'),
+        ('A42-2283', 'A42-2283 / French Blue', 2.65, 'https://www.luvtile.com/search-results/a422283'),
+        ('A42-2287', 'A42-2287 / Blueberry', 2.65, 'https://www.luvtile.com/search-results/a422287'),
+        ('A42-2685', 'A42-2685 / Non-Skid Sapphire Mix', 2.90, 'https://www.luvtile.com/search-results/a422685'),
+        ('A42-2660', 'A42-2660 / Non-Skid Black', 2.90, 'https://www.luvtile.com/search-results/a422660'),
+        ('A42-2674', 'A42-2674 / Non-Skid Stone Blue', 2.90, 'https://www.luvtile.com/search-results/a422674'),
+        ('A42-2620', 'A42-2620 / Non-Skid Turq/Blue', 2.90, 'https://www.luvtile.com/search-results/a422620'),
+        ('A42-2683', 'A42-2683 / Non-Skid French Blue', 2.90, 'https://www.luvtile.com/search-results/a422683'),
+        ('A42-2687', 'A42-2687 / Non-Skid Blueberry', 2.90, 'https://www.luvtile.com/search-results/a422687'),
     ]
     conversion_factor = 2.0
     inserted = 0
-    for item_code, series, raw_price in items:
+    for item_code, series, raw_price, url in items:
         existing = c.execute(
             "SELECT 1 FROM materials WHERE item_code=? AND work_type_id=4", (item_code,)
         ).fetchone()
@@ -2245,8 +2270,8 @@ def init_cap_tile_trim_materials(conn):
         c.execute(
             "INSERT INTO materials (supplier_id, category, series, item_code, raw_price, price_unit, "
             "conversion_factor, quote_unit, cost_per_quote_unit, work_type_id, active, product_url) "
-            "VALUES (?, 'Cap Tile Trim', ?, ?, ?, 'per_piece', ?, 'lf', ?, 4, 'Y', '')",
-            (supplier_id, series, item_code, raw_price, conversion_factor, cost_per_quote_unit))
+            "VALUES (?, 'Cap Tile Trim', ?, ?, ?, 'per_piece', ?, 'lf', ?, 4, 'Y', ?)",
+            (supplier_id, series, item_code, raw_price, conversion_factor, cost_per_quote_unit, url))
         inserted += 1
     conn.commit()
     if inserted:
