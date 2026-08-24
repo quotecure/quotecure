@@ -2193,3 +2193,61 @@ def init_skimmer_material(conn):
     c.execute("UPDATE work_types SET default_material_id=?, default_markup=150.0, default_sub_id='S9' WHERE work_type_id=11",
               (mat_id,))
     conn.commit()
+
+
+def init_cap_tile_trim_materials(conn):
+    """Seed real Cap Tile trim products, sourced from LUV Tile's May 2026 price sheet
+    ('Specialty Trims' page). Cap Tile, Waterline Tile, and Coping have always shared one
+    tile catalog (materials.work_type_id=4) with no products actually scoped to Cap Tile --
+    picking a material for a Cap Tile line item showed the same waterline-only options as
+    Waterline Tile, because that's genuinely all that existed, not a filtering bug. These are
+    tagged category='Cap Tile Trim' so edit_quote.html's picker can scope Cap Tile items to
+    just this category while excluding it everywhere else. Quoted per linear foot like
+    Waterline Tile; conversion_factor=2.0 reflects 2 pieces per linear foot for these 6"-run
+    trim pieces (confirmed with Jim), applied to the per-piece supplier price to get
+    cost_per_quote_unit. `series` holds the display name shown in the picker (matches how
+    every other tile material in this table uses series, not item_code, for its label);
+    item_code is just a short internal reference. Insert-if-missing by item_code, safe to
+    run on every startup."""
+    c = conn.cursor()
+    sup = c.execute("SELECT supplier_id FROM suppliers WHERE name='LUV Tile'").fetchone()
+    if not sup:
+        return
+    supplier_id = sup['supplier_id']
+
+    items = [
+        # (item_code, series/display name, raw_price)
+        ('CT-6X6MUD', '6x6 Mud', 12.30),
+        ('CT-6X6WALL', '6x6 Wall', 6.10),
+        ('CT-6X6NS', '6x6 Non-Skid', 7.95),
+        ('CT-6X6NSND', '6x6 Non-Skid Int. (No Diving)', 11.00),
+        ('CT-6X12NSND', '6x12 Non-Skid (No Diving)', 14.50),
+        ('CT-4X4WALL', '4x4 Wall', 4.55),
+        ('A360-20', 'A360-20 Gloss Turq/Blue', 3.65),
+        ('A360-NS20', 'A360-NS20 N.S. Turq/Blue', 3.90),
+        ('A360-83', 'A360-83 Gloss French Blue', 3.65),
+        ('A360-NS83', 'A360-NS83 N.S. French Blue', 3.90),
+        ('A360-85', 'A360-85 Gloss Sapphire Mix', 3.65),
+        ('A360-NS85', 'A360-NS85 N.S. Sapphire Mix', 3.90),
+        ('A360-87', 'A360-87 Blueberry', 3.65),
+        ('A360-NS87', 'A360-NS87 N.S. Blueberry', 3.90),
+        ('A360-730-740', 'A360-730&740 (Smooth Only)', 3.90),
+    ]
+    conversion_factor = 2.0
+    inserted = 0
+    for item_code, series, raw_price in items:
+        existing = c.execute(
+            "SELECT 1 FROM materials WHERE item_code=? AND work_type_id=4", (item_code,)
+        ).fetchone()
+        if existing:
+            continue
+        cost_per_quote_unit = round(raw_price * conversion_factor, 2)
+        c.execute(
+            "INSERT INTO materials (supplier_id, category, series, item_code, raw_price, price_unit, "
+            "conversion_factor, quote_unit, cost_per_quote_unit, work_type_id, active, product_url) "
+            "VALUES (?, 'Cap Tile Trim', ?, ?, ?, 'per_piece', ?, 'lf', ?, 4, 'Y', '')",
+            (supplier_id, series, item_code, raw_price, conversion_factor, cost_per_quote_unit))
+        inserted += 1
+    conn.commit()
+    if inserted:
+        print(f'Seeded {inserted} Cap Tile Trim materials')

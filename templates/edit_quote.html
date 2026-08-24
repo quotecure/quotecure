@@ -409,8 +409,12 @@
                      catalog, seeded under work_type_id=4 regardless of which of those three
                      it ends up installed as -- so for those three, scope to wt=4 specifically
                      rather than every active material system-wide (pavers, lights, skimmer
-                     parts, ...), which made this a 185-option wall staff couldn't use. #}
-                  {% if mat.work_type_id == item.work_type_id or (item.work_type_id in [4,5,6] and mat.work_type_id == 4) %}
+                     parts, ...), which made this a 185-option wall staff couldn't use.
+                     Within that shared catalog, "Cap Tile Trim" is its own physically-distinct
+                     product line (trim pieces, not waterline tile) -- Cap Tile items see only
+                     that category, everything else sees everything but it. #}
+                  {% if (mat.work_type_id == item.work_type_id or (item.work_type_id in [4,5,6] and mat.work_type_id == 4))
+                        and (mat.category == 'Cap Tile Trim') == (item.work_type_id == 5) %}
                   {% if mat.category != ns.cat %}
                   {% if ns.cat %}</optgroup>{% endif %}
                   <optgroup label="{{ mat.category }}">

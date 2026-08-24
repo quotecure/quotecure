@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-24 — Cap Tile now has its own material list, separate from Waterline Tile
+
+Cap Tile, Waterline Tile, and Coping have always shared one tile material catalog (`materials.work_type_id=4`), so picking a material for a Cap Tile line item showed the exact same dropdown as Waterline Tile — all 4 existing categories (6x6 Porcelain, Glass, Mosaic Waterline, Upgrade Waterline) turned out to be waterline-only products, cross-referenced against the actual LUV Tile May 2026 price sheet Jim supplied. There were **zero real Cap Tile products in the catalog at all** before this — the picker wasn't mislabeled, the products genuinely didn't exist yet.
+
+Added 15 real Cap Tile trim products from the price sheet's "Specialty Trims" page (LUV Tile, supplier_id 6) under a new `Cap Tile Trim` category: the "2x6 Frost Proof Trims" group (6 items, $4.55–$14.50/piece) and the "6x6 Gloss & Non-Skid" A360 series (9 items, $3.65–$3.90/piece) — confirmed with Jim, excluding Depth Markers (not cap tile) and Porcelain Flush (out of scope for now). Cap Tile is quoted per linear foot like Waterline Tile, so each material's `cost_per_quote_unit` uses a 2-pieces-per-linear-foot conversion factor (confirmed with Jim: standard 6"-run trim pieces, 2 per lf).
+
+`edit_quote.html`'s material picker (~line 413) now scopes by category as well as `work_type_id`: Cap Tile items (`work_type_id=5`) see only `Cap Tile Trim`; Waterline Tile and Coping see everything else in the shared catalog but that. Verified live via the real Add Item flow — Cap Tile's picker shows exactly `Cap Tile Trim(15)`, Waterline Tile's is unchanged at the original 4 categories.
+
 ## 2026-08-21 — Fixed Paver Installation (and other deck-sqft items) pulling pool sqft when added manually
 
 The automatic pricing path (package/template auto-populate) has always correctly used the deck/paver area for Paver Installation, Paver Sealing, Flagstone Pavers, and Textured Decking (`DECK_SQFT_WORK_TYPES` in app.py) — but the manual "Add Item" form's quantity auto-fill never knew about that distinction and always used the pool's own interior surface sqft for any sqft-unit work type. Exposed `DECK_SQFT_WORK_TYPES` to Jinja as a shared global (one list, not a duplicated one in the template) so the work-type dropdown can flag deck-sqft items with a `data-deck` attribute, added a `DECK_SQFT` JS constant, and updated all four quantity auto-fill sites in the Add Item form to use it. Verified live: Paver Installation now correctly auto-fills from `deck_sqft` (900) instead of the pool's `total_surface_sqft` (640); confirmed no regression on a normal sqft item (Surface Removal still uses the pool figure).
