@@ -76,6 +76,13 @@
 
   /* Validity notice */
   .validity { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 32px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
+
+  /* Visualization */
+  .viz-section { margin-top: 40px; page-break-before: always; break-before: page; }
+  .viz-title { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #94a3b8; margin-bottom: 16px; text-align: center; }
+  .viz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .viz-grid img { width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; display: block; }
+  .viz-label { text-align: center; font-size: 11px; color: #64748b; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -285,6 +292,22 @@
     This quote is valid for {{ settings.quote_validity_days if settings else 30 }} days from the date of issue.
     All work subject to standard terms and conditions.
   </div>
+
+  {% if visualization %}
+  <div class="viz-section">
+    <div class="viz-title">Visualization{% if visualization.package_label %} — {{ visualization.package_label }}{% endif %}</div>
+    <div class="viz-grid">
+      <div>
+        <img src="{{ visualization.original_image }}">
+        <div class="viz-label">Before</div>
+      </div>
+      <div>
+        <img src="{{ visualization.generated_image }}">
+        <div class="viz-label">After</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
 </div>
 <script>

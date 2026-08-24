@@ -2492,13 +2492,17 @@ def _quote_preview_html(quote_id):
     schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
     terms_doc = db.execute("SELECT * FROM terms_documents WHERE id=?", (quote['terms_document_id'],)).fetchone() if quote['terms_document_id'] else None
+    visualization = db.execute(
+        "SELECT * FROM quote_visualizations WHERE quote_id=? AND status='done' AND generated_image IS NOT NULL "
+        "ORDER BY created_at DESC LIMIT 1", (quote_id,)
+    ).fetchone()
     from datetime import date, timedelta
     today = date.today()
     valid_until = today + timedelta(days=settings['quote_validity_days'] if settings else 30)
     return render_template('quote_preview.html', quote=quote, line_items=line_items,
                            optional_items=optional_items, declined_items=declined_items,
                            schedule=schedule, settings=settings, current_role=g.role,
-                           terms_doc=terms_doc,
+                           terms_doc=terms_doc, visualization=visualization,
                            today=today.strftime('%B %d, %Y'),
                            valid_until=valid_until.strftime('%B %d, %Y'))
 

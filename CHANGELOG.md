@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-21 — AI visualization now appears on the quote PDF
+
+If a customer's before/after AI visualization was generated for a quote, it now shows up as its own page at the very end of both the customer preview and the emailed PDF — a "Before" / "After" pair with the package name, on its own page (`page-break-before`) after the signature and validity notice, not squeezed in anywhere else. Only a *completed* visualization shows (a pending or failed generation is silently excluded); if a customer tried more than once, the most recent completed one is used. Since `/preview` and the PDF export share the same renderer (`_quote_preview_html`), this needed one query and one template block, not a separate PDF-specific code path — images are already stored as base64 data URIs in `quote_visualizations`, so Playwright renders them natively, no PDF-merge step like the Terms Library needed for uploaded PDFs.
+
 ## 2026-08-21 — Job Scheduler
 
 The time equivalent of the Job Ledger's quoted-vs-actual cost tracking: a PM assigns a sub and a scheduled start date to each work item on a signed contract (duration comes from `work_types.estimated_days`, wired up for the first time since it was added purely as a display total on 2026-08-13), gets a reminder to confirm a day before it starts, and actual start/finish dates get tracked against the estimate. Confirming is the same click that notifies the sub — no separate "send" step.
