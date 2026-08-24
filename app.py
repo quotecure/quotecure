@@ -162,10 +162,13 @@ def _dims_totals(dims):
 def _apply_min_job_price(db, work_type_id, total_cost, total_price):
     """Enforce a work type's flat-dollar minimum job price, if one is set -- keeps a
     deliberately thin-margin work type (e.g. a loss-leader) from pricing an individual job
-    below what it costs to run, regardless of markup. Returns (total_cost, total_price, total_margin)."""
+    below what it costs to run, regardless of markup. Returns (total_cost, total_price, total_margin).
+    Skipped for a negative total_price -- a floor is meaningless for a credit/offset line
+    (see 'replacement items' in Optional Add-Ons) and would otherwise clamp it back up to a
+    positive number, silently destroying the credit."""
     wt = db.execute("SELECT min_job_price FROM work_types WHERE work_type_id=?", (work_type_id,)).fetchone()
     floor = float(wt['min_job_price']) if wt and wt['min_job_price'] else 0
-    if floor and total_price < floor:
+    if floor and total_price >= 0 and total_price < floor:
         total_price = floor
     total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
     return total_cost, total_price, total_margin
@@ -1357,10 +1360,15 @@ def edit_quote(quote_id):
                 item_dict['product_line_name'] = p['product_line']
         item_dict['applied_qualifier_ids'] = {q['id'] for q in json.loads(item_dict.get('qualifiers_json') or '[]')}
         line_items_enriched.append(item_dict)
+    id_to_label = {i['id']: i['work_type_label'] for i in line_items_enriched}
+    for item_dict in line_items_enriched:
+        item_dict['replaces_label'] = id_to_label.get(item_dict.get('replaces_item_id'))
     line_items = [i for i in line_items_enriched if not i.get('is_optional')]
     optional_items = [i for i in line_items_enriched if i.get('is_optional') and not i.get('is_declined')]
     declined_items = [i for i in line_items_enriched if i.get('is_optional') and i.get('is_declined')]
     optional_total = round(sum(float(i['total_price'] or 0) for i in optional_items), 2)
+    already_replaced_ids = {i['replaces_item_id'] for i in optional_items + declined_items if i.get('replaces_item_id')}
+    replaceable_items = [i for i in line_items if i['id'] not in already_replaced_ids]
     estimated_days_total = _estimated_timeline_days(db, line_items)
 
     materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
@@ -1381,7 +1389,7 @@ def edit_quote(quote_id):
     terms_docs = db.execute("SELECT id,label FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
     return render_template('edit_quote.html', quote=quote, line_items=line_items,
                            optional_items=optional_items, optional_total=optional_total,
-                           declined_items=declined_items,
+                           declined_items=declined_items, replaceable_items=replaceable_items,
                            work_types=work_types, subs=subs, commission_policy=commission_policy,
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
                            contract_total=contract_total, change_orders=change_orders,
@@ -1582,6 +1590,69 @@ def add_line_item(quote_id):
          1 if data.get('is_optional') else 0))
     db.commit()
     _recalc_quote(db, quote_id)
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/line_items/replacement', methods=['POST'])
+@login_required
+def add_replacement_item(quote_id):
+    """A 'replacement item' is a second copy of a base item with its quantity negated,
+    added to Optional Add-Ons so staff can price an alternative (e.g. pavers instead of
+    the acrylic decking already in the quote) as a true net cost: the positive add-on
+    items (Pavers, Coping) plus the negative replacement items (credit for the decking/tile
+    they replace) sum to the real incremental price with no separate 'net' calculation
+    needed anywhere -- Optional Add-Ons' total is already a plain sum.
+
+    Negating quantity (not directly overwriting total_cost/total_price) matters: it means
+    this row behaves like any ordinary line item under every later edit path (editCell ->
+    update_line_item -> _rollup_item_totals) -- a markup or cost/unit tweak recomputes from
+    quantity * rate and the negative sign survives naturally. Deliberately bypasses
+    _price_catalog_item/build_line_item -- that path's sub-rate cost floor assumes a
+    positive cost and would clamp a credit back up."""
+    db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
+    data = request.json
+    source_id = data.get('source_item_id')
+    src = db.execute(
+        "SELECT * FROM quote_line_items WHERE id=? AND quote_id=? AND (is_optional=0 OR is_optional IS NULL)",
+        (source_id, quote_id)
+    ).fetchone()
+    if not src:
+        return jsonify({'error': 'Item not found'}), 404
+
+    can_override = bool(g.role and g.role['can_override_min_markup'])
+    labor_total_cost, labor_total_price, labor_margin_pct = calc_component(
+        src['labor_cost_per_unit'], -float(src['labor_quantity'] or 0),
+        src['labor_markup_pct'], src['labor_min_markup'], can_override)
+    material_total_cost, material_total_price, material_margin_pct = calc_component(
+        src['material_cost_per_unit'], -float(src['material_quantity'] or 0),
+        src['material_markup_pct'], src['material_min_markup'], can_override)
+    total_cost = round(labor_total_cost + material_total_cost, 2)
+    total_price = round(labor_total_price + material_total_price, 2)
+    total_margin_pct = round(((total_price - total_cost) / total_price * 100) if total_price else 0, 1)
+    sort_order = db.execute("SELECT COUNT(*) FROM quote_line_items WHERE quote_id=?", (quote_id,)).fetchone()[0]
+
+    db.execute(
+        "INSERT INTO quote_line_items "
+        "(quote_id, work_type_id, work_type_label, cost_structure, "
+        "sub_id, sub_name, labor_quantity, labor_unit, "
+        "labor_cost_per_unit, labor_total_cost, labor_markup_pct, labor_margin_pct, labor_total_price, labor_min_markup, "
+        "material_id, material_label, material_quantity, material_unit, "
+        "material_cost_per_unit, material_total_cost, material_markup_pct, material_margin_pct, material_total_price, material_min_markup, "
+        "product_id, product_label, total_cost, total_price, total_margin_pct, sort_order, description, "
+        "is_optional, replaces_item_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (quote_id, src['work_type_id'], src['work_type_label'], src['cost_structure'],
+         src['sub_id'], src['sub_name'], -float(src['labor_quantity'] or 0), src['labor_unit'],
+         src['labor_cost_per_unit'], labor_total_cost, src['labor_markup_pct'], labor_margin_pct,
+         labor_total_price, src['labor_min_markup'],
+         src['material_id'], src['material_label'], -float(src['material_quantity'] or 0), src['material_unit'],
+         src['material_cost_per_unit'], material_total_cost, src['material_markup_pct'], material_margin_pct,
+         material_total_price, src['material_min_markup'],
+         src['product_id'], src['product_label'],
+         total_cost, total_price, total_margin_pct, sort_order, src['description'],
+         1, source_id))
+    db.commit()
     return jsonify({'success': True})
 
 @app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/markup', methods=['POST'])

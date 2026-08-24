@@ -234,6 +234,8 @@
   </div>
   {% endif %}
 
+  {% macro money(v) %}{{ '$%.2f'|format(v) if v >= 0 else '-$%.2f'|format(-v) }}{% endmacro %}
+
   {% macro qt_head() %}
       <thead>
         <tr>
@@ -262,6 +264,9 @@
         <!-- Service -->
         <td>
           <div class="svc-name">{{ item.work_type_label }}</div>
+          {% if item.replaces_label %}
+          <div style="font-size:11px;color:#f87171;">↩ Credit — {{ item.replaces_label }}</div>
+          {% endif %}
           {% if item.work_type_id == 1 %}
           <div class="svc-bc {% if not item.product_label %}empty{% endif %}"
                id="bc-{{ item.id }}"
@@ -324,7 +329,7 @@
 
         <!-- Total Cost -->
         <td class="r">
-          <span class="mono" id="tcost-{{ item.id }}">${{ '%.2f'|format(item.total_cost) }}</span>
+          <span class="mono" id="tcost-{{ item.id }}">{{ money(item.total_cost) }}</span>
         </td>
 
         <!-- Markup -->
@@ -347,7 +352,7 @@
 
         <!-- Price -->
         <td class="r">
-          <span class="mono" style="font-weight:600;" id="price-{{ item.id }}">${{ '%.2f'|format(item.total_price) }}</span>
+          <span class="mono" style="font-weight:600;{{ 'color:#f87171;' if item.total_price < 0 }}" id="price-{{ item.id }}">{{ money(item.total_price) }}</span>
         </td>
 
         <!-- Actions -->
@@ -460,7 +465,7 @@
         <td class="r mono" style="font-size:12px;color:var(--text2);">{{ item.labor_quantity }}</td>
         <td class="r" style="font-size:11px;color:var(--text3);">{{ item.labor_unit }}</td>
         <td class="r mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.labor_cost_per_unit) }}</td>
-        <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.labor_total_cost) }}</td>
+        <td class="r mono" style="font-size:12px;">{{ money(item.labor_total_cost) }}</td>
         <td class="r">
           <div class="mstep {% if item.labor_markup_pct <= item.labor_min_markup %}floor{% endif %}">
             <button onclick="adjMarkup({{ item.id }},'labor',-5)" {% if item.labor_markup_pct <= item.labor_min_markup %}disabled{% endif %} id="mdn-labor-{{ item.id }}">−</button>
@@ -469,7 +474,7 @@
           </div>
         </td>
         <td class="r"><span class="pill pill-margin" id="margin-labor-{{ item.id }}">{{ '%.0f'|format(item.labor_margin_pct) }}%</span></td>
-        <td class="r mono" style="font-size:12px;" id="price-labor-{{ item.id }}">${{ '%.2f'|format(item.labor_total_price) }}</td>
+        <td class="r mono" style="font-size:12px;{{ 'color:#f87171;' if item.labor_total_price < 0 }}" id="price-labor-{{ item.id }}">{{ money(item.labor_total_price) }}</td>
         <td></td>
       </tr>
       <tr class="qrow-split" style="border-bottom:2px solid var(--border);">
@@ -481,7 +486,7 @@
         <td class="r mono" style="font-size:12px;color:var(--text2);" id="mat-qty-{{ item.id }}">{{ item.material_quantity }}</td>
         <td class="r" style="font-size:11px;color:var(--text3);">{{ item.material_unit }}</td>
         <td class="r mono" style="font-size:12px;color:var(--text2);" id="mat-cpu-{{ item.id }}">${{ '%.2f'|format(item.material_cost_per_unit) }}</td>
-        <td class="r mono" style="font-size:12px;" id="mat-tcost-{{ item.id }}">${{ '%.2f'|format(item.material_total_cost) }}</td>
+        <td class="r mono" style="font-size:12px;" id="mat-tcost-{{ item.id }}">{{ money(item.material_total_cost) }}</td>
         <td class="r">
           <div class="mstep {% if item.material_markup_pct <= item.material_min_markup %}floor{% endif %}">
             <button onclick="adjMarkup({{ item.id }},'material',-5)" {% if item.material_markup_pct <= item.material_min_markup %}disabled{% endif %} id="mdn-mat-{{ item.id }}">−</button>
@@ -490,7 +495,7 @@
           </div>
         </td>
         <td class="r"><span class="pill pill-margin" id="margin-mat-{{ item.id }}">{{ '%.0f'|format(item.material_margin_pct) }}%</span></td>
-        <td class="r mono" style="font-size:12px;" id="price-mat-{{ item.id }}">${{ '%.2f'|format(item.material_total_price) }}</td>
+        <td class="r mono" style="font-size:12px;{{ 'color:#f87171;' if item.material_total_price < 0 }}" id="price-mat-{{ item.id }}">{{ money(item.material_total_price) }}</td>
         <td></td>
       </tr>
       {% endif %}
@@ -551,6 +556,33 @@
       </tr>
   {% endmacro %}
 
+  {% macro replacement_row_panel(line_items) %}
+      <!-- Add replacement item trigger -->
+      <tr class="add-row" onclick="openReplacementRow()">
+        <td colspan="10">↩ Add Replacement Item — credit for an item above, if this option is chosen instead</td>
+      </tr>
+
+      <tr id="new-repl-tr" style="display:none;">
+        <td colspan="10" style="padding:0;">
+          <div class="new-row-panel open" id="new-repl-panel">
+            <div>
+              <label class="nr-label">Replaces</label>
+              <select class="nr-input" id="nr-repl-src">
+                <option value="">— Select item above —</option>
+                {% for li in line_items %}
+                <option value="{{ li.id }}">{{ li.work_type_label }} — ${{ '%.2f'|format(li.total_price) }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div style="display:flex;gap:6px;align-items:flex-end;">
+              <button class="btn btn-green btn-sm" onclick="addReplacementRow()">Add</button>
+              <button class="btn btn-secondary btn-sm" onclick="closeReplacementRow()">Cancel</button>
+            </div>
+          </div>
+        </td>
+      </tr>
+  {% endmacro %}
+
   <!-- Main line items table -->
   <div class="card">
     <table class="qt">
@@ -573,7 +605,7 @@
         <div style="font-size:11px;color:var(--text3);margin-top:2px;">Priced but not included in the quote total. Customer decides.</div>
       </div>
       {% if optional_items %}
-      <div class="mono" style="font-size:13px;color:var(--text2);">${{ '%.2f'|format(optional_total) }} if all added</div>
+      <div class="mono" style="font-size:13px;color:var(--text2);">{{ money(optional_total) }} if all added</div>
       {% endif %}
     </div>
     <table class="qt">
@@ -584,6 +616,7 @@
       <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text3);">No optional items yet.</td></tr>
       {% endif %}
       {{ new_row_panel('opt') }}
+      {{ replacement_row_panel(replaceable_items) }}
       </tbody>
     </table>
   </div>
@@ -1061,6 +1094,25 @@ function openNewRow(section) {
 }
 function closeNewRow(section) {
   document.getElementById('new-row-tr-' + section).style.display = 'none';
+}
+
+// ── Add replacement item ──────────────────────────────────────────
+function openReplacementRow() {
+  if (LOCKED) { lockedAlert(); return; }
+  document.getElementById('new-repl-tr').style.display = 'table-row';
+  document.getElementById('nr-repl-src').focus();
+}
+function closeReplacementRow() {
+  document.getElementById('new-repl-tr').style.display = 'none';
+}
+async function addReplacementRow() {
+  if (LOCKED) { lockedAlert(); return; }
+  const srcId = document.getElementById('nr-repl-src').value;
+  if (!srcId) { alert('Select which item this replaces.'); return; }
+  const resp = await fetch('/quotes/' + QID + '/line_items/replacement', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({source_item_id: srcId})
+  });
+  if (resp.ok) location.reload();
 }
 
 let nrMaterialDefault = {};

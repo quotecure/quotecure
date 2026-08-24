@@ -2005,6 +2005,21 @@ def add_sub_email(conn):
         conn.execute("ALTER TABLE subs ADD COLUMN email TEXT DEFAULT ''")
 
 
+@migration
+def add_optional_item_replacements(conn):
+    """A 'replacement item' is a second Optional Add-On that mirrors an existing base item
+    with its quantity (and so its totals) negated -- lets staff price a true alternative
+    (e.g. pavers instead of the acrylic decking already in the quote) as a net cost: the
+    positive add-on plus the negative replacement sum to the real incremental price, no
+    separate net calculation needed. Soft reference only (no REFERENCES constraint),
+    matching change_order_items.source_line_item_id's existing style in this codebase --
+    purely for display ('credit for X') and to filter the picker; if the referenced row is
+    later deleted, the display just falls back to showing nothing, never a hard failure."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'replaces_item_id' not in cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN replaces_item_id INTEGER")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

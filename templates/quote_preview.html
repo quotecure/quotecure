@@ -193,7 +193,7 @@
         </td>
         <td class="right">
           <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
-            <span>${{ '%.2f'|format(item.total_price) }}</span>
+            <span {% if item.total_price < 0 %}style="color:#dc2626;"{% endif %}>{{ '$%.2f'|format(item.total_price) if item.total_price >= 0 else '-$%.2f'|format(-item.total_price) }}</span>
             {% if quote.status not in ('contract', 'in_progress', 'complete') %}
             <span class="no-print" style="display:flex;gap:6px;">
               <button type="button" onclick="declineItem({{ item.id }})" title="Decline" style="width:22px;height:22px;border-radius:50%;border:1px solid #fca5a5;background:#fef2f2;color:#dc2626;font-size:12px;line-height:1;cursor:pointer;">✕</button>
