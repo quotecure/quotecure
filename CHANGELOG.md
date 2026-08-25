@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-25 — Account lockout after 3 failed logins + email reset
+
+Aimed at someone stumbling on the login page and hammering it, not at legitimate forgotten-password self-service. 3 wrong passwords in a row for a username locks that account (stays locked until reset, not a timer) and immediately emails a one-time reset link to that account's email — the lockout itself is the trigger, no separate "Forgot password?" request screen. A locked account rejects even the *correct* password until reset.
+
+New `users.email`/`failed_attempts`/`locked_at` columns and a `password_resets` table (migration `add_account_lockout`). `/reset_password/<token>` shows a set-new-password form; the token is single-use and expires after 1 hour. Reuses the existing Gmail SMTP send (`_send_plain_email`, same one the Job Scheduler's sub-confirmation emails use) — if an account has no email on file or Gmail creds aren't configured, the lockout still happens (security-first) but no email goes out.
+
+Since email delivery isn't guaranteed and no `users` had an email on file before this, added a fallback that doesn't depend on it: a new "Locked Accounts" page under Admin (`/admin/locked_accounts`, gated by `can_access_admin` — Owner and Coordinator, not Sales) lists any locked account with a one-click Unlock button. Also added an email field to the existing "Users & Passwords" section of Roles & Permissions (Owner-only) so real emails can actually get set — **none of the 3 real accounts (jim/doug/coordinator) have an email on file yet**, so until that's done the auto-email has nothing to send to and the Admin unlock page is the only way back in for a real lockout.
+
+Verified with `test_account_lockout.py`: 2 wrong attempts doesn't lock, 3 does; a locked account rejects the correct password; no email on file means no reset token created (no crash); the admin unlock route works for Owner and is denied (403) for Sales; the full reset-link flow (valid token → set password → lock cleared → token now single-use → new password works). Visually verified the locked-state message, the Locked Accounts admin page, and the reset-password screen in the browser.
+
 ## 2026-08-24 — Optional Item Replacements: net pricing for alternatives
 
 Staff constantly need to answer "how much *more* is pavers instead of the acrylic decking already in the quote?" Before this, Optional Add-Ons were pure adds — pricing Pavers + Coping as $11,000 on top of a quote that already includes $6,000 of acrylic decking showed the customer +$11,000, not the real $5,000 incremental cost. Same pattern for surface finish (quartz already priced in, "how much for pebble instead?"). The only existing workaround was quietly deleting the acrylic line item and hoping nobody noticed the total didn't move the way the sales conversation implied.

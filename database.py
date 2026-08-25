@@ -2006,6 +2006,31 @@ def add_sub_email(conn):
 
 
 @migration
+def add_account_lockout(conn):
+    """Brute-force protection: 3 wrong passwords in a row locks the account (not a timer --
+    stays locked until reset), and an email with a one-time reset link goes out automatically
+    to that account's email if one's on file. Aimed at someone stumbling on the login page and
+    hammering it, not at legitimate forgotten-password self-service -- there's no separate
+    'Forgot password?' request flow, the lockout itself is the trigger. Owner and Coordinator
+    (the two roles with can_access_admin) can also unlock an account directly from
+    /admin/locked_accounts without touching the database, in case email isn't configured or
+    an account has no email on file yet."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if 'email' not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''")
+    if 'failed_attempts' not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN failed_attempts INTEGER DEFAULT 0")
+    if 'locked_at' not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN locked_at TEXT DEFAULT ''")
+    conn.execute('''CREATE TABLE IF NOT EXISTS password_resets (
+        token TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        used INTEGER DEFAULT 0
+    )''')
+
+
+@migration
 def add_optional_item_replacements(conn):
     """A 'replacement item' is a second Optional Add-On that mirrors an existing base item
     with its quantity (and so its totals) negated -- lets staff price a true alternative

@@ -9,6 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from database import init_db, init_auth, init_materials, init_company_settings, generate_payment_schedule, run_migrations, init_pebble_pros_surfaces, init_skimmer_material, init_cap_tile_trim_materials, get_db
 from line_item_logic import build_line_item, calc_component
 import hashlib
+import secrets
 
 app = Flask(__name__)
 
@@ -103,6 +104,38 @@ def require_permission(perm):
     return decorator
 
 # ── Login / Logout ────────────────────────────────────────────────────────────
+LOCKOUT_THRESHOLD = 3
+
+def _send_lockout_email(db, user):
+    """Best-effort -- a missing email on file or unconfigured Gmail creds just means the
+    account stays locked until an Owner/Coordinator clears it from /admin/locked_accounts;
+    it never blocks the lockout itself from taking effect."""
+    if not user['email']:
+        return
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    gmail_address = settings['gmail_address'] if settings else ''
+    gmail_app_password = settings['gmail_app_password'] if settings else ''
+    if not (gmail_address and gmail_app_password):
+        return
+    token = secrets.token_urlsafe(32)
+    db.execute("INSERT INTO password_resets (token, user_id, created_at) VALUES (?,?,now()::text)",
+               (token, user['user_id']))
+    db.commit()
+    reset_url = url_for('reset_password', token=token, _external=True)
+    try:
+        _send_plain_email(
+            user['email'],
+            'QuoteCure account locked',
+            (f"Hi {user['display_name'] or user['username']},\n\n"
+             f"Your QuoteCure account was locked after {LOCKOUT_THRESHOLD} incorrect password attempts in a row. "
+             f"If that wasn't you, no action is needed on their part -- but you'll need to set a new password to log in again.\n\n"
+             f"Reset your password: {reset_url}\n\n"
+             f"This link works once and expires in 1 hour."),
+            gmail_address, gmail_app_password
+        )
+    except Exception:
+        pass
+
 @app.route('/login', methods=['GET','POST'])
 def login():
     error = None
@@ -110,16 +143,73 @@ def login():
         db = get_db()
         candidate = db.execute("SELECT * FROM users WHERE username=? AND active=1",
                                (request.form['username'],)).fetchone()
-        user = candidate if candidate and check_pw(request.form['password'], candidate['password']) else None
-        if user:
-            if not user['password'].startswith(('pbkdf2:', 'scrypt:')):
+        if candidate and candidate['locked_at']:
+            error = 'This account is locked. Check your email for a reset link, or ask an admin to unlock it.'
+        elif candidate and check_pw(request.form['password'], candidate['password']):
+            if not candidate['password'].startswith(('pbkdf2:', 'scrypt:')):
                 db.execute("UPDATE users SET password=? WHERE user_id=?",
-                           (hash_pw(request.form['password']), user['user_id']))
-                db.commit()
-            session['user_id'] = user['user_id']
+                           (hash_pw(request.form['password']), candidate['user_id']))
+            if candidate['failed_attempts']:
+                db.execute("UPDATE users SET failed_attempts=0 WHERE user_id=?", (candidate['user_id'],))
+            db.commit()
+            session['user_id'] = candidate['user_id']
             return redirect(url_for('quotes_list'))
-        error = 'Invalid username or password'
+        elif candidate:
+            attempts = (candidate['failed_attempts'] or 0) + 1
+            if attempts >= LOCKOUT_THRESHOLD:
+                db.execute("UPDATE users SET failed_attempts=?, locked_at=now()::text WHERE user_id=?",
+                           (attempts, candidate['user_id']))
+                db.commit()
+                _send_lockout_email(db, candidate)
+                error = 'This account is locked. Check your email for a reset link, or ask an admin to unlock it.'
+            else:
+                db.execute("UPDATE users SET failed_attempts=? WHERE user_id=?", (attempts, candidate['user_id']))
+                db.commit()
+                error = 'Invalid username or password'
+        else:
+            error = 'Invalid username or password'
     return render_template('login.html', error=error)
+
+@app.route('/reset_password/<token>', methods=['GET','POST'])
+def reset_password(token):
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM password_resets WHERE token=? AND used=0 AND created_at > (now() - interval '1 hour')::text",
+        (token,)
+    ).fetchone()
+    if not row:
+        return render_template('reset_password.html', error='This reset link is invalid or has expired.', token=None)
+    if request.method == 'POST':
+        new_pw = request.form.get('new_password', '').strip()
+        confirm = request.form.get('confirm_password', '').strip()
+        if len(new_pw) < 8:
+            return render_template('reset_password.html', error='Password must be at least 8 characters.', token=token)
+        if new_pw != confirm:
+            return render_template('reset_password.html', error='Passwords do not match.', token=token)
+        db.execute("UPDATE users SET password=?, failed_attempts=0, locked_at='' WHERE user_id=?",
+                   (hash_pw(new_pw), row['user_id']))
+        db.execute("UPDATE password_resets SET used=1 WHERE token=?", (token,))
+        db.commit()
+        return redirect(url_for('login'))
+    return render_template('reset_password.html', error=None, token=token)
+
+@app.route('/admin/locked_accounts')
+@require_permission('can_access_admin')
+def admin_locked_accounts():
+    db = get_db()
+    locked = db.execute(
+        "SELECT u.*, r.role_name FROM users u JOIN roles r ON u.role_id=r.role_id "
+        "WHERE u.locked_at != '' ORDER BY u.locked_at DESC"
+    ).fetchall()
+    return render_template('admin_locked_accounts.html', locked=locked)
+
+@app.route('/admin/locked_accounts/<int:user_id>/unlock', methods=['POST'])
+@require_permission('can_access_admin')
+def unlock_account(user_id):
+    db = get_db()
+    db.execute("UPDATE users SET failed_attempts=0, locked_at='' WHERE user_id=?", (user_id,))
+    db.commit()
+    return redirect(url_for('admin_locked_accounts'))
 
 @app.route('/logout')
 def logout():
@@ -2428,6 +2518,15 @@ def update_display_name():
     db = get_db()
     db.execute("UPDATE users SET display_name=? WHERE user_id=?",
                (request.form['display_name'], request.form['user_id']))
+    db.commit()
+    return redirect(url_for('admin_permissions'))
+
+@app.route('/admin/permissions/update_email', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def update_email():
+    db = get_db()
+    db.execute("UPDATE users SET email=? WHERE user_id=?",
+               (request.form['email'].strip(), request.form['user_id']))
     db.commit()
     return redirect(url_for('admin_permissions'))
 

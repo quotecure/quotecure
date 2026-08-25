@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Locked Accounts — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Locked Accounts</div>
+      <div class="page-subtitle">An account locks itself after 3 wrong passwords in a row. It emails a reset link if an email is on file — unlock it here if that isn't working.</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>User</th><th>Role</th><th>Email</th><th>Locked Since</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in locked %}
+          <tr>
+            <td style="font-weight:500">{{ u.display_name or u.username }}</td>
+            <td>{{ u.role_name }}</td>
+            <td>{{ u.email or '—' }}</td>
+            <td class="mono">{{ u.locked_at }}</td>
+            <td>
+              <form method="POST" action="/admin/locked_accounts/{{ u.user_id }}/unlock" style="display:inline;">
+                <button class="btn btn-primary btn-sm" type="submit">Unlock</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not locked %}
+          <tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text3);">No locked accounts.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

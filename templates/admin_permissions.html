@@ -135,6 +135,11 @@
           <input class="form-control" name="display_name" type="text" placeholder="Display name" value="{{ user.display_name or '' }}" style="width:180px;margin:0;">
           <button class="btn btn-secondary btn-sm" type="submit">Save</button>
         </form>
+        <form method="POST" action="/admin/permissions/update_email" style="display:flex;gap:8px;align-items:center;">
+          <input type="hidden" name="user_id" value="{{ user.user_id }}">
+          <input class="form-control" name="email" type="email" placeholder="Email — for lockout reset links" value="{{ user.email or '' }}" style="width:220px;margin:0;">
+          <button class="btn btn-secondary btn-sm" type="submit">Save</button>
+        </form>
         <form method="POST" action="/admin/permissions/change_password" style="display:flex;gap:8px;align-items:center;">
           <input type="hidden" name="user_id" value="{{ user.user_id }}">
           <input class="form-control" name="new_password" type="password" placeholder="New password" style="width:180px;margin:0;">
