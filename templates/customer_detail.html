@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %}{{ customer.name }} — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">{{ customer.name }}</div>
+      <div class="page-subtitle">Customer record — editing name, phone, or email here updates every quote for this customer</div>
+    </div>
+    <a href="/customers" class="btn btn-secondary">← Customers</a>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 2fr; gap:24px; align-items:start;">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Contact Info</div></div>
+      <div class="card-body">
+        <form method="POST" action="/customers/{{ customer.customer_id }}/edit">
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input class="form-control" name="name" required value="{{ customer.name }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Address</label>
+            <input class="form-control" name="address" value="{{ customer.address or '' }}">
+            <div style="font-size:11px;color:var(--text3);margin-top:4px;">Just this customer's own record — doesn't change the address on any of their existing quotes below.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input class="form-control" name="phone" value="{{ customer.phone or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-control" name="email" type="email" value="{{ customer.email or '' }}">
+          </div>
+          <button class="btn btn-primary" type="submit" style="margin-top:4px;">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title">Quotes &amp; Contracts</div></div>
+      {% if quotes %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Address</th>
+              <th>Status</th>
+              <th class="right">Total Price</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for q in quotes %}
+            <tr>
+              <td class="mono"><a href="/quotes/{{ q.quote_id }}">QT-{{ '%04d'|format(q.quote_id) }}</a></td>
+              <td style="color:var(--text2)">{{ q.address or '—' }}</td>
+              <td><span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status in ('sent', 'complete') else 'blue' if q.status == 'draft' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span></td>
+              <td class="right mono" style="font-weight:600">${{ '%.2f'|format(q.total_price) }}</td>
+              <td style="color:var(--text3); font-size:12px">{{ q.created_at[:10] if q.created_at else '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <div class="empty-state-icon">📋</div>
+        <div class="empty-state-text">No quotes yet for this customer.</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

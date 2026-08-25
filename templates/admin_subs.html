@@ -19,10 +19,14 @@
         <div style="border-bottom:1px solid var(--border2);">
           <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
             <span class="mono" style="color:var(--text3);min-width:36px;">{{ s.sub_id }}</span>
-            <span style="font-weight:500;flex:1;">{{ s.name }}{% if s.phone %}<span style="font-weight:400;color:var(--text3);font-size:12px;margin-left:8px;">{{ s.phone }}</span>{% endif %}</span>
+            <span style="font-weight:500;flex:1;">{{ s.name }}
+              {% if s.poc_name %}<span style="font-weight:400;color:var(--text3);font-size:12px;margin-left:8px;">{{ s.poc_name }}</span>{% endif %}
+              {% if s.phone %}<span style="font-weight:400;color:var(--text3);font-size:12px;margin-left:8px;">{{ s.phone }}</span>{% endif %}
+            </span>
             <span class="badge badge-{{ 'green' if s.active == 'Y' else 'red' }}">{{ 'Active' if s.active == 'Y' else 'Off' }}</span>
             <button class="btn btn-secondary btn-sm" onclick="toggleEdit('{{ s.sub_id }}')">Edit</button>
             <button class="btn btn-secondary btn-sm" onclick="toggleRates('{{ s.sub_id }}')">Rates</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleFiles('{{ s.sub_id }}')">Files</button>
             <form method="POST" action="/admin/subs/toggle" style="display:inline">
               <input type="hidden" name="sub_id" value="{{ s.sub_id }}">
               <input type="hidden" name="table" value="subs">
@@ -39,10 +43,59 @@
                 <input class="form-control" name="name" value="{{ s.name }}" style="width:200px;">
               </div>
               <div>
+                <label class="form-label">POC Name</label>
+                <input class="form-control" name="poc_name" value="{{ s.poc_name or '' }}" placeholder="Contact person" style="width:160px;">
+              </div>
+              <div>
                 <label class="form-label">Phone</label>
                 <input class="form-control" name="phone" value="{{ s.phone or '' }}" placeholder="(555) 555-5555" style="width:160px;">
               </div>
+              <div>
+                <label class="form-label">Email</label>
+                <input class="form-control" name="email" type="email" value="{{ s.email or '' }}" placeholder="contact@sub.com" style="width:180px;">
+              </div>
               <button class="btn btn-primary btn-sm" type="submit">Save</button>
+            </form>
+          </div>
+          <!-- Inline files panel -->
+          <div class="rates-panel" id="files-{{ s.sub_id }}">
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;">Files for {{ s.name }}</div>
+            {% set sub_files = [] %}
+            {% for f in all_attachments %}
+              {% if f.sub_id == s.sub_id %}
+                {% set _ = sub_files.append(f) %}
+              {% endif %}
+            {% endfor %}
+            {% if sub_files %}
+              {% for f in sub_files %}
+              <div class="rate-row">
+                <span class="badge badge-blue">{{ {'coi':'COI','workers_comp':'Workers Comp','price_sheet':'Price Sheet'}.get(f.category, 'Other') }}</span>
+                <span style="flex:1;color:var(--text)">{{ f.filename }}</span>
+                <span style="color:var(--text3)">{{ f.uploaded_at[:10] if f.uploaded_at else '' }}</span>
+                <a class="btn btn-secondary btn-sm" href="/admin/subs/attachments/{{ f.id }}/download">Download</a>
+                <form method="POST" action="/admin/subs/attachments/{{ f.id }}/delete" style="display:inline" onsubmit="return confirm('Delete this file?')">
+                  <button class="btn btn-danger btn-sm">✕</button>
+                </form>
+              </div>
+              {% endfor %}
+            {% else %}
+              <div style="color:var(--text3);font-size:12px;padding:4px 0;">No files yet.</div>
+            {% endif %}
+            <form method="POST" action="/admin/subs/{{ s.sub_id }}/attachments/add" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:flex-end;margin-top:12px;flex-wrap:wrap;">
+              <div>
+                <label class="form-label">Category</label>
+                <select class="form-control" name="category" style="width:140px;">
+                  <option value="coi">COI</option>
+                  <option value="workers_comp">Workers Comp</option>
+                  <option value="price_sheet">Price Sheet</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">File</label>
+                <input class="form-control" name="file" type="file" required style="width:220px;">
+              </div>
+              <button class="btn btn-green btn-sm" type="submit" style="margin-bottom:1px;">+ Upload</button>
             </form>
           </div>
           <!-- Inline rates panel -->
@@ -228,6 +281,10 @@ function toggleRates(id) {
 }
 function toggleEdit(id) {
   const panel = document.getElementById('edit-' + id);
+  panel.classList.toggle('open');
+}
+function toggleFiles(id) {
+  const panel = document.getElementById('files-' + id);
   panel.classList.toggle('open');
 }
 </script>

@@ -62,6 +62,7 @@
   <a href="/" class="nav-brand">Quote<span>Cure</span></a>
   <div class="nav-links">
     <a href="/quotes" class="nav-link {% if request.path.startswith('/quotes') %}active{% endif %}">Quotes</a>
+    <a href="/customers" class="nav-link {% if request.path.startswith('/customers') %}active{% endif %}">Customers</a>
     <a href="/schedule" class="nav-link {% if request.path == '/schedule' %}active{% endif %}">Schedule</a>
     {% if current_role and current_role.can_access_admin %}
     <div class="nav-dropdown">

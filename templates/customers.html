@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% block title %}Customers — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Customers</div>
+      <div class="page-subtitle">Every customer across all quotes, in one place</div>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:2fr 1fr; gap:24px; align-items:start;">
+    <div class="card">
+      {% if customers %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Address</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th class="right">Quotes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in customers %}
+            <tr>
+              <td><a href="/customers/{{ c.customer_id }}">{{ c.name }}</a></td>
+              <td style="color:var(--text2)">{{ c.address or '—' }}</td>
+              <td style="color:var(--text2)">{{ c.phone or '—' }}</td>
+              <td style="color:var(--text2)">{{ c.email or '—' }}</td>
+              <td class="right mono">{{ c.quote_count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <div class="empty-state-icon">👥</div>
+        <div class="empty-state-text">No customers yet. <a href="/quotes/new">Create a quote</a> or add one directly.</div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Add Customer</div></div>
+      <div class="card-body">
+        <form method="POST" action="/customers/add">
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input class="form-control" name="name" required placeholder="Smith Residence">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Address</label>
+            <input class="form-control" name="address" placeholder="1234 Palm Dr, Tampa, FL">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input class="form-control" name="phone" placeholder="(555) 555-5555">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-control" name="email" type="email" placeholder="customer@email.com">
+          </div>
+          <button class="btn btn-primary" type="submit" style="margin-top:4px;">Add Customer</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

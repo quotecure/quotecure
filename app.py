@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session, g
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, g, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from database import init_db, init_auth, init_materials, init_company_settings, generate_payment_schedule, run_migrations, init_pebble_pros_surfaces, init_skimmer_material, init_cap_tile_trim_materials, get_db
@@ -241,6 +241,59 @@ def quotes_list():
         ).fetchall()
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
     return render_template('quotes.html', quotes=quotes, commission_policy=commission_policy, active_tab=tab)
+
+@app.route('/customers')
+@login_required
+def customers_list():
+    db = get_db()
+    customers = db.execute(
+        "SELECT c.*, COUNT(q.quote_id) as quote_count "
+        "FROM customers c LEFT JOIN quotes q ON q.customer_id=c.customer_id "
+        "GROUP BY c.customer_id ORDER BY c.name"
+    ).fetchall()
+    return render_template('customers.html', customers=customers)
+
+@app.route('/customers/add', methods=['POST'])
+@login_required
+def add_customer():
+    db = get_db()
+    name = request.form.get('name','').strip()
+    if name:
+        db.execute("INSERT INTO customers (name,address,email,phone) VALUES (?,?,?,?)",
+                   (name, request.form.get('address','').strip(), request.form.get('email','').strip(),
+                    request.form.get('phone','').strip()))
+        db.commit()
+    return redirect(url_for('customers_list'))
+
+@app.route('/customers/<int:customer_id>')
+@login_required
+def customer_detail(customer_id):
+    db = get_db()
+    customer = db.execute("SELECT * FROM customers WHERE customer_id=?", (customer_id,)).fetchone()
+    if not customer:
+        return redirect(url_for('customers_list'))
+    quotes = db.execute(
+        "SELECT * FROM quotes WHERE customer_id=? ORDER BY created_at DESC", (customer_id,)
+    ).fetchall()
+    return render_template('customer_detail.html', customer=customer, quotes=quotes)
+
+@app.route('/customers/<int:customer_id>/edit', methods=['POST'])
+@login_required
+def edit_customer(customer_id):
+    db = get_db()
+    customer = db.execute("SELECT * FROM customers WHERE customer_id=?", (customer_id,)).fetchone()
+    if not customer:
+        return redirect(url_for('customers_list'))
+    name = request.form.get('name','').strip()
+    email = request.form.get('email','').strip()
+    phone = request.form.get('phone','').strip()
+    address = request.form.get('address','').strip()
+    if name:
+        _cascade_customer_contact(db, customer_id, name, email, phone)
+    # Address is customer-record-only (see _cascade_customer_contact) -- never pushed to quotes.
+    db.execute("UPDATE customers SET address=? WHERE customer_id=?", (address, customer_id))
+    db.commit()
+    return redirect(url_for('customer_detail', customer_id=customer_id))
 
 def _dims_totals(dims):
     """Shared lf/sqft totals from a dims dict (works for both real quotes.Row and plain dicts)."""
@@ -1198,6 +1251,34 @@ def estimate_packages():
         results[pkg['package_id']] = round(total, 2)
     return jsonify(results)
 
+def _get_or_create_customer(db, name, address, email, phone=''):
+    """Normalized-name match against existing customers -- typing the same customer's name
+    again on a new quote links to the same record instead of creating a duplicate. Case/
+    whitespace-insensitive only; doesn't try to fuzzy-match near-spellings, since a wrong
+    auto-merge (two different people who happen to share a name) is worse than an
+    occasional duplicate a human can merge by hand later."""
+    name = (name or '').strip()
+    existing = db.execute(
+        "SELECT customer_id FROM customers WHERE LOWER(TRIM(name))=?", (name.lower(),)
+    ).fetchone()
+    if existing:
+        return existing['customer_id']
+    cur = db.execute(
+        "INSERT INTO customers (name, address, email, phone) VALUES (?,?,?,?) RETURNING customer_id",
+        (name, address or '', email or '', phone or '')
+    )
+    return cur.fetchone()[0]
+
+def _cascade_customer_contact(db, customer_id, name, email, phone):
+    """Writes a customer's name/phone/email to the customers record and pushes name/email
+    out to every quote linked to that customer_id -- the 'edit once, updates everywhere'
+    behavior. Address is deliberately excluded: a quote's address is the job site, which can
+    legitimately differ across jobs for the same repeat customer, so it's never cascaded."""
+    db.execute("UPDATE customers SET name=?, email=?, phone=? WHERE customer_id=?",
+               (name, email or '', phone or '', customer_id))
+    db.execute("UPDATE quotes SET customer_name=?, customer_email=? WHERE customer_id=?",
+               (name, email or '', customer_id))
+
 @app.route('/quotes/new', methods=['GET','POST'])
 @login_required
 def new_quote():
@@ -1205,14 +1286,18 @@ def new_quote():
         db = get_db()
         default_terms = db.execute("SELECT id FROM terms_documents WHERE is_default=1 AND active=1 LIMIT 1").fetchone()
         default_terms_id = default_terms[0] if default_terms else None
+        customer_name = request.form['customer_name']
+        address = request.form.get('address','')
+        customer_email = request.form.get('customer_email','').strip()
+        customer_id = _get_or_create_customer(db, customer_name, address, customer_email)
         db.execute("""INSERT INTO quotes (customer_name,address,salesperson,
                       pool_perimeter,pool_shallow,pool_deep,pool_sqft,
                       has_spa,spa_perimeter,spa_depth,spa_sqft,
                       has_shelf,shelf_sqft,total_surface_sqft,
                       steps_lf,benches_lf,swimouts_lf,customer_email,water_surface_sqft,deck_sqft,
-                      terms_document_id)
-                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                   (request.form['customer_name'], request.form.get('address',''),
+                      terms_document_id,customer_id)
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   (customer_name, address,
                     request.form.get('salesperson',''),
                     float(request.form.get('pool_perimeter',0) or 0),
                     float(request.form.get('pool_shallow',0) or 0),
@@ -1228,10 +1313,10 @@ def new_quote():
                     float(request.form.get('steps_lf',0) or 0),
                     float(request.form.get('benches_lf',0) or 0),
                     float(request.form.get('swimouts_lf',0) or 0),
-                    request.form.get('customer_email','').strip(),
+                    customer_email,
                     float(request.form.get('water_surface_sqft',0) or 0),
                     float(request.form.get('deck_sqft',0) or 0),
-                    default_terms_id))
+                    default_terms_id, customer_id))
         db.commit()
         qid = db.execute("SELECT lastval()").fetchone()[0]
 
@@ -1540,13 +1625,16 @@ def edit_quote_details(quote_id):
     if request.method == 'POST':
         if _is_locked_contract(db, quote_id):
             return redirect(url_for('edit_quote', quote_id=quote_id))
+        customer_name = request.form['customer_name']
+        address = request.form.get('address','')
+        customer_email = request.form.get('customer_email','').strip()
         db.execute("""UPDATE quotes SET customer_name=?,address=?,salesperson=?,
                       pool_perimeter=?,pool_shallow=?,pool_deep=?,pool_sqft=?,
                       has_spa=?,spa_perimeter=?,spa_depth=?,spa_sqft=?,
                       has_shelf=?,shelf_sqft=?,total_surface_sqft=?,
                       steps_lf=?,benches_lf=?,swimouts_lf=?,customer_email=?,water_surface_sqft=?,deck_sqft=?
                       WHERE quote_id=?""",
-                   (request.form['customer_name'], request.form.get('address',''),
+                   (customer_name, address,
                     request.form.get('salesperson',''),
                     float(request.form.get('pool_perimeter',0) or 0),
                     float(request.form.get('pool_shallow',0) or 0),
@@ -1562,10 +1650,17 @@ def edit_quote_details(quote_id):
                     float(request.form.get('steps_lf',0) or 0),
                     float(request.form.get('benches_lf',0) or 0),
                     float(request.form.get('swimouts_lf',0) or 0),
-                    request.form.get('customer_email','').strip(),
+                    customer_email,
                     float(request.form.get('water_surface_sqft',0) or 0),
                     float(request.form.get('deck_sqft',0) or 0),
                     quote_id))
+        # Cascade name/email (not address -- see _cascade_customer_contact) to every other
+        # quote for this same customer, so editing it here matches editing it from /customers.
+        customer_id = quote['customer_id'] if quote and quote['customer_id'] else _get_or_create_customer(db, customer_name, address, customer_email)
+        current_phone = db.execute("SELECT phone FROM customers WHERE customer_id=?", (customer_id,)).fetchone()
+        _cascade_customer_contact(db, customer_id, customer_name, customer_email, current_phone['phone'] if current_phone else '')
+        if not (quote and quote['customer_id']):
+            db.execute("UPDATE quotes SET customer_id=? WHERE quote_id=?", (customer_id, quote_id))
         db.commit()
         return redirect(url_for('edit_quote', quote_id=quote_id))
     return render_template('edit_quote_details.html', quote=quote)
@@ -2114,10 +2209,12 @@ def admin_subs():
         except: pass
     next_sub_id = max(sub_nums) + 1 if sub_nums else 1
     next_app_id = max(app_nums) + 1 if app_nums else 1
+    all_attachments = db.execute("SELECT * FROM sub_attachments ORDER BY sub_id, uploaded_at DESC").fetchall()
     return render_template('admin_subs.html', subs=subs, applicators=applicators,
                            all_sub_rates=all_sub_rates, all_applicator_rates=all_applicator_rates,
                            surface_products=surface_products, work_types=work_types,
-                           next_sub_id=next_sub_id, next_app_id=next_app_id)
+                           next_sub_id=next_sub_id, next_app_id=next_app_id,
+                           all_attachments=all_attachments)
 
 @app.route('/admin/subs/add', methods=['POST'])
 @require_permission('can_edit_subs')
@@ -2143,7 +2240,10 @@ def add_sub():
             try: nums.append(int(r['sub_id'].replace('S','').replace('s','')))
             except: pass
         next_id = 'S' + str(max(nums) + 1 if nums else 1)
-        db.execute("INSERT INTO subs (sub_id,name,active,phone) VALUES (?,?,'Y',?)", (next_id, name, phone))
+        poc_name = request.form.get('poc_name','').strip()
+        email = request.form.get('email','').strip()
+        db.execute("INSERT INTO subs (sub_id,name,active,phone,poc_name,email) VALUES (?,?,'Y',?,?,?)",
+                   (next_id, name, phone, poc_name, email))
     db.commit()
     return redirect(url_for('admin_subs'))
 
@@ -2171,7 +2271,13 @@ def edit_sub():
         table = 'subs'
     name = request.form['name'].strip()
     phone = request.form.get('phone','').strip()
-    db.execute(f"UPDATE {table} SET name=?, phone=? WHERE sub_id=?", (name, phone, sub_id))
+    if table == 'subs':
+        poc_name = request.form.get('poc_name','').strip()
+        email = request.form.get('email','').strip()
+        db.execute("UPDATE subs SET name=?, phone=?, poc_name=?, email=? WHERE sub_id=?",
+                   (name, phone, poc_name, email, sub_id))
+    else:
+        db.execute(f"UPDATE {table} SET name=?, phone=? WHERE sub_id=?", (name, phone, sub_id))
     db.commit()
     return redirect(url_for('admin_subs'))
 
@@ -2853,6 +2959,68 @@ def _validate_pdf_upload(file_bytes, filename):
     if len(file_bytes) > 10 * 1024 * 1024:
         return False
     return True
+
+SUB_ATTACHMENT_MIME_TYPES = {
+    'pdf': 'application/pdf', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'xls': 'application/vnd.ms-excel', 'csv': 'text/csv',
+}
+
+def _validate_sub_attachment(file_bytes, filename):
+    """Generalizes _validate_pdf_upload for COI/Workers-Comp/price-sheet uploads, which can
+    be a PDF, a photo of a cert, or a spreadsheet -- unlike terms_documents, which is always
+    a PDF. Extension allowlist + a 15MB cap (a bit above the existing 10MB PDF-only
+    precedent, to give scanned/photographed docs headroom); PDF also gets the same magic-
+    byte check as _validate_pdf_upload since that's cheap and catches a mislabeled file.
+    Returns the matched extension (for the mime-type lookup) or None if invalid."""
+    if not filename or '.' not in filename:
+        return None
+    ext = filename.rsplit('.', 1)[1].lower()
+    if ext not in SUB_ATTACHMENT_MIME_TYPES:
+        return None
+    if len(file_bytes) > 15 * 1024 * 1024:
+        return None
+    if ext == 'pdf' and not file_bytes.startswith(b'%PDF-'):
+        return None
+    return ext
+
+@app.route('/admin/subs/<sub_id>/attachments/add', methods=['POST'])
+@require_permission('can_edit_subs')
+def add_sub_attachment(sub_id):
+    db = get_db()
+    f = request.files.get('file')
+    category = request.form.get('category', 'other')
+    if f and f.filename:
+        file_bytes = f.read()
+        ext = _validate_sub_attachment(file_bytes, f.filename)
+        if ext:
+            import base64
+            db.execute(
+                "INSERT INTO sub_attachments (sub_id, category, filename, mime_type, file_data) VALUES (?,?,?,?,?)",
+                (sub_id, category, f.filename, SUB_ATTACHMENT_MIME_TYPES[ext], base64.b64encode(file_bytes).decode('utf-8'))
+            )
+            db.commit()
+    return redirect(url_for('admin_subs'))
+
+@app.route('/admin/subs/attachments/<int:attachment_id>/download')
+@require_permission('can_access_admin')
+def download_sub_attachment(attachment_id):
+    db = get_db()
+    row = db.execute("SELECT * FROM sub_attachments WHERE id=?", (attachment_id,)).fetchone()
+    if not row:
+        return redirect(url_for('admin_subs'))
+    import base64
+    data = base64.b64decode(row['file_data'])
+    return Response(data, mimetype=row['mime_type'],
+                     headers={'Content-Disposition': f'attachment; filename="{row["filename"]}"'})
+
+@app.route('/admin/subs/attachments/<int:attachment_id>/delete', methods=['POST'])
+@require_permission('can_edit_subs')
+def delete_sub_attachment(attachment_id):
+    db = get_db()
+    db.execute("DELETE FROM sub_attachments WHERE id=?", (attachment_id,))
+    db.commit()
+    return redirect(url_for('admin_subs'))
 
 def _send_quote_email(to_email, subject, body_text, pdf_bytes, quote_id, gmail_address, gmail_app_password):
     import smtplib
