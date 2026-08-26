@@ -6,7 +6,7 @@ load_dotenv()
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, g, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-from database import init_db, init_auth, init_materials, init_company_settings, generate_payment_schedule, run_migrations, init_pebble_pros_surfaces, init_skimmer_material, init_cap_tile_trim_materials, get_db
+from database import init_db, init_auth, init_materials, init_company_settings, generate_payment_schedule, run_migrations, init_pebble_pros_surfaces, init_skimmer_material, init_cap_tile_trim_materials, init_finishing_flooring_pros_sub, get_db
 from line_item_logic import build_line_item, calc_component
 import hashlib
 import secrets
@@ -69,6 +69,7 @@ def setup():
         init_pebble_pros_surfaces(db)
         init_skimmer_material(db)
         init_cap_tile_trim_materials(db)
+        init_finishing_flooring_pros_sub(db)
         db.close()
         _initialized = True
     # Load current user into g

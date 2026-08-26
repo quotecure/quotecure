@@ -515,12 +515,13 @@
           <div class="new-row-panel open" id="new-row-panel-{{ section }}">
             <div>
               <label class="nr-label">Work Type</label>
-              <select class="nr-input" id="nr-wt-{{ section }}" onchange="onNrWorkType('{{ section }}')">
-                <option value="">— Select —</option>
+              <input class="nr-input" id="nr-wt-{{ section }}" list="wt-list-{{ section }}" autocomplete="off"
+                     placeholder="Type to search…" onchange="onNrWorkType('{{ section }}')">
+              <datalist id="wt-list-{{ section }}">
                 {% for wt in work_types %}
-                <option value="{{ wt.work_type_id }}" data-unit="{{ wt.unit }}" data-markup="{{ wt.default_markup }}" data-min="{{ wt.min_markup }}" data-sub="{{ wt.default_sub_id or '' }}" data-deck="{{ '1' if wt.work_type in DECK_SQFT_WORK_TYPES else '' }}">{{ wt.work_type }}</option>
+                <option value="{{ wt.work_type }}">
                 {% endfor %}
-              </select>
+              </datalist>
             </div>
             <div>
               <label class="nr-label">Subcontractor</label>
@@ -716,6 +717,19 @@ const DECK_SQFT = {{ quote.deck_sqft or 0 }};
 const POOL_LF = {{ (quote.pool_perimeter or 0) + (quote.spa_perimeter if quote.has_spa else 0)
                     + (quote.steps_lf or 0) + (quote.benches_lf or 0) + (quote.swimouts_lf or 0) }};
 const DRAWS = {{ schedule_json | default("[]") | safe }};
+// Work-type picker is a searchable <input list=datalist> now, not a <select> -- its value is
+// the typed name, so this map resolves back to the id/unit/markup/etc. the old select's
+// per-<option> data- attributes used to carry directly.
+const WORK_TYPES = {
+  {% for wt in work_types %}
+  {{ wt.work_type_id }}: {name: {{ wt.work_type|tojson }}, unit: {{ wt.unit|tojson }}, markup: {{ wt.default_markup }}, min: {{ wt.min_markup }}, sub: {{ (wt.default_sub_id or '')|tojson }}, deck: {{ '1' if wt.work_type in DECK_SQFT_WORK_TYPES else '0' }}},
+  {% endfor %}
+};
+const WORK_TYPE_NAME_TO_ID = {};
+Object.entries(WORK_TYPES).forEach(([id, wt]) => { WORK_TYPE_NAME_TO_ID[wt.name] = id; });
+function nrWorkTypeId(section) {
+  return WORK_TYPE_NAME_TO_ID[document.getElementById('nr-wt-' + section).value] || '';
+}
 const LOCKED = {{ 'true' if quote.status in ('contract', 'in_progress', 'complete') else 'false' }};
 const TIER_POLICY = {{ ({
       'active': 1 if (commission_policy and commission_policy.method == 'tiered_gp') else 0,
@@ -1119,12 +1133,11 @@ let nrMaterialDefault = {};
 let nrMarkupOverride = {};
 
 async function onNrWorkType(section) {
-  const sel = document.getElementById('nr-wt-' + section);
-  const opt = sel.selectedOptions[0];
-  const wtId = sel.value;
-  const unit = opt?.dataset?.unit || 'each';
-  const defSub = opt?.dataset?.sub || '';
-  const defMarkup = opt?.dataset?.markup || 30;
+  const wtId = nrWorkTypeId(section);
+  const wt = WORK_TYPES[wtId];
+  const unit = wt?.unit || 'each';
+  const defSub = wt?.sub || '';
+  const defMarkup = wt?.markup || 30;
   nrMaterialDefault[section] = null;
   nrMarkupOverride[section] = null;
 
@@ -1134,9 +1147,9 @@ async function onNrWorkType(section) {
 
   // Set qty -- deck-sqft work types (pavers, textured decking) use the deck/paver area,
   // not the pool's own interior surface sqft, same distinction _compute_line_item_pricing
-  // already makes for the automatic pricing path (DECK_SQFT_WORK_TYPES, matched via the
-  // data-deck flag on this option, set from that same Python set).
-  const isDeck = opt?.dataset?.deck === '1';
+  // already makes for the automatic pricing path (DECK_SQFT_WORK_TYPES, matched via
+  // WORK_TYPES[wtId].deck, set from that same Python set).
+  const isDeck = wt?.deck === '1';
   let qty = '';
   if (unit === 'sqft' && isDeck && DECK_SQFT) qty = DECK_SQFT;
   else if (unit === 'sqft' && POOL_SQFT) qty = POOL_SQFT;
@@ -1182,10 +1195,10 @@ async function onNrWorkType(section) {
 }
 
 async function onNrSub(section) {
-  const wtId = document.getElementById('nr-wt-' + section).value;
+  const wtId = nrWorkTypeId(section);
   const subId = document.getElementById('nr-sub-' + section).value;
   if (!subId || !wtId) return;
-  const isDeck = document.getElementById('nr-wt-' + section).selectedOptions[0]?.dataset?.deck === '1';
+  const isDeck = WORK_TYPES[wtId]?.deck === '1';
   const r = await fetch('/api/rate?sub_id=' + subId + '&work_type_id=' + wtId);
   const d = await r.json();
   nrMarkupOverride[section] = null;
@@ -1206,9 +1219,8 @@ async function onNrSub(section) {
 function calcNrPreview(section) {
   const qty = parseFloat(document.getElementById('nr-qty-' + section).value) || 0;
   const cpu = parseFloat(document.getElementById('nr-cpu-' + section).value) || 0;
-  const wtSel = document.getElementById('nr-wt-' + section);
   const override = nrMarkupOverride[section];
-  const markup = override != null ? parseFloat(override) : parseFloat(wtSel.selectedOptions[0]?.dataset?.markup || 30);
+  const markup = override != null ? parseFloat(override) : parseFloat(WORK_TYPES[nrWorkTypeId(section)]?.markup || 30);
   const total = qty * cpu * (1 + markup/100);
   const margin = markup / (100 + markup) * 100;
   const el = document.getElementById('nr-preview-' + section);
@@ -1218,10 +1230,10 @@ function calcNrPreview(section) {
 
 async function addNrRow(section) {
   if (LOCKED) { lockedAlert(); return; }
-  const wtId = document.getElementById('nr-wt-' + section).value;
-  if (!wtId) { alert('Select a work type.'); return; }
+  const wtId = nrWorkTypeId(section);
+  if (!wtId) { alert('Select a work type from the list.'); return; }
   const override = nrMarkupOverride[section];
-  const markup = override != null ? override : (document.getElementById('nr-wt-' + section).selectedOptions[0]?.dataset?.markup || 30);
+  const markup = override != null ? override : (WORK_TYPES[wtId]?.markup || 30);
   const matDefault = nrMaterialDefault[section];
   const payload = {
     work_type_id: wtId,

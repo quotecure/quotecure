@@ -9,6 +9,12 @@
     </div>
   </div>
 
+  <datalist id="wt-datalist">
+    {% for wt in work_types %}
+    <option value="{{ wt.work_type }}">
+    {% endfor %}
+  </datalist>
+
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
 
     <!-- General Subs -->
@@ -123,15 +129,14 @@
               <div style="color:var(--text3);font-size:12px;padding:4px 0;">No rates yet.</div>
             {% endif %}
             <!-- Add rate inline -->
-            <form method="POST" action="/admin/sub_rates/add" style="display:flex;gap:8px;align-items:flex-end;margin-top:12px;flex-wrap:wrap;">
+            <form method="POST" action="/admin/sub_rates/add" style="display:flex;gap:8px;align-items:flex-end;margin-top:12px;flex-wrap:wrap;"
+                  onsubmit="return this.work_type_id.value !== '' || (alert('Select a work type from the list.'), false);">
               <input type="hidden" name="sub_id" value="{{ s.sub_id }}">
               <div>
                 <label class="form-label">Work Type</label>
-                <select class="form-control" name="work_type_id" style="width:220px;">
-                  {% for wt in work_types %}
-                  <option value="{{ wt.work_type_id }}">{{ wt.work_type }} ({{ wt.unit }})</option>
-                  {% endfor %}
-                </select>
+                <input class="form-control" list="wt-datalist" autocomplete="off" placeholder="Type to search…"
+                       style="width:220px;" onchange="setRateWorkTypeId(this)">
+                <input type="hidden" name="work_type_id">
               </div>
               <div>
                 <label class="form-label">Rate ($)</label>
@@ -286,6 +291,17 @@ function toggleEdit(id) {
 function toggleFiles(id) {
   const panel = document.getElementById('files-' + id);
   panel.classList.toggle('open');
+}
+
+// Work Type is a searchable <input list="wt-datalist"> now, not a <select> -- this map
+// resolves the typed name back to a work_type_id for the form's hidden input to submit.
+const WT_NAME_TO_ID = {
+  {% for wt in work_types %}
+  {{ wt.work_type|tojson }}: {{ wt.work_type_id }},
+  {% endfor %}
+};
+function setRateWorkTypeId(input) {
+  input.nextElementSibling.value = WT_NAME_TO_ID[input.value] || '';
 }
 </script>
 {% endblock %}

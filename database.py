@@ -2393,3 +2393,116 @@ def init_cap_tile_trim_materials(conn):
     conn.commit()
     if inserted:
         print(f'Seeded {inserted} Cap Tile Trim materials')
+
+
+def init_finishing_flooring_pros_sub(conn):
+    """Seeds a new sub (Elvis, Finishing & Flooring Pros) plus his labor rates, sourced
+    from his own price sheet (email, 2026-08-25). His rates aren't 1:1 with this app's
+    catalog: sub_rates only auto-fills ONE rate per (sub, work_type) pair (see
+    /api/rate in app.py), so where he quotes several tiers for the same kind of work
+    (e.g. 5 different coping finishes), only the standard/most-common tier is stored as
+    the real rate -- the others are summarized in that row's `notes` rather than as
+    separate rows, which would silently never auto-fill (and would only add more noise to
+    an already-long work-type list, which Jim flagged as a real problem the same day this
+    sub was added -- see the searchable-work-type-picker changes shipped alongside this).
+    Full detail lives in the price sheet PDF itself, meant to be uploaded as a 'price_sheet'
+    sub_attachment via the admin UI after this seed runs (not embedded here as base64 --
+    that would permanently bloat the repo for a document that changes over time anyway).
+
+    13 new work types were added for scope Elvis prices that nothing in the catalog covered
+    yet (confirmed with Jim which ones were worth adding permanently vs. one-off)."""
+    c = conn.cursor()
+
+    existing_sub = c.execute("SELECT sub_id FROM subs WHERE name='Finishing & Flooring Pros'").fetchone()
+    if existing_sub:
+        return
+    rows = c.execute("SELECT sub_id FROM subs").fetchall()
+    nums = []
+    for r in rows:
+        try: nums.append(int(r['sub_id'].replace('S', '').replace('s', '')))
+        except: pass
+    sub_id = 'S' + str(max(nums) + 1 if nums else 1)
+    c.execute(
+        "INSERT INTO subs (sub_id, name, active, phone, poc_name, email) VALUES (?,?,?,?,?,?)",
+        (sub_id, 'Finishing & Flooring Pros', 'Y', '(813) 900-6695', 'Elvis', 'FinishingFlooringPros2026@hotmail.com')
+    )
+
+    new_work_types = [
+        ('Spillway Installation', 'each', 'Labor to build a pool spillway/waterfall wall feature.'),
+        ('Water Feature Installation', 'each', 'Sheer descent or water fountain installation.'),
+        ('Pool Beam Re-do', 'lf', 'Rebuild pool beam: concrete, rebar, layout, form.'),
+        ('Step Riser Installation', 'lf', 'Step riser build: concrete, cement block, rebar.'),
+        ('Waterline Crack Staple', 'each', 'Repair a waterline crack with staples.'),
+        ('Pool Beam Parge', 'lf', 'Mud coating on top of the pool beam for elevation adjustment.'),
+        ('Corner Installation', 'each', 'Corner tile/coping piece installation.'),
+        ('Raised Wall Mud Work', 'lf', ''),
+        ('Thin-set Border', 'lf', ''),
+        ('Coping Removal', 'lf', ''),
+        ('Cap Removal', 'lf', ''),
+        ('Paver Removal', 'sqft', ''),
+        ('Water Fittings Prep', 'each', 'Prep for super/water fittings before equipment install.'),
+    ]
+    wt_ids = {}
+    for name, unit, desc in new_work_types:
+        existing = c.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (name,)).fetchone()
+        if existing:
+            wt_ids[name] = existing['work_type_id']
+            continue
+        cur = c.execute(
+            "INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,"
+            "is_modifier,modified_by,show_on_quote,active,description) VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING work_type_id",
+            (name, unit, 'labor_only', 30.0, 10.0, 9.1, 'N', '', 'Y', 'Y', desc)
+        )
+        wt_ids[name] = cur.fetchone()[0]
+
+    existing_names = [
+        'Coping Installation', 'Waterline Tile Installation', 'Cap Tile Installation',
+        'Skimmer Installation', 'Tile Removal', 'Light Installation', 'Surface Prep',
+        'Paver Installation', 'Deck Drain Install', 'Excavation', 'Concrete Removal',
+        'Footers with Concrete', 'Site Cleanup', 'Surface Removal',
+    ]
+    all_ids = dict(wt_ids)
+    for name in existing_names:
+        row = c.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (name,)).fetchone()
+        if row:
+            all_ids[name] = row['work_type_id']
+
+    rates = [
+        ('Coping Installation', 12.00, 'lf', 'Standard/Travertine/Long-face $12/lf. Marble/Granite $13/lf, Custom 4ft+ $40/lf -- see attached price sheet.', None),
+        ('Waterline Tile Installation', 12.00, 'lf', '6x6 and glass tile $12/lf. Paper-face glass tile $13.50/lf -- see attached price sheet.', None),
+        ('Cap Tile Installation', 8.00, 'lf', 'Trim tile on steps & benches, mud cap installation.', None),
+        ('Skimmer Installation', 300.00, 'each', 'New/custom pool. Remodel/replacement skimmer $650 each -- see attached price sheet.', None),
+        ('Tile Removal', 3.00, 'lf', '', None),
+        ('Light Installation', 250.00, 'each', 'Pool or spa light.', None),
+        ('Surface Prep', 1.00, 'sqft', 'Pool or spa, regular size.', None),
+        ('Surface Removal', 7.50, 'sqft', 'Fiberglass removal. Whole-pool-interior removal quoted case-by-case.', None),
+        ('Paver Installation', 2.80, 'sqft', 'Regular pavers. Travertine $3.20, Marble/Granite $3.50, Porcelain $7.50, Porcelain w/ thin-set $8.75/sqft -- see attached price sheet.', 1500.00),
+        ('Deck Drain Install', 10.00, 'lf', 'Remodel pool. Custom pool $8/lf, Travertine grade w/ PVC pipe $35/lf -- see attached price sheet.', None),
+        ('Excavation', 3.50, 'sqft', 'Hand excavation, grass or dirt.', None),
+        ('Concrete Removal', 3.50, 'sqft', 'Hand demolition.', 1000.00),
+        ('Footers with Concrete', 25.00, 'lf', 'Footer, concrete, cement block, rebar.', None),
+        ('Site Cleanup', 250.00, 'each', "Job site cleanup, company-required (from Elvis's own work only) -- \"$250 and up,\" confirm exact cost per job.", None),
+        ('Spillway Installation', 250.00, 'each', 'Granite/Marble stone facing on spillway is $150/each extra -- see attached price sheet.', None),
+        ('Water Feature Installation', 250.00, 'each', '', None),
+        ('Pool Beam Re-do', 25.00, 'lf', '', None),
+        ('Step Riser Installation', 25.00, 'lf', 'Paver-faced step riser trim is $8/lf extra -- see attached price sheet.', None),
+        ('Waterline Crack Staple', 75.00, 'each', '', None),
+        ('Pool Beam Parge', 2.00, 'lf', '', None),
+        ('Corner Installation', 12.00, 'each', '', None),
+        ('Raised Wall Mud Work', 3.50, 'lf', '', None),
+        ('Thin-set Border', 2.00, 'lf', '', None),
+        ('Coping Removal', 3.00, 'lf', '', None),
+        ('Cap Removal', 3.00, 'lf', '', None),
+        ('Paver Removal', 2.00, 'sqft', '', None),
+        ('Water Fittings Prep', 50.00, 'each', '', None),
+    ]
+    for name, rate, unit, notes, min_total_cost in rates:
+        wt_id = all_ids.get(name)
+        if not wt_id:
+            continue
+        c.execute(
+            "INSERT INTO sub_rates (sub_id, work_type_id, rate, unit, notes, min_total_cost) VALUES (?,?,?,?,?,?)",
+            (sub_id, wt_id, rate, unit, notes, min_total_cost)
+        )
+    conn.commit()
+    print(f'Seeded sub {sub_id} (Finishing & Flooring Pros) with {len(rates)} rates and {len(new_work_types)} new work types')
