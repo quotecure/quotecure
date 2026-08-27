@@ -276,7 +276,82 @@ def customer_detail(customer_id):
     quotes = db.execute(
         "SELECT * FROM quotes WHERE customer_id=? ORDER BY created_at DESC", (customer_id,)
     ).fetchall()
-    return render_template('customer_detail.html', customer=customer, quotes=quotes)
+    timeline = _customer_timeline(db, customer_id)
+    return render_template('customer_detail.html', customer=customer, quotes=quotes, timeline=timeline)
+
+def _customer_timeline(db, customer_id):
+    """Notes and attachments are two separate tables (plain text vs. base64 blob+mime) but
+    always shown merged as one chronological history -- the split is a storage detail, not
+    something the UI exposes."""
+    notes = db.execute(
+        "SELECT id, 'note' as kind, note_text, NULL as filename, NULL as mime_type, NULL as file_data, "
+        "created_by, created_at FROM customer_notes WHERE customer_id=?", (customer_id,)
+    ).fetchall()
+    files = db.execute(
+        "SELECT id, 'file' as kind, NULL as note_text, filename, mime_type, file_data, "
+        "created_by, created_at FROM customer_attachments WHERE customer_id=?", (customer_id,)
+    ).fetchall()
+    combined = [dict(r) for r in notes] + [dict(r) for r in files]
+    combined.sort(key=lambda r: r['created_at'] or '', reverse=True)
+    return combined
+
+@app.route('/customers/<int:customer_id>/notes/add', methods=['POST'])
+@login_required
+def add_customer_note(customer_id):
+    db = get_db()
+    note_text = request.form.get('note_text', '').strip()
+    if note_text:
+        author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+        db.execute("INSERT INTO customer_notes (customer_id, note_text, created_by) VALUES (?,?,?)",
+                   (customer_id, note_text, author))
+        db.commit()
+    return redirect(url_for('customer_detail', customer_id=customer_id))
+
+@app.route('/customers/<int:customer_id>/notes/<int:note_id>/delete', methods=['POST'])
+@login_required
+def delete_customer_note(customer_id, note_id):
+    db = get_db()
+    db.execute("DELETE FROM customer_notes WHERE id=? AND customer_id=?", (note_id, customer_id))
+    db.commit()
+    return redirect(url_for('customer_detail', customer_id=customer_id))
+
+@app.route('/customers/<int:customer_id>/attachments/add', methods=['POST'])
+@login_required
+def add_customer_attachment(customer_id):
+    db = get_db()
+    f = request.files.get('file')
+    if f and f.filename:
+        file_bytes = f.read()
+        ext = _validate_file_upload(file_bytes, f.filename)
+        if ext:
+            import base64
+            author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+            db.execute(
+                "INSERT INTO customer_attachments (customer_id, filename, mime_type, file_data, created_by) VALUES (?,?,?,?,?)",
+                (customer_id, f.filename, ATTACHMENT_MIME_TYPES[ext], base64.b64encode(file_bytes).decode('utf-8'), author)
+            )
+            db.commit()
+    return redirect(url_for('customer_detail', customer_id=customer_id))
+
+@app.route('/customers/attachments/<int:attachment_id>/download')
+@login_required
+def download_customer_attachment(attachment_id):
+    db = get_db()
+    row = db.execute("SELECT * FROM customer_attachments WHERE id=?", (attachment_id,)).fetchone()
+    if not row:
+        return redirect(url_for('customers_list'))
+    import base64
+    data = base64.b64decode(row['file_data'])
+    return Response(data, mimetype=row['mime_type'],
+                     headers={'Content-Disposition': f'attachment; filename="{row["filename"]}"'})
+
+@app.route('/customers/<int:customer_id>/attachments/<int:attachment_id>/delete', methods=['POST'])
+@login_required
+def delete_customer_attachment(customer_id, attachment_id):
+    db = get_db()
+    db.execute("DELETE FROM customer_attachments WHERE id=? AND customer_id=?", (attachment_id, customer_id))
+    db.commit()
+    return redirect(url_for('customer_detail', customer_id=customer_id))
 
 @app.route('/customers/<int:customer_id>/edit', methods=['POST'])
 @login_required
@@ -2961,23 +3036,30 @@ def _validate_pdf_upload(file_bytes, filename):
         return False
     return True
 
-SUB_ATTACHMENT_MIME_TYPES = {
+ATTACHMENT_MIME_TYPES = {
     'pdf': 'application/pdf', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+    'gif': 'image/gif', 'webp': 'image/webp', 'heic': 'image/heic', 'heif': 'image/heif',
     'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'xls': 'application/vnd.ms-excel', 'csv': 'text/csv',
 }
+# Browsers reliably render these as an inline <img> from a data URI -- HEIC (the default
+# iPhone photo format) is NOT included: Safari renders it but Chrome/Firefox don't, so a
+# HEIC upload gets a plain file/download treatment instead of a thumbnail rather than
+# silently showing a broken image for most viewers.
+INLINE_IMAGE_MIME_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
 
-def _validate_sub_attachment(file_bytes, filename):
-    """Generalizes _validate_pdf_upload for COI/Workers-Comp/price-sheet uploads, which can
-    be a PDF, a photo of a cert, or a spreadsheet -- unlike terms_documents, which is always
-    a PDF. Extension allowlist + a 15MB cap (a bit above the existing 10MB PDF-only
-    precedent, to give scanned/photographed docs headroom); PDF also gets the same magic-
-    byte check as _validate_pdf_upload since that's cheap and catches a mislabeled file.
+def _validate_file_upload(file_bytes, filename):
+    """Shared upload validation for sub attachments (COI/Workers-Comp/price-sheet) and
+    customer attachments (pool photos, documents from a sales conversation) -- both can be a
+    PDF, a photo, or a spreadsheet, unlike terms_documents, which is always a PDF. Extension
+    allowlist + a 15MB cap (a bit above the original 10MB PDF-only precedent, to give
+    scanned/photographed docs headroom); PDF also gets the same magic-byte check as
+    _validate_pdf_upload since that's cheap and catches a mislabeled file.
     Returns the matched extension (for the mime-type lookup) or None if invalid."""
     if not filename or '.' not in filename:
         return None
     ext = filename.rsplit('.', 1)[1].lower()
-    if ext not in SUB_ATTACHMENT_MIME_TYPES:
+    if ext not in ATTACHMENT_MIME_TYPES:
         return None
     if len(file_bytes) > 15 * 1024 * 1024:
         return None
@@ -2993,12 +3075,12 @@ def add_sub_attachment(sub_id):
     category = request.form.get('category', 'other')
     if f and f.filename:
         file_bytes = f.read()
-        ext = _validate_sub_attachment(file_bytes, f.filename)
+        ext = _validate_file_upload(file_bytes, f.filename)
         if ext:
             import base64
             db.execute(
                 "INSERT INTO sub_attachments (sub_id, category, filename, mime_type, file_data) VALUES (?,?,?,?,?)",
-                (sub_id, category, f.filename, SUB_ATTACHMENT_MIME_TYPES[ext], base64.b64encode(file_bytes).decode('utf-8'))
+                (sub_id, category, f.filename, ATTACHMENT_MIME_TYPES[ext], base64.b64encode(file_bytes).decode('utf-8'))
             )
             db.commit()
     return redirect(url_for('admin_subs'))

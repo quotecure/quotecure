@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-27 — Customer notes & photo/file history
+
+`/customers/<id>` now has a "History" section: a running, chronological log of sales notes and uploaded photos/files for that customer, merged into one timeline (notes and files live in two separate tables — `customer_notes` plain text, `customer_attachments` the same base64-in-`TEXT`-column pattern as sub attachments — but the split is invisible in the UI, the route fetches both and sorts by `created_at`). Each note is timestamped with who wrote it.
+
+Generalized the sub-attachment upload validation (`_validate_sub_attachment` → `_validate_file_upload`, `SUB_ATTACHMENT_MIME_TYPES` → `ATTACHMENT_MIME_TYPES`) so customer uploads reuse the exact same extension allowlist, PDF magic-byte check, and 15MB cap rather than duplicating it — the logic was never actually sub-specific. Added `image/gif`, `image/webp`, and HEIC/HEIF (the default iPhone photo format) to the allowlist. Uploaded photos render as an inline thumbnail directly from the stored base64 (`data:` URI) when the format is one Chrome/Firefox actually display (jpeg/png/gif/webp) — HEIC is accepted and downloadable but deliberately not thumbnailed, since Safari renders it but Chrome/Firefox don't, and a silently-broken image is worse than a plain download link.
+
+Verified with `test_customer_history.py`: note creation with correct author, image upload or HEIC upload distinguished correctly for inline-render eligibility, a disallowed extension rejected, download round-trip returns byte-identical content, the merged timeline sorts newest-first, and delete works for both notes and attachments.
+
 ## 2026-08-26 — New sub (Elvis, Finishing & Flooring Pros) + searchable work-type picker
 
 Onboarded a new sub from his own price sheet PDF: name, phone, email, POC ("Elvis"). Cross-referenced his ~50-line price sheet against the 35 existing work types and confirmed the mapping with Jim directly rather than guessing — about half mapped onto existing types (Coping, Tile, Skimmer, Pavers, etc.), 13 were genuinely new scope (Spillway Installation, Water Feature Installation, Pool Beam Re-do, Step Riser Installation, Waterline Crack Staple, Pool Beam Parge, Corner Installation, Raised Wall Mud Work, Thin-set Border, Coping/Cap/Paver Removal, Water Fittings Prep) that Jim approved adding permanently.
