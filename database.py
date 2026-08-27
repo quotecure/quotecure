@@ -2204,6 +2204,74 @@ def add_work_type_estimated_days_margin(conn):
         conn.execute("ALTER TABLE work_types ADD COLUMN estimated_days_margin REAL DEFAULT 0")
 
 
+@migration
+def add_work_type_timeline_exempt(conn):
+    """Some work types have a real duration that shouldn't count toward a quote's summed
+    timeline -- e.g. Startup genuinely takes ~28 days (chemical balancing/curing) but runs
+    passively alongside other work, not as blocking sequential labor, so adding it would
+    wildly overstate the job length. Others (e.g. Corner Installation) are a trivial add-on
+    folded into another job with no standalone duration at all. Both cases need the same
+    outcome: skipped from the sum AND not flagged by the missing-estimate callout, which is
+    different from 'nobody filled this in yet'. estimated_days itself still stores the real
+    number where one exists (informational), this flag just controls whether it's added."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(work_types)").fetchall()}
+    if 'timeline_exempt' not in cols:
+        conn.execute("ALTER TABLE work_types ADD COLUMN timeline_exempt TEXT DEFAULT 'N'")
+
+
+@migration
+def set_estimated_days_batch_1(conn):
+    """First real pass at filling in estimated_days, from Jim directly (2026-08-27) --
+    previously all 38 active work types had never had a value set at all. Startup and
+    Corner Installation are marked timeline_exempt (see add_work_type_timeline_exempt) per
+    Jim's explicit callouts, not left at a bare 0 that the missing-estimate warning would
+    keep flagging forever."""
+    values = [
+        ('Cap Tile Installation', 1, 0, 'N'),
+        ('Cap Removal', 0.5, 0, 'N'),
+        ('Coping Installation', 2, 0, 'N'),
+        ('Coping Removal', 0.5, 0, 'N'),
+        ('Waterline Tile Installation', 1, 0, 'N'),
+        ('Paver Installation', 3, 0, 'N'),
+        ('Paver Removal', 1, 0, 'N'),
+        ('Paver Sealing', 2, 0, 'N'),
+        ('Flagstone Pavers', 3, 0, 'N'),
+        ('Textured Decking – Knockdown', 3, 0, 'N'),
+        ('Textured Decking – Variegated', 3, 0, 'N'),
+        ('Concrete Removal', 2, 0, 'N'),
+        ('Surface Application', 2, 0, 'N'),
+        ('Surface Prep', 1, 0, 'N'),
+        ('Surface Removal', 0.5, 0, 'N'),
+        ('River Rock Removal', 0.5, 0, 'N'),
+        ('Cartridge Filter Installation', 0.5, 0, 'N'),
+        ('Drain Installation', 0.5, 0, 'N'),
+        ('Handrail Installation', 0.5, 0, 'N'),
+        ('Heater Installation', 0.5, 0, 'N'),
+        ('Light Installation', 0.5, 0, 'N'),
+        ('Pump Installation', 0.5, 0, 'N'),
+        ('Salt Cell Installation', 0.5, 0, 'N'),
+        ('Skimmer Installation', 0.5, 0, 'N'),
+        ('Startup', 28, 0, 'Y'),
+        ('Leak Detection', 0.5, 0, 'N'),
+        ('Pool Beam Parge', 0.5, 0, 'N'),
+        ('Pool Beam Re-do', 0.2, 0, 'N'),
+        ('Raised Wall Mud Work', 0.5, 0, 'N'),
+        ('Step Riser Installation', 0.5, 0, 'N'),
+        ('Thin-set Border', 0.5, 0, 'N'),
+        ('Waterline Crack Staple', 0.5, 0, 'N'),
+        ('Corner Installation', 0, 0, 'Y'),
+        ('Water Feature Installation', 2, 0, 'N'),
+        ('Spillway Installation', 1, 0, 'N'),
+        ('Site Cleanup', 0.5, 0, 'N'),
+    ]
+    for name, days, margin, exempt in values:
+        conn.execute(
+            "UPDATE work_types SET estimated_days=?, estimated_days_margin=?, timeline_exempt=? WHERE work_type=?",
+            (days, margin, exempt, name)
+        )
+    conn.execute("DELETE FROM work_types WHERE work_type='Sand & Seal Application'")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-27 — Real estimated_days data + timeline_exempt flag
+
+Filled in real `estimated_days` for 36 of 38 active work types, from Jim directly (`set_estimated_days_batch_1` migration) — the field had never been populated at all before today. Deleted Sand & Seal Application (zero references anywhere, Jim confirmed). Left Water Fittings Prep unset pending what it actually is (added this week from a sub's price sheet, Jim didn't recognize the name).
+
+Two of Jim's answers didn't fit a plain number: Startup genuinely takes ~28 days (chemical balancing/curing) but runs passively alongside other work rather than blocking sequential labor, so summing it into a quote's timeline would wildly overstate the job length; Corner Installation has no standalone duration at all, just a trivial add-on folded into another job. Both needed the same outcome — skipped from the summed total, and not flagged by the missing-estimate callout shipped a few hours earlier today, since "exempt" and "nobody filled this in yet" are different things. Added `work_types.timeline_exempt` (Y/N) for this; `_estimated_timeline_days` now skips exempt work types entirely rather than just leaving them at 0. `estimated_days` itself still stores Startup's real 28 (informational), the flag only controls whether it's added. New "Exclude from Timeline?" field on both Add and Edit forms in `/admin/work_types`, and an "exempt" badge in the listing table.
+
+Verified live: Startup's 28 days confirmed excluded from a quote's summed total with a Surface-Removal-only item still showing its own 0.5 days correctly, and Startup doesn't trigger the missing-estimate warning despite contributing 0 to the sum.
+
 ## 2026-08-27 — Estimated-days +/- margin, work types cleanup
 
 Jim wanted to start actually filling in `estimated_days` for the first time (39 work types, none previously set) and pointed out plenty of them don't take a fixed amount of time — Paver Installation might typically run 3 days but stretch to 2-4 depending on job size. Added `estimated_days_margin` (a "+/- N days" variance) alongside the existing single-number field, rather than building a real min/max range pair — `estimated_days` is already documented as "not a real schedule, just a rough estimate," and this keeps that same philosophy: enough to show a range, not a second field set to thread through every place the total gets used. `_estimated_timeline_days` now sums margins the same way it sums the base days; the Est. Timeline box on a quote shows "11–17 days" when a margin is set, plain "14 days" when it isn't. New fields on both the Add and Edit forms in `/admin/work_types`.

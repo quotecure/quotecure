@@ -2076,9 +2076,13 @@ def _estimated_timeline_days(db, line_items):
     quote can show a range instead of a single falsely-precise number.
     Also returns the distinct work-type labels on this quote that have no
     estimated_days set at all, so the total can be flagged as understated rather than
-    silently treating 'no data' the same as 'confirmed zero days'."""
+    silently treating 'no data' the same as 'confirmed zero days'. A work type flagged
+    timeline_exempt (e.g. Startup, which genuinely runs ~28 days but passively alongside
+    other work rather than as blocking sequential labor) is skipped entirely -- not summed,
+    not flagged as missing -- since 'exempt' and 'nobody filled this in yet' are different
+    things and only the second one is worth calling out."""
     wt_rows = {r['work_type_id']: r for r in db.execute(
-        "SELECT work_type_id, estimated_days, estimated_days_margin FROM work_types").fetchall()}
+        "SELECT work_type_id, estimated_days, estimated_days_margin, timeline_exempt FROM work_types").fetchall()}
     seen = set()
     total = 0.0
     total_margin = 0.0
@@ -2088,6 +2092,8 @@ def _estimated_timeline_days(db, line_items):
         if wt_id and wt_id not in seen:
             seen.add(wt_id)
             wt = wt_rows.get(wt_id)
+            if wt and wt['timeline_exempt'] == 'Y':
+                continue
             days = float(wt['estimated_days'] or 0) if wt else 0.0
             total += days
             total_margin += float(wt['estimated_days_margin'] or 0) if wt else 0.0
@@ -2385,7 +2391,7 @@ def admin_work_types():
 def add_work_type():
     db = get_db()
     db.execute("""INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,
-                  is_modifier,modified_by,show_on_quote,active,description,estimated_days,estimated_days_margin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  is_modifier,modified_by,show_on_quote,active,description,estimated_days,estimated_days_margin,timeline_exempt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                (request.form['work_type'], request.form['unit'], request.form['cost_structure'],
                 float(request.form.get('default_markup',30) or 30),
                 float(request.form.get('min_markup',10) or 10),
@@ -2393,7 +2399,8 @@ def add_work_type():
                 request.form.get('is_modifier','N'), request.form.get('modified_by',''),
                 request.form.get('show_on_quote','Y'), 'Y', request.form.get('description',''),
                 float(request.form.get('estimated_days',0) or 0),
-                float(request.form.get('estimated_days_margin',0) or 0)))
+                float(request.form.get('estimated_days_margin',0) or 0),
+                request.form.get('timeline_exempt','N')))
     db.commit()
     return redirect(url_for('admin_work_types'))
 
@@ -2401,7 +2408,7 @@ def add_work_type():
 @require_permission('can_edit_work_types')
 def edit_work_type(wt_id):
     db = get_db()
-    db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,estimated_days_margin=?,active=?,description=?
+    db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,estimated_days_margin=?,timeline_exempt=?,active=?,description=?
                   WHERE work_type_id=?""",
                (request.form['work_type'],
                 request.form.get('unit','each'), request.form.get('cost_structure','labor_only'),
@@ -2411,6 +2418,7 @@ def edit_work_type(wt_id):
                 float(request.form.get('min_job_price',0) or 0),
                 float(request.form.get('estimated_days',0) or 0),
                 float(request.form.get('estimated_days_margin',0) or 0),
+                request.form.get('timeline_exempt','N'),
                 request.form.get('active','Y'), request.form.get('description',''), wt_id))
     db.commit()
     return redirect(url_for('admin_work_types'))

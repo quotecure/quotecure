@@ -30,7 +30,10 @@
               <td class="right mono" style="color:#f87171">{{ wt.min_markup|int }}%</td>
               <td class="right mono" style="color:#fb923c">{{ wt.min_margin }}%</td>
               <td class="right mono">{{ '$%.0f'|format(wt.min_job_price) if wt.min_job_price else '—' }}</td>
-              <td class="right mono">{% if wt.estimated_days %}{{ '%g'|format(wt.estimated_days) }}{% if wt.estimated_days_margin %} ±{{ '%g'|format(wt.estimated_days_margin) }}{% endif %}d{% else %}—{% endif %}</td>
+              <td class="right mono">
+                {% if wt.estimated_days %}{{ '%g'|format(wt.estimated_days) }}{% if wt.estimated_days_margin %} ±{{ '%g'|format(wt.estimated_days_margin) }}{% endif %}d{% else %}—{% endif %}
+                {% if wt.timeline_exempt == 'Y' %}<span class="badge badge-amber" style="font-size:9px;" title="Has a real duration but doesn't count toward a quote's summed timeline">exempt</span>{% endif %}
+              </td>
               <td style="text-align:center">{{ '✓' if wt.is_modifier == 'Y' else '—' }}</td>
               <td><span class="badge badge-{{ 'green' if wt.active == 'Y' else 'red' }}">{{ 'Active' if wt.active == 'Y' else 'Off' }}</span></td>
               <td><button class="btn btn-secondary btn-sm" onclick="toggleEdit({{ wt.work_type_id }})">Edit</button></td>
@@ -80,6 +83,13 @@
                   <div>
                     <label class="form-label">± Days</label>
                     <input class="form-control" name="estimated_days_margin" type="number" step="0.5" min="0" value="{{ wt.estimated_days_margin if wt.estimated_days_margin else 0 }}" style="width:80px;">
+                  </div>
+                  <div>
+                    <label class="form-label" title="Has a real duration but shouldn't count toward a quote's summed timeline (e.g. Startup, which runs passively alongside other work) -- or has no standalone duration at all (e.g. a trivial add-on folded into another job)">Exclude from Timeline?</label>
+                    <select class="form-control" name="timeline_exempt" style="width:80px;">
+                      <option value="N" {{ 'selected' if wt.timeline_exempt != 'Y' }}>No</option>
+                      <option value="Y" {{ 'selected' if wt.timeline_exempt == 'Y' }}>Yes</option>
+                    </select>
                   </div>
                   <div>
                     <label class="form-label">Status</label>
@@ -148,6 +158,13 @@
             <div class="form-group" style="margin:0">
               <label class="form-label">± Days (optional)</label>
               <input class="form-control" name="estimated_days_margin" type="number" value="0" step="0.5" min="0">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label" title="Has a real duration but shouldn't count toward a quote's summed timeline, or no standalone duration at all">Exclude from Timeline?</label>
+              <select class="form-control" name="timeline_exempt">
+                <option value="N">No</option>
+                <option value="Y">Yes</option>
+              </select>
             </div>
           </div>
           <div class="form-row form-row-2" style="margin-top:12px;">
