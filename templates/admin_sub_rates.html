@@ -17,15 +17,38 @@
           </thead>
           <tbody>
             {% for r in rates %}
-            <tr>
+            <tr id="row-{{ r.id }}">
               <td><span class="chip">{{ r.sub_name }}</span></td>
               <td style="font-weight:500">{{ r.work_type }}</td>
               <td class="right mono">${{ '%.2f'|format(r.rate) }}</td>
               <td><span class="badge badge-blue">{{ r.unit }}</span></td>
               <td style="color:var(--text3); font-size:12px">{{ r.notes or '—' }}</td>
-              <td>
+              <td style="white-space:nowrap;">
+                <button class="btn btn-secondary btn-sm" onclick="toggleEdit({{ r.id }})">Edit</button>
                 <form method="POST" action="/admin/sub_rates/delete/{{ r.id }}" style="display:inline" onsubmit="return confirm('Delete this rate?')">
                   <button class="btn btn-danger btn-sm">✕</button>
+                </form>
+              </td>
+            </tr>
+            <tr class="edit-form" id="edit-{{ r.id }}">
+              <td colspan="6" style="padding:16px 20px; background:var(--surface2); border-bottom:2px solid var(--blue);">
+                <form method="POST" action="/admin/sub_rates/edit/{{ r.id }}" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+                  <div>
+                    <label class="form-label">Rate ($)</label>
+                    <input class="form-control" name="rate" type="number" step="0.01" value="{{ r.rate }}" style="width:100px;">
+                  </div>
+                  <div>
+                    <label class="form-label">Min Total Cost ($, optional)</label>
+                    <input class="form-control" name="min_total_cost" type="number" step="0.01" value="{{ r.min_total_cost if r.min_total_cost else '' }}" style="width:130px;">
+                  </div>
+                  <div style="flex:1;min-width:180px;">
+                    <label class="form-label">Notes</label>
+                    <input class="form-control" name="notes" value="{{ r.notes or '' }}">
+                  </div>
+                  <div style="display:flex;gap:8px;">
+                    <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="toggleEdit({{ r.id }})">Cancel</button>
+                  </div>
                 </form>
               </td>
             </tr>
@@ -73,4 +96,10 @@
     </div>
   </div>
 </div>
+<script>
+function toggleEdit(id) {
+  const row = document.getElementById('edit-' + id);
+  row.classList.toggle('open');
+}
+</script>
 {% endblock %}

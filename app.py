@@ -2447,6 +2447,17 @@ def add_sub_rate():
     db.commit()
     return redirect(url_for('admin_sub_rates'))
 
+@app.route('/admin/sub_rates/edit/<int:rate_id>', methods=['POST'])
+@require_permission('can_edit_sub_rates')
+def edit_sub_rate(rate_id):
+    db = get_db()
+    min_total_cost = request.form.get('min_total_cost', '').strip()
+    db.execute("UPDATE sub_rates SET rate=?, notes=?, min_total_cost=? WHERE id=?",
+               (float(request.form['rate']), request.form.get('notes', ''),
+                float(min_total_cost) if min_total_cost else None, rate_id))
+    db.commit()
+    return redirect(request.form.get('return_to') or url_for('admin_sub_rates'))
+
 @app.route('/admin/sub_rates/delete/<int:rate_id>', methods=['POST'])
 @require_permission('can_edit_sub_rates')
 def delete_sub_rate(rate_id):

@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-27 — Sub rates are now editable in place
+
+Jim's actual ask, after two earlier misreads this session ("I still can't edit a work item that's already existing" turned out to mean neither the work-types catalog nor a quote's line items — "wait. not on the quote screen. I want to be able to edit on Admin>Work Items. If I need to change the price... I don't want to have to delete and re-add the whole thing"): a sub's rate for a given work type (`sub_rates` — what powers both `/admin/sub_rates` and the inline Rates panel on `/admin/subs`) had Add and Delete but no Edit at all. Changing a sub's price meant deleting the row and re-adding it from scratch.
+
+Added `edit_sub_rate(rate_id)` — updates `rate`, `notes`, `min_total_cost` on the existing row (deliberately not `sub_id`/`work_type_id`, which define *which* rate this is, not its value). Same toggle-open edit-row pattern already used in `/admin/work_types`, added to both `/admin/sub_rates`'s table and `/admin/subs`'s inline rate list (the latter uses a plain `style.display` toggle instead of the `.edit-form`/`.open` CSS class, since that class assumes a table row and `/admin/subs`'s rate list is a flex/div layout). Editing from `/admin/subs` redirects back there via a `return_to` field instead of always bouncing to `/admin/sub_rates`.
+
+Verified live: opened the edit form for a real rate (Blue Gator Pool Preps / Surface Prep, $800.00), changed it to $850.00, saved, confirmed it updated in place under the same row — then reverted the test value back to $800.00.
+
 ## 2026-08-27 — Split-row (labor+material) cost/unit cells are now click-to-edit
 
 Finished a gap flagged earlier this session and reconfirmed today ("I still can't edit a work item that's already existing"): a split (labor+material) line item's main collapsed row has always had its Cost/Unit cell explicitly set to `field='none'` (correctly, since a split item doesn't have one combined cost) — but the actual labor and material sub-rows underneath it, where the real per-unit costs live, had no click-to-edit affordance at all. The backend (`update_line_item`'s `'labor_cpu'`/`'mat_cpu'` handlers) already fully supported this — recomputes both components and the overall total correctly — so this was purely a template/JS wiring gap, confirmed by checking before writing any code.
