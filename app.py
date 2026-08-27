@@ -1621,7 +1621,7 @@ def edit_quote(quote_id):
     optional_total = round(sum(float(i['total_price'] or 0) for i in optional_items), 2)
     already_replaced_ids = {i['replaces_item_id'] for i in optional_items + declined_items if i.get('replaces_item_id')}
     replaceable_items = [i for i in line_items if i['id'] not in already_replaced_ids]
-    estimated_days_total = _estimated_timeline_days(db, line_items)
+    estimated_days_total, missing_estimate_labels = _estimated_timeline_days(db, line_items)
 
     materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
@@ -1647,7 +1647,8 @@ def edit_quote(quote_id):
                            contract_total=contract_total, change_orders=change_orders, versions=versions,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            qualifiers_by_wt=qualifiers_by_wt, additives=additives,
-                           estimated_days_total=estimated_days_total, terms_docs=terms_docs)
+                           estimated_days_total=estimated_days_total, missing_estimate_labels=missing_estimate_labels,
+                           terms_docs=terms_docs)
 
 @app.route('/quotes/<int:quote_id>/customer_view')
 @login_required
@@ -2069,17 +2070,25 @@ def _is_locked_contract(db, quote_id):
 def _estimated_timeline_days(db, line_items):
     """Rough job duration: sum of each distinct work type's estimated_days across a
     quote's accepted line items. Not a real schedule -- just a summed estimate shown
-    on the quote/contract, since work types don't run one at a time in practice."""
+    on the quote/contract, since work types don't run one at a time in practice.
+    Also returns the distinct work-type labels on this quote that have no
+    estimated_days set at all, so the total can be flagged as understated rather than
+    silently treating 'no data' the same as 'confirmed zero days'."""
     wt_days = {r['work_type_id']: float(r['estimated_days'] or 0)
                for r in db.execute("SELECT work_type_id, estimated_days FROM work_types").fetchall()}
     seen = set()
     total = 0.0
+    missing_labels = []
     for item in line_items:
         wt_id = item.get('work_type_id') if isinstance(item, dict) else item['work_type_id']
         if wt_id and wt_id not in seen:
             seen.add(wt_id)
-            total += wt_days.get(wt_id, 0.0)
-    return round(total, 1)
+            days = wt_days.get(wt_id, 0.0)
+            total += days
+            if not days:
+                label = item.get('work_type_label') if isinstance(item, dict) else item['work_type_label']
+                missing_labels.append(label)
+    return round(total, 1), missing_labels
 
 SCHEDULE_REMINDER_LEAD_DAYS = 1
 

@@ -231,8 +231,14 @@
     <div class="sum-card"><div class="sum-lbl">Total Cost</div><div class="sum-val" id="sum-cost">${{ '%.2f'|format(quote.total_cost) }}</div></div>
     <div class="sum-card"><div class="sum-lbl">Total Price</div><div class="sum-val blue" id="sum-price">${{ '%.2f'|format(quote.total_price) }}</div></div>
     <div class="sum-card"><div class="sum-lbl">Margin</div><div class="sum-val green" id="sum-margin">{{ '%.0f'|format(quote.total_margin) }}%</div></div>
-    {% if estimated_days_total %}
-    <div class="sum-card"><div class="sum-lbl">Est. Timeline</div><div class="sum-val" id="sum-timeline">{{ '%g'|format(estimated_days_total) }} day{{ 's' if estimated_days_total != 1 }}</div></div>
+    {% if line_items %}
+    <div class="sum-card">
+      <div class="sum-lbl">Est. Timeline</div>
+      <div class="sum-val" id="sum-timeline">{{ '%g'|format(estimated_days_total) }} day{{ 's' if estimated_days_total != 1 }}</div>
+      {% if missing_estimate_labels %}
+      <div style="font-size:10px;color:#fbbf24;margin-top:3px;" title="{{ missing_estimate_labels|join(', ') }}">⚠ {{ missing_estimate_labels|length }} item{{ 's' if missing_estimate_labels|length != 1 }} missing an estimate</div>
+      {% endif %}
+    </div>
     {% endif %}
     {% if current_role and current_role.show_gross_profit %}
     <div class="sum-card"><div class="sum-lbl">Gross Profit</div><div class="sum-val green" id="sum-gross">${{ '%.2f'|format(quote.total_price - quote.total_cost) }}</div></div>

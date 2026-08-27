@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-27 — Callout for line items missing an estimated-days value
+
+Found while about to actually fill in `estimated_days` for the first time: **none of the 39 active work types have ever had a value set**, and the Est. Timeline box was silently rendering "0 days" for every quote — worse, the box didn't even show at all when the total was 0 (`{% if estimated_days_total %}`), so the gap was invisible. `_estimated_timeline_days` (app.py:2069) now also returns the distinct work-type labels on the quote that have no `estimated_days` set, and the box (now shown whenever the quote has any line items, not just when the total is nonzero) displays "⚠ N items missing an estimate" underneath the day count, with the actual missing labels in a hover tooltip. Verified: callout count tracks correctly as work types get their estimate filled in one at a time, and disappears entirely once every item on a given quote has one set.
+
 ## 2026-08-27 — Work types: unit and cost structure are now editable
 
 `/admin/work_types`'s edit form was missing two fields that the Add form has always had: Unit and Cost Structure. Once a work type existed, there was no way to fix either — the only option was deleting it and adding a new one, losing its `work_type_id` and orphaning anything already referencing it (sub_rates, qualifiers, existing quote line items). Added both to the edit form and `edit_work_type()`'s UPDATE statement; a work type created with the wrong unit or structure can now just be corrected in place. Verified directly: editing an existing row's unit/cost_structure persists correctly under the same `work_type_id`, no delete-and-recreate needed.
