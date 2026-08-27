@@ -2183,6 +2183,14 @@ def add_quote_versions(conn):
     )''')
 
 
+@migration
+def remove_test_work_type(conn):
+    """'Postgres Migration Test Type' was leftover test data sitting in the real,
+    selectable work_types catalog -- confirmed zero sub_rates/quote_line_items/qualifiers/
+    package_items ever referenced it before removing (Jim confirmed removal)."""
+    conn.execute("DELETE FROM work_types WHERE work_type='Postgres Migration Test Type'")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
