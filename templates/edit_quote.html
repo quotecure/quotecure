@@ -165,6 +165,23 @@
   {% endif %}
   {% endif %}
 
+  {% if versions %}
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;">
+    <div style="padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border2);">Version History</div>
+    {% for v in versions %}
+    <a href="/quotes/{{ quote.quote_id }}/versions/{{ v.id }}"
+       style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;
+              {% if not loop.last %}border-bottom:1px solid var(--border2);{% endif %}text-decoration:none;color:inherit;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:13px;color:var(--text);">Version {{ v.version_number }}</span>
+        <span style="font-size:11px;color:var(--text3);">sent {{ v.sent_at[:10] if v.sent_at else '' }}{% if v.sent_by %} by {{ v.sent_by }}{% endif %}</span>
+      </div>
+      <span class="mono" style="font-size:13px;color:var(--text2);">${{ '%.2f'|format(v.total_price or 0) }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <!-- Header -->
   <div class="page-header" style="margin-bottom:12px;">
     <div>

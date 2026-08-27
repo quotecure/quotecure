@@ -1595,6 +1595,7 @@ def edit_quote(quote_id):
     ).fetchone()[0] or 0)
     contract_total = float(quote['total_price'] or 0) + signed_co_net
     change_orders = db.execute("SELECT * FROM change_orders WHERE quote_id=? ORDER BY co_number", (quote_id,)).fetchall()
+    versions = db.execute("SELECT * FROM quote_versions WHERE quote_id=? ORDER BY version_number DESC", (quote_id,)).fetchall()
     manufacturers = db.execute("SELECT * FROM surface_manufacturers WHERE active='Y' ORDER BY manufacturer_name").fetchall()
     applicators = db.execute("SELECT * FROM surface_applicators WHERE active='Y' ORDER BY name").fetchall()
     # Add manufacturer_id to surface application line items
@@ -1643,7 +1644,7 @@ def edit_quote(quote_id):
                            declined_items=declined_items, replaceable_items=replaceable_items,
                            work_types=work_types, subs=subs, commission_policy=commission_policy,
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
-                           contract_total=contract_total, change_orders=change_orders,
+                           contract_total=contract_total, change_orders=change_orders, versions=versions,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            qualifiers_by_wt=qualifiers_by_wt, additives=additives,
                            estimated_days_total=estimated_days_total, terms_docs=terms_docs)
@@ -3261,8 +3262,62 @@ def email_quote(quote_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     db.execute("UPDATE quotes SET status='sent' WHERE quote_id=? AND status='draft'", (quote_id,))
+    if not _is_locked_contract(db, quote_id):
+        _snapshot_quote_version(db, quote_id)
     db.commit()
     return jsonify({'success': True, 'sent_to': to_email})
+
+def _snapshot_quote_version(db, quote_id):
+    """Freezes the quote's current state as a new numbered version -- called every time
+    email_quote() successfully (re-)sends, first send included, so 'Version 1' always
+    exists once a customer has seen anything. Guarded to pre-signature quotes only
+    (_is_locked_contract) at the call site -- Change Orders own versioning after signing,
+    a re-sent contract PDF (e.g. for the customer's records) shouldn't create a quote
+    version of its own."""
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    next_num = db.execute(
+        "SELECT COALESCE(MAX(version_number),0)+1 as n FROM quote_versions WHERE quote_id=?", (quote_id,)
+    ).fetchone()['n']
+    sent_by = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+    cur = db.execute(
+        "INSERT INTO quote_versions (quote_id, version_number, total_cost, total_price, total_margin, commission, sent_by) "
+        "VALUES (?,?,?,?,?,?,?) RETURNING id",
+        (quote_id, next_num, quote['total_cost'], quote['total_price'], quote['total_margin'], quote['commission'], sent_by)
+    )
+    version_id = cur.fetchone()[0]
+    items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
+    for item in items:
+        db.execute(
+            "INSERT INTO quote_version_line_items (version_id, work_type_label, sub_name, "
+            "labor_quantity, labor_unit, labor_cost_per_unit, labor_total_cost, labor_markup_pct, labor_margin_pct, labor_total_price, "
+            "material_label, material_quantity, material_unit, material_cost_per_unit, material_total_cost, material_markup_pct, material_margin_pct, material_total_price, "
+            "product_label, total_cost, total_price, total_margin_pct, sort_order, description, is_optional, is_declined) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (version_id, item['work_type_label'], item['sub_name'],
+             item['labor_quantity'], item['labor_unit'], item['labor_cost_per_unit'], item['labor_total_cost'],
+             item['labor_markup_pct'], item['labor_margin_pct'], item['labor_total_price'],
+             item['material_label'], item['material_quantity'], item['material_unit'], item['material_cost_per_unit'],
+             item['material_total_cost'], item['material_markup_pct'], item['material_margin_pct'], item['material_total_price'],
+             item['product_label'], item['total_cost'], item['total_price'], item['total_margin_pct'],
+             item['sort_order'], item['description'], item['is_optional'], item['is_declined'])
+        )
+
+@app.route('/quotes/<int:quote_id>/versions/<int:version_id>')
+@login_required
+def quote_version_detail(quote_id, version_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    version = db.execute("SELECT * FROM quote_versions WHERE id=? AND quote_id=?", (version_id, quote_id)).fetchone()
+    if not quote or not version:
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    items = db.execute(
+        "SELECT * FROM quote_version_line_items WHERE version_id=? ORDER BY sort_order", (version_id,)
+    ).fetchall()
+    line_items = [dict(i) for i in items if not i['is_optional']]
+    optional_items = [dict(i) for i in items if i['is_optional'] and not i['is_declined']]
+    declined_items = [dict(i) for i in items if i['is_optional'] and i['is_declined']]
+    return render_template('quote_version.html', quote=quote, version=version,
+                           line_items=line_items, optional_items=optional_items, declined_items=declined_items)
 
 @app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/decline', methods=['POST'])
 @login_required

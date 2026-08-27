@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% block title %}Version {{ version.version_number }} — {{ quote.customer_name }} — QuoteCure{% endblock %}
+{% block extra_css %}
+<style>
+.qt { width:100%; border-collapse:collapse; font-size:13px; }
+.qt thead th {
+  padding:8px 10px; text-align:left;
+  font-size:10px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase;
+  color:var(--text3); border-bottom:2px solid var(--border);
+  white-space:nowrap;
+}
+.qt thead th.r { text-align:right; }
+.qt tbody tr.qrow { border-bottom:1px solid var(--border2); }
+.qt tbody td { padding:10px 10px; vertical-align:middle; }
+.qt tbody td.r { text-align:right; }
+.svc-name { font-weight:600; color:var(--text); line-height:1.3; }
+.svc-desc { font-size:11px; color:var(--text3); margin-top:2px; }
+.qrow-split td { padding:4px 10px; }
+.split-tag { font-size:9px; font-weight:700; letter-spacing:0.07em; text-transform:uppercase;
+  padding:1px 5px; border-radius:3px; margin-right:4px; }
+.tag-l { background:#1e3a8a44; color:#93c5fd; }
+.tag-m { background:#14532d44; color:#4ade80; }
+.sum-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+.sum-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; }
+.sum-lbl { font-size:10px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--text3); margin-bottom:2px; }
+.sum-val { font-size:18px; font-weight:700; font-family:'Chivo Mono',monospace; }
+</style>
+{% endblock %}
+{% block content %}
+
+{% macro version_rows(items) %}
+  <thead>
+    <tr>
+      <th style="width:24%">Service</th>
+      <th style="width:16%">Subcontractor</th>
+      <th class="r" style="width:9%">Qty</th>
+      <th class="r" style="width:7%">Unit</th>
+      <th class="r" style="width:10%">Cost/Unit</th>
+      <th class="r" style="width:10%">Total Cost</th>
+      <th class="r" style="width:8%">Markup</th>
+      <th class="r" style="width:7%">Margin</th>
+      <th class="r" style="width:9%">Price</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    {% set is_split = item.material_cost_per_unit and item.material_cost_per_unit > 0 %}
+    <tr class="qrow">
+      <td>
+        <div class="svc-name">{{ item.work_type_label }}</div>
+        {% if item.description %}<div class="svc-desc">{{ item.description }}</div>{% endif %}
+      </td>
+      <td>{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</td>
+      <td class="r mono">{{ item.labor_quantity }}</td>
+      <td class="r" style="color:var(--text3);">{{ item.labor_unit }}</td>
+      <td class="r mono" style="color:var(--text3);">{% if is_split %}—{% else %}${{ '%.2f'|format(item.labor_cost_per_unit or 0) }}{% endif %}</td>
+      <td class="r mono">${{ '%.2f'|format(item.total_cost or 0) }}</td>
+      <td class="r">{% if not is_split %}{{ '%.0f'|format(item.labor_markup_pct or 0) }}%{% else %}<span style="font-size:10px;color:var(--text3);">split ↕</span>{% endif %}</td>
+      <td class="r"><span class="pill pill-margin">{{ '%.0f'|format(item.total_margin_pct or 0) }}%</span></td>
+      <td class="r mono" style="font-weight:600;">${{ '%.2f'|format(item.total_price or 0) }}</td>
+    </tr>
+    {% if is_split %}
+    <tr class="qrow-split" style="border-bottom:1px solid var(--border2);">
+      <td style="padding-left:20px;"><span class="split-tag tag-l">Labor</span> <span style="font-size:11px;color:var(--text2);">{{ item.sub_name or '—' }}</span></td>
+      <td></td>
+      <td class="r mono" style="font-size:12px;color:var(--text2);">{{ item.labor_quantity }}</td>
+      <td class="r" style="font-size:11px;color:var(--text3);">{{ item.labor_unit }}</td>
+      <td class="r mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.labor_cost_per_unit or 0) }}</td>
+      <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.labor_total_cost or 0) }}</td>
+      <td class="r" style="font-size:11px;">{{ '%.0f'|format(item.labor_markup_pct or 0) }}%</td>
+      <td class="r"><span class="pill pill-margin">{{ '%.0f'|format(item.labor_margin_pct or 0) }}%</span></td>
+      <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.labor_total_price or 0) }}</td>
+    </tr>
+    <tr class="qrow-split" style="border-bottom:2px solid var(--border);">
+      <td style="padding-left:20px;"><span class="split-tag tag-m">Material</span> <span style="font-size:11px;color:var(--text2);">{{ item.material_label or '—' }}</span></td>
+      <td></td>
+      <td class="r mono" style="font-size:12px;color:var(--text2);">{{ item.material_quantity }}</td>
+      <td class="r" style="font-size:11px;color:var(--text3);">{{ item.material_unit }}</td>
+      <td class="r mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.material_cost_per_unit or 0) }}</td>
+      <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.material_total_cost or 0) }}</td>
+      <td class="r" style="font-size:11px;">{{ '%.0f'|format(item.material_markup_pct or 0) }}%</td>
+      <td class="r"><span class="pill pill-margin">{{ '%.0f'|format(item.material_margin_pct or 0) }}%</span></td>
+      <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.material_total_price or 0) }}</td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+    {% if not items %}
+    <tr><td colspan="9" style="text-align:center;padding:28px;color:var(--text3);">No items.</td></tr>
+    {% endif %}
+  </tbody>
+{% endmacro %}
+
+<div class="page-wide">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+    <div>
+      <div class="page-title">Version {{ version.version_number }} — {{ quote.customer_name }}</div>
+      <div class="page-subtitle">
+        QT-{{ '%04d'|format(quote.quote_id) }} — {{ quote.address or '' }} — sent {{ version.sent_at[:16] if version.sent_at else '' }}{% if version.sent_by %} by {{ version.sent_by }}{% endif %}
+      </div>
+    </div>
+    <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Current Quote</a>
+  </div>
+
+  <div style="background:#78350f22;border:1px solid #78350f;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:12px;color:var(--text2);">
+    📜 This is a read-only historical snapshot of what was sent on this date. It can't be edited — go to the current quote to make changes.
+  </div>
+
+  <div class="sum-grid" style="margin-bottom:16px;">
+    <div class="sum-card"><div class="sum-lbl">Total Cost</div><div class="sum-val">${{ '%.2f'|format(version.total_cost or 0) }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Total Price</div><div class="sum-val">${{ '%.2f'|format(version.total_price or 0) }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Margin</div><div class="sum-val">{{ '%.0f'|format(version.total_margin or 0) }}%</div></div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="qt">
+        {{ version_rows(line_items) }}
+      </table>
+    </div>
+  </div>
+
+  {% if optional_items %}
+  <div class="card" style="margin-top:16px;">
+    <div style="padding:14px 16px;font-size:13px;font-weight:700;color:var(--text);">Optional Add-Ons (at the time)</div>
+    <div class="table-wrap">
+      <table class="qt">
+        {{ version_rows(optional_items) }}
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if declined_items %}
+  <div class="card" style="margin-top:16px;">
+    <div style="padding:14px 16px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);">Declined by Customer (at the time)</div>
+    </div>
+    <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:6px;">
+      {% for item in declined_items %}
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border2);">
+        <span style="font-size:12px;color:var(--text3);text-decoration:line-through;">{{ item.work_type_label }}</span>
+        <span class="mono" style="font-size:12px;color:var(--text3);">${{ '%.2f'|format(item.total_price or 0) }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
