@@ -43,6 +43,21 @@
                     <input class="form-control" name="work_type" value="{{ wt.work_type }}" style="width:200px;">
                   </div>
                   <div>
+                    <label class="form-label">Unit</label>
+                    <select class="form-control" name="unit" style="width:90px;">
+                      <option value="sqft" {{ 'selected' if wt.unit == 'sqft' }}>sqft</option>
+                      <option value="lf" {{ 'selected' if wt.unit == 'lf' }}>lf</option>
+                      <option value="each" {{ 'selected' if wt.unit == 'each' }}>each</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="form-label">Cost Structure</label>
+                    <select class="form-control" name="cost_structure" style="width:110px;">
+                      <option value="labor_only" {{ 'selected' if wt.cost_structure == 'labor_only' }}>labor_only</option>
+                      <option value="bundled" {{ 'selected' if wt.cost_structure == 'bundled' }}>bundled</option>
+                    </select>
+                  </div>
+                  <div>
                     <label class="form-label">Default Markup %</label>
                     <input class="form-control" name="default_markup" type="number" step="1" value="{{ wt.default_markup|int }}" style="width:90px;">
                   </div>

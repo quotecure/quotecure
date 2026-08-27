@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-27 — Work types: unit and cost structure are now editable
+
+`/admin/work_types`'s edit form was missing two fields that the Add form has always had: Unit and Cost Structure. Once a work type existed, there was no way to fix either — the only option was deleting it and adding a new one, losing its `work_type_id` and orphaning anything already referencing it (sub_rates, qualifiers, existing quote line items). Added both to the edit form and `edit_work_type()`'s UPDATE statement; a work type created with the wrong unit or structure can now just be corrected in place. Verified directly: editing an existing row's unit/cost_structure persists correctly under the same `work_type_id`, no delete-and-recreate needed.
+
 ## 2026-08-27 — Quote versioning: auto-snapshot on send
 
 Editing an already-sent quote used to just overwrite it in place — no way to look back at what a customer actually saw before they asked for changes. Every time a quote is (re-)sent via `email_quote()` (app.py:3238 — confirmed it's the single path for both a first send and every later re-send, since its `status='sent'` update is a no-op once already sent), the current state now freezes as a new numbered version before the request finishes. Editing itself never triggers anything — only the send action does, so "Version 1" captures what went out originally and "Version 2" captures the next re-send after edits, exactly matching the mental model of a real revision history.

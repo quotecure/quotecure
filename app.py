@@ -2385,9 +2385,10 @@ def add_work_type():
 @require_permission('can_edit_work_types')
 def edit_work_type(wt_id):
     db = get_db()
-    db.execute("""UPDATE work_types SET work_type=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,active=?,description=?
+    db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,active=?,description=?
                   WHERE work_type_id=?""",
                (request.form['work_type'],
+                request.form.get('unit','each'), request.form.get('cost_structure','labor_only'),
                 float(request.form.get('default_markup',30) or 30),
                 float(request.form.get('min_markup',10) or 10),
                 float(request.form.get('min_margin',9.1) or 9.1),
