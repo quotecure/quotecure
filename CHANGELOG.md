@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-27 — Split-row (labor+material) cost/unit cells are now click-to-edit
+
+Finished a gap flagged earlier this session and reconfirmed today ("I still can't edit a work item that's already existing"): a split (labor+material) line item's main collapsed row has always had its Cost/Unit cell explicitly set to `field='none'` (correctly, since a split item doesn't have one combined cost) — but the actual labor and material sub-rows underneath it, where the real per-unit costs live, had no click-to-edit affordance at all. The backend (`update_line_item`'s `'labor_cpu'`/`'mat_cpu'` handlers) already fully supported this — recomputes both components and the overall total correctly — so this was purely a template/JS wiring gap, confirmed by checking before writing any code.
+
+Wired both sub-row cost cells to the existing `editCell()` mechanism (same click → input → save pattern as every other editable cell), and added the 3 fields the DOM-patch step needed but the update route wasn't returning yet (`labor_total_cost`, `labor_margin_pct`, `material_cost_per_unit`) so an edit updates in place without a full page reload, consistent with how the rest of this table already behaves. One bug caught before shipping: the DOM patcher's `labor_cost_per_unit` handler would have overwritten the main row's intentional "—" placeholder for split items if it ran unconditionally — added a check so it only touches the sub-row cell when one exists, the main row's cell only for non-split items.
+
+Verified live: clicked the material cost/unit cell on a real split line item, typed a new value, and confirmed every affected cell (material cost/unit, material total cost, material price, overall total cost, overall total price) updated correctly and instantly, with the math cross-checked by hand (new cost × qty × (1+markup) matched exactly).
+
 ## 2026-08-27 — Real estimated_days data + timeline_exempt flag
 
 Filled in real `estimated_days` for 36 of 38 active work types, from Jim directly (`set_estimated_days_batch_1` migration) — the field had never been populated at all before today. Deleted Sand & Seal Application (zero references anywhere, Jim confirmed). Left Water Fittings Prep unset pending what it actually is (added this week from a sub's price sheet, Jim didn't recognize the name).

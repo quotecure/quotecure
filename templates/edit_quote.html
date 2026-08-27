@@ -493,8 +493,10 @@
         <td></td>
         <td class="r mono" style="font-size:12px;color:var(--text2);">{{ item.labor_quantity }}</td>
         <td class="r" style="font-size:11px;color:var(--text3);">{{ item.labor_unit }}</td>
-        <td class="r mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.labor_cost_per_unit) }}</td>
-        <td class="r mono" style="font-size:12px;">{{ money(item.labor_total_cost) }}</td>
+        <td class="ec r" onclick="editCell(this, {{ item.id }}, 'labor_cpu')" id="cell-labor-cpu-{{ item.id }}">
+          <span class="ec-val mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.labor_cost_per_unit) }}</span>
+        </td>
+        <td class="r mono" style="font-size:12px;" id="labor-tcost-{{ item.id }}">{{ money(item.labor_total_cost) }}</td>
         <td class="r">
           <div class="mstep {% if item.labor_markup_pct <= item.labor_min_markup %}floor{% endif %}">
             <button onclick="adjMarkup({{ item.id }},'labor',-5)" {% if item.labor_markup_pct <= item.labor_min_markup %}disabled{% endif %} id="mdn-labor-{{ item.id }}">−</button>
@@ -514,7 +516,9 @@
         <td></td>
         <td class="r mono" style="font-size:12px;color:var(--text2);" id="mat-qty-{{ item.id }}">{{ item.material_quantity }}</td>
         <td class="r" style="font-size:11px;color:var(--text3);">{{ item.material_unit }}</td>
-        <td class="r mono" style="font-size:12px;color:var(--text2);" id="mat-cpu-{{ item.id }}">${{ '%.2f'|format(item.material_cost_per_unit) }}</td>
+        <td class="ec r" onclick="editCell(this, {{ item.id }}, 'mat_cpu')" id="cell-mat-cpu-{{ item.id }}">
+          <span class="ec-val mono" style="font-size:12px;color:var(--text2);" id="mat-cpu-{{ item.id }}">${{ '%.2f'|format(item.material_cost_per_unit) }}</span>
+        </td>
         <td class="r mono" style="font-size:12px;" id="mat-tcost-{{ item.id }}">{{ money(item.material_total_cost) }}</td>
         <td class="r">
           <div class="mstep {% if item.material_markup_pct <= item.material_min_markup %}floor{% endif %}">
@@ -894,8 +898,15 @@ async function saveCell(id, field, value) {
 
 function updateRowDOM(id, d) {
   if (d.labor_cost_per_unit !== undefined) {
-    const cpuEl = document.querySelector('#cell-cpu-' + id + ' .ec-val');
-    if (cpuEl) cpuEl.textContent = '$' + parseFloat(d.labor_cost_per_unit).toFixed(2);
+    // Split items keep the main row's Cost/Unit cell showing "—" (not editable there,
+    // field='none') -- only patch it for a non-split item, or we'd stomp that placeholder.
+    const laborCpuEl = document.querySelector('#cell-labor-cpu-' + id + ' .ec-val');
+    if (laborCpuEl) {
+      laborCpuEl.textContent = '$' + parseFloat(d.labor_cost_per_unit).toFixed(2);
+    } else {
+      const cpuEl = document.querySelector('#cell-cpu-' + id + ' .ec-val');
+      if (cpuEl) cpuEl.textContent = '$' + parseFloat(d.labor_cost_per_unit).toFixed(2);
+    }
   }
   if (d.total_cost !== undefined && document.getElementById('tcost-' + id))
     document.getElementById('tcost-' + id).textContent = '$' + d.total_cost.toFixed(2);
@@ -903,6 +914,23 @@ function updateRowDOM(id, d) {
     document.getElementById('price-' + id).textContent = '$' + d.total_price.toFixed(2);
   if (d.total_margin_pct !== undefined && document.getElementById('margin-' + id))
     document.getElementById('margin-' + id).textContent = d.total_margin_pct.toFixed(0) + '%';
+  // Split (labor+material) sub-rows
+  if (d.labor_total_cost !== undefined && document.getElementById('labor-tcost-' + id))
+    document.getElementById('labor-tcost-' + id).textContent = '$' + d.labor_total_cost.toFixed(2);
+  if (d.labor_total_price !== undefined && document.getElementById('price-labor-' + id))
+    document.getElementById('price-labor-' + id).textContent = '$' + d.labor_total_price.toFixed(2);
+  if (d.labor_margin_pct !== undefined && document.getElementById('margin-labor-' + id))
+    document.getElementById('margin-labor-' + id).textContent = d.labor_margin_pct.toFixed(0) + '%';
+  if (d.material_cost_per_unit !== undefined) {
+    const matCpuEl = document.querySelector('#cell-mat-cpu-' + id + ' .ec-val');
+    if (matCpuEl) matCpuEl.textContent = '$' + parseFloat(d.material_cost_per_unit).toFixed(2);
+  }
+  if (d.material_total_cost !== undefined && document.getElementById('mat-tcost-' + id))
+    document.getElementById('mat-tcost-' + id).textContent = '$' + d.material_total_cost.toFixed(2);
+  if (d.material_total_price !== undefined && document.getElementById('price-mat-' + id))
+    document.getElementById('price-mat-' + id).textContent = '$' + d.material_total_price.toFixed(2);
+  if (d.material_margin_pct !== undefined && document.getElementById('margin-mat-' + id))
+    document.getElementById('margin-mat-' + id).textContent = d.material_margin_pct.toFixed(0) + '%';
 }
 
 // ── Email quote ───────────────────────────────────────────────────
