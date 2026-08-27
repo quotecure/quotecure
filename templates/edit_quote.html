@@ -234,7 +234,13 @@
     {% if line_items %}
     <div class="sum-card">
       <div class="sum-lbl">Est. Timeline</div>
-      <div class="sum-val" id="sum-timeline">{{ '%g'|format(estimated_days_total) }} day{{ 's' if estimated_days_total != 1 }}</div>
+      <div class="sum-val" id="sum-timeline">
+        {% if estimated_days_margin %}
+        {{ '%g'|format([estimated_days_total - estimated_days_margin, 0]|max) }}–{{ '%g'|format(estimated_days_total + estimated_days_margin) }} days
+        {% else %}
+        {{ '%g'|format(estimated_days_total) }} day{{ 's' if estimated_days_total != 1 }}
+        {% endif %}
+      </div>
       {% if missing_estimate_labels %}
       <div style="font-size:10px;color:#fbbf24;margin-top:3px;" title="{{ missing_estimate_labels|join(', ') }}">⚠ {{ missing_estimate_labels|length }} item{{ 's' if missing_estimate_labels|length != 1 }} missing an estimate</div>
       {% endif %}

@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-27 — Estimated-days +/- margin, work types cleanup
+
+Jim wanted to start actually filling in `estimated_days` for the first time (39 work types, none previously set) and pointed out plenty of them don't take a fixed amount of time — Paver Installation might typically run 3 days but stretch to 2-4 depending on job size. Added `estimated_days_margin` (a "+/- N days" variance) alongside the existing single-number field, rather than building a real min/max range pair — `estimated_days` is already documented as "not a real schedule, just a rough estimate," and this keeps that same philosophy: enough to show a range, not a second field set to thread through every place the total gets used. `_estimated_timeline_days` now sums margins the same way it sums the base days; the Est. Timeline box on a quote shows "11–17 days" when a margin is set, plain "14 days" when it isn't. New fields on both the Add and Edit forms in `/admin/work_types`.
+
+Also deleted "Postgres Migration Test Type" from the real, selectable work-types catalog (confirmed zero sub_rates/quote_line_items/qualifiers/package_items ever referenced it) — leftover test data from an earlier migration test that had been sitting in the live list this whole time.
+
 ## 2026-08-27 — Callout for line items missing an estimated-days value
 
 Found while about to actually fill in `estimated_days` for the first time: **none of the 39 active work types have ever had a value set**, and the Est. Timeline box was silently rendering "0 days" for every quote — worse, the box didn't even show at all when the total was 0 (`{% if estimated_days_total %}`), so the gap was invisible. `_estimated_timeline_days` (app.py:2069) now also returns the distinct work-type labels on the quote that have no `estimated_days` set, and the box (now shown whenever the quote has any line items, not just when the total is nonzero) displays "⚠ N items missing an estimate" underneath the day count, with the actual missing labels in a hover tooltip. Verified: callout count tracks correctly as work types get their estimate filled in one at a time, and disappears entirely once every item on a given quote has one set.

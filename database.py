@@ -2191,6 +2191,19 @@ def remove_test_work_type(conn):
     conn.execute("DELETE FROM work_types WHERE work_type='Postgres Migration Test Type'")
 
 
+@migration
+def add_work_type_estimated_days_margin(conn):
+    """A '+/- N days' variance alongside estimated_days, for work that doesn't take a fixed
+    amount of time job to job (e.g. Paver Installation might typically run 3 days but
+    stretch to 2-4 depending on job size). Kept as base + margin rather than real min/max
+    range fields -- estimated_days is already documented as 'not a real schedule, just a
+    rough estimate', and this is the same philosophy: enough to show a range on the quote,
+    not a second full field set to maintain everywhere the total gets used."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(work_types)").fetchall()}
+    if 'estimated_days_margin' not in cols:
+        conn.execute("ALTER TABLE work_types ADD COLUMN estimated_days_margin REAL DEFAULT 0")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

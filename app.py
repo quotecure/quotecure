@@ -1621,7 +1621,7 @@ def edit_quote(quote_id):
     optional_total = round(sum(float(i['total_price'] or 0) for i in optional_items), 2)
     already_replaced_ids = {i['replaces_item_id'] for i in optional_items + declined_items if i.get('replaces_item_id')}
     replaceable_items = [i for i in line_items if i['id'] not in already_replaced_ids]
-    estimated_days_total, missing_estimate_labels = _estimated_timeline_days(db, line_items)
+    estimated_days_total, estimated_days_margin, missing_estimate_labels = _estimated_timeline_days(db, line_items)
 
     materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
@@ -1647,8 +1647,8 @@ def edit_quote(quote_id):
                            contract_total=contract_total, change_orders=change_orders, versions=versions,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            qualifiers_by_wt=qualifiers_by_wt, additives=additives,
-                           estimated_days_total=estimated_days_total, missing_estimate_labels=missing_estimate_labels,
-                           terms_docs=terms_docs)
+                           estimated_days_total=estimated_days_total, estimated_days_margin=estimated_days_margin,
+                           missing_estimate_labels=missing_estimate_labels, terms_docs=terms_docs)
 
 @app.route('/quotes/<int:quote_id>/customer_view')
 @login_required
@@ -2071,24 +2071,30 @@ def _estimated_timeline_days(db, line_items):
     """Rough job duration: sum of each distinct work type's estimated_days across a
     quote's accepted line items. Not a real schedule -- just a summed estimate shown
     on the quote/contract, since work types don't run one at a time in practice.
+    Also sums each work type's estimated_days_margin (a '+/- N days' variance, e.g. Paver
+    Installation might typically run 3 days but stretch to 2-4) into a total_margin, so the
+    quote can show a range instead of a single falsely-precise number.
     Also returns the distinct work-type labels on this quote that have no
     estimated_days set at all, so the total can be flagged as understated rather than
     silently treating 'no data' the same as 'confirmed zero days'."""
-    wt_days = {r['work_type_id']: float(r['estimated_days'] or 0)
-               for r in db.execute("SELECT work_type_id, estimated_days FROM work_types").fetchall()}
+    wt_rows = {r['work_type_id']: r for r in db.execute(
+        "SELECT work_type_id, estimated_days, estimated_days_margin FROM work_types").fetchall()}
     seen = set()
     total = 0.0
+    total_margin = 0.0
     missing_labels = []
     for item in line_items:
         wt_id = item.get('work_type_id') if isinstance(item, dict) else item['work_type_id']
         if wt_id and wt_id not in seen:
             seen.add(wt_id)
-            days = wt_days.get(wt_id, 0.0)
+            wt = wt_rows.get(wt_id)
+            days = float(wt['estimated_days'] or 0) if wt else 0.0
             total += days
+            total_margin += float(wt['estimated_days_margin'] or 0) if wt else 0.0
             if not days:
                 label = item.get('work_type_label') if isinstance(item, dict) else item['work_type_label']
                 missing_labels.append(label)
-    return round(total, 1), missing_labels
+    return round(total, 1), round(total_margin, 1), missing_labels
 
 SCHEDULE_REMINDER_LEAD_DAYS = 1
 
@@ -2379,14 +2385,15 @@ def admin_work_types():
 def add_work_type():
     db = get_db()
     db.execute("""INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,
-                  is_modifier,modified_by,show_on_quote,active,description,estimated_days) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  is_modifier,modified_by,show_on_quote,active,description,estimated_days,estimated_days_margin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                (request.form['work_type'], request.form['unit'], request.form['cost_structure'],
                 float(request.form.get('default_markup',30) or 30),
                 float(request.form.get('min_markup',10) or 10),
                 float(request.form.get('min_margin',9.1) or 9.1),
                 request.form.get('is_modifier','N'), request.form.get('modified_by',''),
                 request.form.get('show_on_quote','Y'), 'Y', request.form.get('description',''),
-                float(request.form.get('estimated_days',0) or 0)))
+                float(request.form.get('estimated_days',0) or 0),
+                float(request.form.get('estimated_days_margin',0) or 0)))
     db.commit()
     return redirect(url_for('admin_work_types'))
 
@@ -2394,7 +2401,7 @@ def add_work_type():
 @require_permission('can_edit_work_types')
 def edit_work_type(wt_id):
     db = get_db()
-    db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,active=?,description=?
+    db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,estimated_days_margin=?,active=?,description=?
                   WHERE work_type_id=?""",
                (request.form['work_type'],
                 request.form.get('unit','each'), request.form.get('cost_structure','labor_only'),
@@ -2403,6 +2410,7 @@ def edit_work_type(wt_id):
                 float(request.form.get('min_margin',9.1) or 9.1),
                 float(request.form.get('min_job_price',0) or 0),
                 float(request.form.get('estimated_days',0) or 0),
+                float(request.form.get('estimated_days_margin',0) or 0),
                 request.form.get('active','Y'), request.form.get('description',''), wt_id))
     db.commit()
     return redirect(url_for('admin_work_types'))
