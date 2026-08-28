@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-28 — Fixed: Work Types Edit button was invisible, not missing
+
+Root cause finally found for a complaint that's come up multiple times this session ("I can't edit a work type," "there is no edit button anywhere"): `/admin/work_types`'s table sat in a `2fr 1fr` grid next to the "Add Work Type" panel, and with 12 columns the table was wider than its `2fr` share -- the Edit button (last column) was pushed off the right edge into `.table-wrap`'s horizontal-scroll area. On Mac, scrollbars are hidden by default until you're actively scrolling, so that scrollable area looked identical to a table that just... ended. The button was genuinely in the DOM and clickable the whole time (confirmed multiple times via grep and test_client) -- the bug was that nothing on screen indicated there was more table to the right.
+
+Fix: restructured the page from side-by-side (table + Add form) to stacked (table full-width on top, Add Work Type below) -- gives the table the entire page width, which fits all 12 columns on any normal desktop screen with no horizontal scroll needed at all. Confirmed live: every row's Edit button is now plainly visible without scrolling, and clicking it opens the edit form correctly.
+
+Lesson for next time this kind of complaint comes up: don't trust "the code has it, so it must be visible" -- go pull up the actual page and look, especially for anything approaching the edge of a narrow container next to other content.
+
 ## 2026-08-28 — Drag-and-drop line item reordering
 
 The old ▲▼ arrows only swapped one adjacent pair per click, and each click round-tripped to the server and did a full `location.reload()` -- moving something several rows away meant many clicks, each with a full page reload. Replaced with a real drag: grab the ⋮⋮ handle on a row and drop it where it belongs, one motion instead of N clicks and waits.
