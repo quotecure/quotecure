@@ -1423,33 +1423,41 @@ def new_quote():
         db.commit()
         qid = db.execute("SELECT lastval()").fetchone()[0]
 
-        # Auto-populate line items — from a selected package, or the default quote template
-        quote = dict(db.execute("SELECT * FROM quotes WHERE quote_id=?", (qid,)).fetchone())
+        # Auto-populate line items — from a selected package, or the default quote template.
+        # Skipped entirely for a non-pool job (driveway/patio pavers, etc.) -- the default
+        # template and every package are pool-surface-oriented, so auto-adding from either
+        # would just leave a stack of irrelevant, zero-priced pool line items to delete by
+        # hand. Non-pool starts from a truly blank quote instead; staff add every item
+        # themselves (deck_sqft still correctly feeds Paver Installation/Sealing/Textured
+        # Decking quantity when they do -- see DECK_SQFT in edit_quote.html).
+        is_pool_job = request.form.get('is_pool_job', '1') == '1'
         package_id = request.form.get('package_id')
-        if package_id:
-            items = db.execute(
-                "SELECT pi.default_sub_id, pi.default_material_id, pi.sort_order, pi.is_optional, "
-                "wt.work_type_id, wt.work_type, wt.unit, wt.cost_structure, wt.default_markup, wt.min_markup, wt.description "
-                "FROM package_items pi JOIN work_types wt ON pi.work_type_id=wt.work_type_id "
-                "WHERE pi.package_id=? AND pi.active='Y' ORDER BY pi.sort_order", (package_id,)
-            ).fetchall()
-        else:
-            items = db.execute(
-                "SELECT wt.default_sub_id, wt.default_material_id, qt.sort_order, 0 as is_optional, "
-                "wt.work_type_id, wt.work_type, wt.unit, wt.cost_structure, wt.default_markup, wt.min_markup, wt.description "
-                "FROM quote_template qt JOIN work_types wt ON qt.work_type_id=wt.work_type_id "
-                "WHERE qt.active='Y' ORDER BY qt.sort_order"
-            ).fetchall()
+        if is_pool_job:
+            quote = dict(db.execute("SELECT * FROM quotes WHERE quote_id=?", (qid,)).fetchone())
+            if package_id:
+                items = db.execute(
+                    "SELECT pi.default_sub_id, pi.default_material_id, pi.sort_order, pi.is_optional, "
+                    "wt.work_type_id, wt.work_type, wt.unit, wt.cost_structure, wt.default_markup, wt.min_markup, wt.description "
+                    "FROM package_items pi JOIN work_types wt ON pi.work_type_id=wt.work_type_id "
+                    "WHERE pi.package_id=? AND pi.active='Y' ORDER BY pi.sort_order", (package_id,)
+                ).fetchall()
+            else:
+                items = db.execute(
+                    "SELECT wt.default_sub_id, wt.default_material_id, qt.sort_order, 0 as is_optional, "
+                    "wt.work_type_id, wt.work_type, wt.unit, wt.cost_structure, wt.default_markup, wt.min_markup, wt.description "
+                    "FROM quote_template qt JOIN work_types wt ON qt.work_type_id=wt.work_type_id "
+                    "WHERE qt.active='Y' ORDER BY qt.sort_order"
+                ).fetchall()
 
-        can_override = bool(g.role and g.role['can_override_min_markup'])
+            can_override = bool(g.role and g.role['can_override_min_markup'])
 
-        for i, item in enumerate(items):
-            wt = dict(item)
-            p = _compute_line_item_pricing(db, wt, wt['default_sub_id'], wt['default_material_id'], quote, can_override)
-            _insert_line_item_from_pricing(db, qid, p, i, is_optional=1 if wt['is_optional'] else 0)
-        db.commit()
-        _recalc_quote(db, qid)
-        if package_id:
+            for i, item in enumerate(items):
+                wt = dict(item)
+                p = _compute_line_item_pricing(db, wt, wt['default_sub_id'], wt['default_material_id'], quote, can_override)
+                _insert_line_item_from_pricing(db, qid, p, i, is_optional=1 if wt['is_optional'] else 0)
+            db.commit()
+            _recalc_quote(db, qid)
+        if package_id and is_pool_job:
             return redirect(url_for('select_materials', quote_id=qid, package_id=package_id))
         return redirect(url_for('edit_quote', quote_id=qid))
     salesperson_name = g.user['display_name'] if g.user and g.user['display_name'] else ''

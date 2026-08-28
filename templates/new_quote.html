@@ -110,6 +110,20 @@ input:checked + .slider:before { transform:translateX(16px); }
           <input class="form-control" name="address" placeholder="1234 Palm Dr, Tampa, FL">
         </div>
 
+        <!-- Pool job toggle -->
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Pool Job?</div>
+            <div class="toggle-sublabel">Off for driveway/patio pavers or other non-pool work — skips pool dimensions below and starts from a truly blank quote, no starter line items</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="is_pool_job" checked onchange="togglePoolJob()">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <input type="hidden" name="is_pool_job" id="h-is-pool-job" value="1">
+
+        <div id="pool-section">
         <!-- Pool dimensions -->
         <div class="section-label">Pool Dimensions</div>
         <div class="form-row form-row-3">
@@ -211,6 +225,16 @@ input:checked + .slider:before { transform:translateX(16px); }
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:-4px;">Linear feet of waterline tile needed around these features — added to tile/cap tile/coping quantity, not pool surface area.</div>
 
+        <!-- Total surface summary -->
+        <div class="total-surface-box" id="total-box">
+          <div>
+            <div class="ts-label">Total Surface Area</div>
+            <div class="ts-breakdown" id="total-breakdown">Enter dimensions above</div>
+          </div>
+          <div class="ts-value" id="total-sqft">— sqft</div>
+        </div>
+        </div><!-- /#pool-section -->
+
         <!-- Decking -->
         <div class="toggle-row">
           <div>
@@ -229,15 +253,6 @@ input:checked + .slider:before { transform:translateX(16px); }
           </div>
         </div>
 
-        <!-- Total surface summary -->
-        <div class="total-surface-box" id="total-box">
-          <div>
-            <div class="ts-label">Total Surface Area</div>
-            <div class="ts-breakdown" id="total-breakdown">Enter dimensions above</div>
-          </div>
-          <div class="ts-value" id="total-sqft">— sqft</div>
-        </div>
-
         <!-- Hidden computed fields passed to server -->
         <input type="hidden" name="pool_sqft" id="h-pool-sqft" value="0">
         <input type="hidden" name="spa_sqft" id="h-spa-sqft" value="0">
@@ -254,7 +269,7 @@ input:checked + .slider:before { transform:translateX(16px); }
   </div>
 
   {% if packages %}
-  <div class="pkg-col">
+  <div class="pkg-col" id="pkg-col">
     <div class="section-label" style="margin-top:0;">Renovation Packages</div>
     <div class="pkg-grid">
       {% for pkg in packages %}
@@ -318,6 +333,31 @@ function recalc() {
   document.getElementById('total-breakdown').textContent = parts.length > 0 ? parts.join(' + ') : 'Enter dimensions above';
 
   estimatePackages();
+}
+
+function togglePoolJob() {
+  const isPool = document.getElementById('is_pool_job').checked;
+  document.getElementById('pool-section').style.display = isPool ? '' : 'none';
+  const pkgCol = document.getElementById('pkg-col');
+  if (pkgCol) pkgCol.style.display = isPool ? '' : 'none';
+  document.getElementById('h-is-pool-job').value = isPool ? '1' : '0';
+  if (!isPool) {
+    // Clear pool-specific fields so stale/default values (shallow/deep default to 3.5'/6')
+    // never get submitted for a job that was explicitly marked non-pool.
+    document.getElementById('pool_perimeter').value = '';
+    document.getElementById('pool_shallow').value = '3.5';
+    document.getElementById('pool_deep').value = '6';
+    document.getElementById('water_surface_sqft').value = '';
+    document.getElementById('has_spa').checked = false;
+    toggleSpa();
+    document.getElementById('has_shelf').checked = false;
+    toggleShelf();
+    document.getElementById('steps_lf').value = '';
+    document.getElementById('benches_lf').value = '';
+    document.getElementById('swimouts_lf').value = '';
+    document.getElementById('h-package-id').value = '';
+  }
+  recalc();
 }
 
 function toggleSpa() {

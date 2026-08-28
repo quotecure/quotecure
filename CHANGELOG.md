@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-28 — Non-pool jobs: a way to skip pool measurements on New Quote
+
+QuoteCure was built pool-first, but Jim's business also does driveway/patio pavers and other non-pool work (~25% of jobs). New Quote had no way to say "this isn't a pool job" -- you'd have to click through a Perimeter/Shallow/Deep/Spa/Sunshelf section that doesn't apply, then hit Create and get a stack of auto-added pool line items (Surface Application, Surface Prep, etc. from the default quote template) that need deleting by hand before you could even start on the actual job.
+
+Same conversation surfaced a related bug: typing a Decking/Paver square footage on New Quote and hitting Create didn't visibly "remember" it. Traced it down -- `deck_sqft` was actually saving correctly the whole time, and the manual "+ Add line item" flow already correctly pulls that number into Paver Installation/Sealing/Textured Decking's quantity when you add one ([edit_quote.html:1338](templates/edit_quote.html:1338), `DECK_SQFT` -- this part I'd misdiagnosed a message earlier as broken; it wasn't). The actual gap was that nothing ever auto-created a paver line item at quote-creation time, so the number just sat there invisible until you went and added something yourself. Turns out to be the same root cause as the bigger issue: no way to say "skip the pool stuff, this job doesn't need a starter template."
+
+Added a "Pool Job?" toggle at the top of New Quote, on by default (matches the ~75% pool split). Off collapses the entire pool-dimensions section and hides the Renovation Packages column (both pool-surface-specific), while Decking stays visible and usable either way since paver work is real work regardless of whether there's also a pool. Talked through the two obvious paths for what "off" should do before building: a second non-pool starter template, vs. a genuinely blank quote. Jim wants blank -- staff add every line item by hand for these, and deck_sqft is already correctly wired to auto-fill Paver Installation's quantity whenever they do. Backend: `new_quote()` now skips the whole auto-populate-from-package/template block when `is_pool_job=0`, going straight to a blank `edit_quote` page. A normal pool job (toggle left on, the default) is completely unchanged -- same package/template auto-populate as always.
+
 ## 2026-08-28 — Commission column on the main Quotes list
 
 Jim wants Owner to see commission across every quote in the table -- Doug's included -- not just on an individual quote's detail page. Turned out `show_commission` was already off for the Owner role (`role_id=1`) in `roles`, which is why it wasn't showing anywhere despite the detail page already supporting it; Jim can flip that on himself via Admin > Roles & Permissions, no code change needed for that half.
