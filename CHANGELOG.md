@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-28 — "N quotes" badge on the main Quotes list
+
+Prompted by Doug making two quotes for one multi-pool customer earlier today -- the main `/quotes` list is flat, sorted by `created_at`, with no grouping, so two quotes for the same customer can end up scattered wherever their individual timestamps land with nothing showing they're related.
+
+Talked through actually grouping the list by customer before building anything: decided against it. The list already splits into Quotes (draft/sent) and Contracts (signed) tabs, so a customer with one quote in each tab wouldn't group cleanly anyway, and "the customer's newest quote pulls their older one back to the top" would make stale quotes look deceptively recent. `/customers/<id>` already does true grouping correctly (every quote for one customer, no tab-split issue) -- no reason to half-rebuild that inside the list.
+
+Landed on a small badge instead: a quote row's customer name gets a "N quotes" badge, linking to `/customers/<id>`, whenever that customer has more than one quote -- counted across both tabs, so a customer with a signed contract plus a new draft still gets flagged even though those two rows are never visible together. List's ordering and behavior is otherwise completely unchanged.
+
 ## 2026-08-28 — Fixed: Work Types Edit button was invisible, not missing
 
 Root cause finally found for a complaint that's come up multiple times this session ("I can't edit a work type," "there is no edit button anywhere"): `/admin/work_types`'s table sat in a `2fr 1fr` grid next to the "Add Work Type" panel, and with 12 columns the table was wider than its `2fr` share -- the Edit button (last column) was pushed off the right edge into `.table-wrap`'s horizontal-scroll area. On Mac, scrollbars are hidden by default until you're actively scrolling, so that scrollable area looked identical to a table that just... ended. The button was genuinely in the DOM and clickable the whole time (confirmed multiple times via grep and test_client) -- the bug was that nothing on screen indicated there was more table to the right.

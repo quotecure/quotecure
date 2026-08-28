@@ -241,7 +241,20 @@ def quotes_list():
             "SELECT * FROM quotes WHERE status='draft' OR status='sent' ORDER BY created_at DESC"
         ).fetchall()
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
-    return render_template('quotes.html', quotes=quotes, commission_policy=commission_policy, active_tab=tab)
+    # Total quote count per customer, across every status/tab -- not just the ones showing
+    # on this tab -- so a badge here can point out "this customer has other quotes" even
+    # when one of them is a signed contract sitting on the other tab.
+    customer_ids = {q['customer_id'] for q in quotes if q['customer_id']}
+    quote_counts = {}
+    if customer_ids:
+        placeholders = ','.join('?' * len(customer_ids))
+        rows = db.execute(
+            f"SELECT customer_id, COUNT(*) as c FROM quotes WHERE customer_id IN ({placeholders}) GROUP BY customer_id",
+            tuple(customer_ids)
+        ).fetchall()
+        quote_counts = {r['customer_id']: r['c'] for r in rows}
+    return render_template('quotes.html', quotes=quotes, commission_policy=commission_policy,
+                           active_tab=tab, quote_counts=quote_counts)
 
 @app.route('/customers')
 @login_required

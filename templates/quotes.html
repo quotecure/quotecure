@@ -45,7 +45,12 @@
           {% for q in quotes %}
           <tr>
             <td class="mono">QT-{{ '%04d'|format(q.quote_id) }}</td>
-            <td><a href="/quotes/{{ q.quote_id }}">{{ q.customer_name }}</a></td>
+            <td>
+              <a href="/quotes/{{ q.quote_id }}">{{ q.customer_name }}</a>
+              {% if q.customer_id and quote_counts.get(q.customer_id, 1) > 1 %}
+              <a href="/customers/{{ q.customer_id }}" class="badge badge-blue" style="font-size:10px;margin-left:4px;" title="This customer has {{ quote_counts[q.customer_id] }} quotes">{{ quote_counts[q.customer_id] }} quotes</a>
+              {% endif %}
+            </td>
             <td style="color:var(--text2)">{{ q.address or '—' }}</td>
             <td style="color:var(--text2)">{{ q.salesperson or '—' }}</td>
             <td><span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status in ('sent', 'complete') else 'blue' if q.status == 'draft' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span></td>
