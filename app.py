@@ -637,7 +637,7 @@ def _ledger_totals(db, quote_id, items):
 
     total_quoted_cost = float(quote['total_cost'] or 0) + sum(float(c['total_cost'] or 0) for c in signed_cos)
     total_price = float(quote['total_price'] or 0) + sum(float(c['total_price'] or 0) for c in signed_cos)
-    expected_commission = float(quote['commission'] or 0) + sum(float(c['commission'] or 0) for c in signed_cos)
+    expected_commission = _net_commission(quote) + sum(float(c['commission'] or 0) for c in signed_cos)
 
     total_actual_cost = 0.0
     entered_count = 0
@@ -648,7 +648,9 @@ def _ledger_totals(db, quote_id, items):
             entered_count += 1
 
     policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
-    actual_commission = _compute_commission(policy, total_actual_cost, total_price)
+    # Same fixed giveup applies here too -- it's a dollar amount the rep committed to giving
+    # up regardless of how actual costs diverge from quoted costs after signing.
+    actual_commission = max(0.0, _compute_commission(policy, total_actual_cost, total_price) - float(quote['commission_giveup'] or 0))
 
     quoted_gross_profit = total_price - total_quoted_cost
     actual_gross_profit = total_price - total_actual_cost
@@ -915,6 +917,16 @@ def _compute_commission(policy, total_cost, total_price):
             rate = policy['tier3_rate']
         return gross_profit * float(rate) / 100
     return 0
+
+def _net_commission(quote):
+    """Commission actually payable, after any amount the assigned salesperson has
+    voluntarily given up to close the deal (see /quotes/<id>/commission_giveup). `quote`'s
+    own `commission` column stays the untouched formula output -- _recalc_quote overwrites
+    it on every line-item edit, so a giveup can't live there without getting silently wiped
+    the next time anything on the quote changes. This is the one place the subtraction
+    happens; every caller that reads commission for display or payout should go through
+    this instead of reading quote['commission'] directly."""
+    return max(0.0, float(quote['commission'] or 0) - float(quote['commission_giveup'] or 0))
 
 def _recalc_change_order(db, co_id):
     """Mirrors _recalc_quote's commission math exactly, summing change_order_items
@@ -1639,6 +1651,8 @@ def edit_quote(quote_id):
         qualifiers_by_wt.setdefault(q['work_type_id'], []).append(dict(q))
     additives = db.execute("SELECT * FROM surface_additives WHERE active='Y' ORDER BY label").fetchall()
     terms_docs = db.execute("SELECT id,label FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
+    is_assigned_salesperson = bool(g.user and quote['salesperson'] and
+                                   (quote['salesperson'] or '').strip().lower() == (g.user['display_name'] or '').strip().lower())
     return render_template('edit_quote.html', quote=quote, line_items=line_items,
                            optional_items=optional_items, optional_total=optional_total,
                            declined_items=declined_items, replaceable_items=replaceable_items,
@@ -1648,7 +1662,46 @@ def edit_quote(quote_id):
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            qualifiers_by_wt=qualifiers_by_wt, additives=additives,
                            estimated_days_total=estimated_days_total, estimated_days_margin=estimated_days_margin,
-                           missing_estimate_labels=missing_estimate_labels, terms_docs=terms_docs)
+                           missing_estimate_labels=missing_estimate_labels, terms_docs=terms_docs,
+                           net_commission=_net_commission(quote), is_assigned_salesperson=is_assigned_salesperson,
+                           is_locked_contract=_is_locked_contract(db, quote_id))
+
+@app.route('/quotes/<int:quote_id>/commission_giveup', methods=['POST'])
+@login_required
+def commission_giveup(quote_id):
+    """Lets the assigned salesperson voluntarily give up part of their own commission to
+    close a deal, without touching the quote's price -- see _net_commission(). Gated to
+    only the matching salesperson (by display name, same loose text match used everywhere
+    else salesperson attribution happens in this app) re-entering their own login password,
+    since this is a real, deliberate reduction to someone's payout and shouldn't be doable
+    by an accidental click or by anyone else on the quote."""
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return jsonify({'error': 'Quote not found'}), 404
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — commission is locked in.'}), 409
+    salesperson = (quote['salesperson'] or '').strip().lower()
+    display_name = (g.user['display_name'] or '').strip().lower()
+    if not salesperson or salesperson != display_name:
+        return jsonify({'error': 'Only the salesperson assigned to this quote can give up their own commission.'}), 403
+    data = request.get_json(silent=True) or {}
+    password = data.get('password', '')
+    if not check_pw(password, g.user['password']):
+        return jsonify({'error': 'Incorrect password.'}), 403
+    try:
+        amount = float(data.get('amount'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Enter a valid amount.'}), 400
+    gross_commission = float(quote['commission'] or 0)
+    if amount < 0 or amount > gross_commission:
+        return jsonify({'error': f'Amount must be between $0 and ${gross_commission:.2f}.'}), 400
+    db.execute("UPDATE quotes SET commission_giveup=?, commission_giveup_by=?, commission_giveup_at=now()::text WHERE quote_id=?",
+               (round(amount, 2), g.user['display_name'], quote_id))
+    db.commit()
+    updated = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    return jsonify({'success': True, 'commission_giveup': round(amount, 2),
+                    'net_commission': round(_net_commission(updated), 2)})
 
 @app.route('/quotes/<int:quote_id>/customer_view')
 @login_required
@@ -1960,7 +2013,7 @@ def update_markup(quote_id, item_id):
 
     updated_quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     gross_profit = updated_quote['total_price'] - updated_quote['total_cost']
-    commission = updated_quote['commission']
+    commission = _net_commission(updated_quote)
     min_m = row['labor_min_markup'] if component == 'labor' else row['material_min_markup']
     return jsonify({
         'component': component,
@@ -3329,7 +3382,7 @@ def _snapshot_quote_version(db, quote_id):
     cur = db.execute(
         "INSERT INTO quote_versions (quote_id, version_number, total_cost, total_price, total_margin, commission, sent_by) "
         "VALUES (?,?,?,?,?,?,?) RETURNING id",
-        (quote_id, next_num, quote['total_cost'], quote['total_price'], quote['total_margin'], quote['commission'], sent_by)
+        (quote_id, next_num, quote['total_cost'], quote['total_price'], quote['total_margin'], _net_commission(quote), sent_by)
     )
     version_id = cur.fetchone()[0]
     items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
@@ -3837,7 +3890,7 @@ def update_line_item(quote_id, item_id):
     updated = db.execute("SELECT * FROM quote_line_items WHERE id=?", (item_id,)).fetchone()
     q = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     gross = float(q['total_price']) - float(q['total_cost'])
-    commission = float(q['commission'])
+    commission = _net_commission(q)
     return jsonify({
         'labor_quantity': float(updated['labor_quantity'] or 0),
         'labor_total_price': float(updated['labor_total_price']),
@@ -3912,7 +3965,7 @@ def toggle_qualifier(quote_id, item_id):
     _recalc_quote(db, quote_id)
     q = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     gross = float(q['total_price']) - float(q['total_cost'])
-    commission = float(q['commission'])
+    commission = _net_commission(q)
     return jsonify({
         'qualifiers': quals,
         'total_cost': total_cost,
@@ -3944,7 +3997,7 @@ def toggle_tax(quote_id, item_id):
     _recalc_quote(db, quote_id)
     q = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     gross = float(q['total_price']) - float(q['total_cost'])
-    commission = float(q['commission'])
+    commission = _net_commission(q)
     return jsonify({
         'tax_included': checked,
         'total_cost': total_cost,

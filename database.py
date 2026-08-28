@@ -2272,6 +2272,27 @@ def set_estimated_days_batch_1(conn):
     conn.execute("DELETE FROM work_types WHERE work_type='Sand & Seal Application'")
 
 
+@migration
+def add_commission_giveup(conn):
+    """Lets a salesperson voluntarily give up part of their own commission to close a deal,
+    without touching the quote's price at all -- price stays exactly what the customer sees
+    and agreed to, only the payout to the rep drops, so gross profit is unaffected and net
+    profit to the business actually goes up by the same amount. Stored as its own dollar
+    amount, separate from `commission` (which stays the pure formula output, still freely
+    recomputed by _recalc_quote on every line-item edit) -- if it lived inside `commission`
+    itself, the very next recalc would silently wipe it out. Net payout is computed at read
+    time as max(0, commission - commission_giveup); see _net_commission() in app.py, the one
+    place this subtraction happens, threaded through every call site that reads commission
+    for display or payout purposes."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'commission_giveup' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN commission_giveup REAL DEFAULT 0")
+    if 'commission_giveup_by' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN commission_giveup_by TEXT DEFAULT ''")
+    if 'commission_giveup_at' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN commission_giveup_at TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

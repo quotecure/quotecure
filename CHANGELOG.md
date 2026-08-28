@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-28 — Salesperson can give up their own commission to close a deal
+
+Jim's scenario: mid-negotiation, a rep says "if I can come down $500 more, do you sign?" — customer says yes. Rather than cutting the actual price (which would touch margin floors and change what every other role sees), the rep can instead just give up part of their own payout. Price never moves; gross profit to the business is unaffected; net profit to the business actually *increases* by the giveup amount, since less commission goes out the door.
+
+Talked through two related ideas (global % price cuts vs. this) before building — landed on this one first since it's structurally simpler and inherently safer: it never touches price or cost, so it can't undercut a work type's markup floor the way a blanket price cut could.
+
+New `quotes.commission_giveup` (dollar amount) + `commission_giveup_by`/`_at`, kept deliberately separate from `commission` (which stays the pure formula output `_recalc_quote` freely overwrites on every edit — a giveup living inside that column would get silently wiped the next time anything on the quote changed). New `_net_commission(quote)` helper — `max(0, commission - commission_giveup)` — is now the one place that subtraction happens, threaded through every call site that reads commission for display or payout (the live quote summary, per-line-item edit responses, the Job Ledger's expected/actual commission, and quote version snapshots, which now freeze the net figure).
+
+New route `/quotes/<id>/commission_giveup`: only the salesperson assigned to that specific quote can use it (matched by display name, same loose text match already used for salesperson attribution elsewhere), gated by re-entering their own login password since it's a real reduction to someone's paycheck. No cap on the amount — they can give up all of it — but it can't go negative, and it's blocked entirely once a quote becomes a signed contract (matches the existing pre-signature-only boundary versioning also uses). Visible in the UI to anyone who can already see commission at all: the summary shows "$500 of $1,000 — $500 given up by [name]" rather than hiding the adjustment.
+
+Global price-cut-in-one-click (the other half of Jim's original ask) is still on the table but deliberately not built yet — flagged as the next thing to scope once this ships and gets used.
+
 ## 2026-08-27 — App-wide outage: leaked Postgres connections
 
 Production went fully unresponsive (502s across the whole app, hung on login rather than erroring). Root cause: `get_db()` (`database.py:4-5`) opens a brand-new raw `psycopg2.connect()` on every call with no pooling, and nothing in `app.py` guarantees it gets closed if a request throws before reaching its own `db.close()` — there's no `teardown_request`. Enough of those leak over a busy day of real usage and Postgres's connection limit gets hit; new connection attempts then hang indefinitely instead of erroring, which looks exactly like the whole app freezing.
