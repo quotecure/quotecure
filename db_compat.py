@@ -126,7 +126,16 @@ class CursorWrapper:
 
 class Connection:
     def __init__(self, dsn):
-        self._conn = psycopg2.connect(dsn)
+        # connect_timeout: fail fast instead of hanging the whole app if Postgres is out
+        # of connection slots. idle_in_transaction_session_timeout: server-side safety net
+        # that reclaims a connection if a request opens a transaction (any execute()) and
+        # then never commits/closes it (e.g. an unhandled exception mid-request) -- get_db()
+        # opens a fresh raw connection per call with no pooling or guaranteed teardown, so
+        # leaked connections are the app's actual failure mode, not a bug in any one route.
+        self._conn = psycopg2.connect(
+            dsn, connect_timeout=10,
+            options='-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
+        )
 
     def execute(self, query, params=()):
         cur = CursorWrapper(self._conn.cursor())
