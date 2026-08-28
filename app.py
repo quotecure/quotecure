@@ -253,8 +253,10 @@ def quotes_list():
             tuple(customer_ids)
         ).fetchall()
         quote_counts = {r['customer_id']: r['c'] for r in rows}
+    net_commissions = {q['quote_id']: _net_commission(q) for q in quotes}
     return render_template('quotes.html', quotes=quotes, commission_policy=commission_policy,
-                           active_tab=tab, quote_counts=quote_counts)
+                           active_tab=tab, quote_counts=quote_counts, current_role=g.role,
+                           net_commissions=net_commissions)
 
 @app.route('/customers')
 @login_required

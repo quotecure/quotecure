@@ -37,6 +37,9 @@
             <th class="right">Total Cost</th>
             <th class="right">Total Price</th>
             <th class="right">Margin</th>
+            {% if current_role and current_role.show_commission %}
+            <th class="right">Commission</th>
+            {% endif %}
             <th>{{ 'Signed' if active_tab == 'contracts' else 'Created' }}</th>
             <th></th>
           </tr>
@@ -57,6 +60,9 @@
             <td class="right mono">${{ '%.2f'|format(q.total_cost) }}</td>
             <td class="right mono" style="font-weight:600">${{ '%.2f'|format(q.total_price) }}</td>
             <td class="right"><span class="pill pill-margin">{{ '%.0f'|format(q.total_margin) }}%</span></td>
+            {% if current_role and current_role.show_commission %}
+            <td class="right mono" style="color:var(--text2)">${{ '%.2f'|format(net_commissions.get(q.quote_id, 0)) }}</td>
+            {% endif %}
             <td style="color:var(--text3); font-size:12px">{{ (q.signed_at if active_tab == 'contracts' else q.created_at[:10]) or '—' }}</td>
             <td>
               {% if active_tab != 'contracts' %}

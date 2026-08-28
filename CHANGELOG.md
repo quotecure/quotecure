@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-28 — Commission column on the main Quotes list
+
+Jim wants Owner to see commission across every quote in the table -- Doug's included -- not just on an individual quote's detail page. Turned out `show_commission` was already off for the Owner role (`role_id=1`) in `roles`, which is why it wasn't showing anywhere despite the detail page already supporting it; Jim can flip that on himself via Admin > Roles & Permissions, no code change needed for that half.
+
+The other half needed real code: the main `/quotes` list never had a Commission column at all, for any role. Added one, gated behind the same `current_role.show_commission` flag the quote detail page already uses (Jim was fine reusing the same visibility tier rather than a separate softer one for Owner specifically) -- shows net-of-giveup commission per row (`_net_commission`, same helper used everywhere else), muted styling rather than the amber emphasis the detail page's summary card uses, so it's present without being the loudest thing in the table.
+
 ## 2026-08-28 — "N quotes" badge on the main Quotes list
 
 Prompted by Doug making two quotes for one multi-pool customer earlier today -- the main `/quotes` list is flat, sorted by `created_at`, with no grouping, so two quotes for the same customer can end up scattered wherever their individual timestamps land with nothing showing they're related.
