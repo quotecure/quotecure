@@ -3295,6 +3295,16 @@ def email_quote(quote_id):
         pdf_bytes = _generate_quote_pdf_bytes(html)
         terms_doc = db.execute("SELECT * FROM terms_documents WHERE id=?", (quote['terms_document_id'],)).fetchone() if quote['terms_document_id'] else None
         pdf_bytes = _append_terms_pdf(pdf_bytes, terms_doc)
+        # Gmail rejects inbound mail over 25MB total, and base64 (the wire encoding for
+        # attachments) inflates raw bytes by ~4/3 -- checking here catches an oversized PDF
+        # (usually a full-res AI visualization image) before the SMTP round-trip, with a
+        # message that actually says what to do instead of Gmail's raw 552 bounce.
+        max_pdf_bytes = 18 * 1024 * 1024
+        if len(pdf_bytes) > max_pdf_bytes:
+            size_mb = len(pdf_bytes) / (1024 * 1024)
+            return jsonify({'error': f"This quote's PDF is {size_mb:.1f}MB, too large to email "
+                             f"(Gmail's limit is ~25MB once encoded). If this quote has an AI "
+                             f"visualization image, remove it on the Visualize tab and try again."}), 400
         _send_quote_email(to_email, subject, body, pdf_bytes, quote_id, gmail_address, gmail_app_password)
     except Exception as e:
         return jsonify({'error': str(e)}), 500

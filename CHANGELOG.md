@@ -4,6 +4,20 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-27 — App-wide outage: leaked Postgres connections
+
+Production went fully unresponsive (502s across the whole app, hung on login rather than erroring). Root cause: `get_db()` (`database.py:4-5`) opens a brand-new raw `psycopg2.connect()` on every call with no pooling, and nothing in `app.py` guarantees it gets closed if a request throws before reaching its own `db.close()` — there's no `teardown_request`. Enough of those leak over a busy day of real usage and Postgres's connection limit gets hit; new connection attempts then hang indefinitely instead of erroring, which looks exactly like the whole app freezing.
+
+Fixed in `db_compat.py`'s `Connection.__init__`: `connect_timeout=10` so a starved pool fails fast instead of hanging forever, plus `idle_in_transaction_session_timeout=60000` so Postgres itself reclaims any connection left mid-transaction by an unhandled exception, instead of that slot staying leaked until the next restart. Didn't attempt the deeper fix (real connection pooling + teardown_request) under outage time pressure — this is a server-side safety net, not a guarantee leaks stop happening, so the same failure could still recur if `statement_timeout`'s 60s isn't enough headroom for some future slow operation.
+
+Recovery: pushing this fix triggered Render's auto-deploy, which restarted the service and cleared every stuck connection at once — confirmed back up by polling `/login` until it returned 200.
+
+## 2026-08-27 — Guard against oversized quote emails
+
+Doug sent a quote for a customer with multiple pools; the second one bounced from Gmail with a raw `552 5.3.4 message exceeded Google's message size limits` SMTP error. Cause: `_quote_preview_html` embeds a quote's most recent AI visualization image at full resolution directly into the emailed PDF (`app.py:2906-2909`), uncompressed — this particular quote had one, the other didn't. Immediate fix was just deleting the visualization from that quote's Visualize tab and resending, which worked.
+
+Added a guard in `email_quote()` so this fails with an actual explanation next time instead of a raw SMTP bounce: after building the PDF (and appending any terms document), if it's over 18MB raw — Gmail's real limit is ~25MB, but base64 MIME encoding inflates the attachment by ~4/3, so 18MB raw is the safe ceiling — the send is rejected up front with a message telling the sender to check for a visualization image, and SMTP is never even attempted. Didn't address the root cause (recompressing the visualization image before embedding) yet — this is a safety net so a future oversized quote fails loudly and immediately rather than silently bouncing at Google's end.
+
 ## 2026-08-27 — Sub rates are now editable in place
 
 Jim's actual ask, after two earlier misreads this session ("I still can't edit a work item that's already existing" turned out to mean neither the work-types catalog nor a quote's line items — "wait. not on the quote screen. I want to be able to edit on Admin>Work Items. If I need to change the price... I don't want to have to delete and re-add the whole thing"): a sub's rate for a given work type (`sub_rates` — what powers both `/admin/sub_rates` and the inline Rates panel on `/admin/subs`) had Add and Delete but no Edit at all. Changing a sub's price meant deleting the row and re-adding it from scratch.
