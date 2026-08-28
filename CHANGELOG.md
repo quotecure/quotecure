@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-28 — Drag-and-drop line item reordering
+
+The old ▲▼ arrows only swapped one adjacent pair per click, and each click round-tripped to the server and did a full `location.reload()` -- moving something several rows away meant many clicks, each with a full page reload. Replaced with a real drag: grab the ⋮⋮ handle on a row and drop it where it belongs, one motion instead of N clicks and waits.
+
+Built on pointer events (`pointerdown`/`pointermove`/`pointerup`), not the native HTML5 `draggable` drag-and-drop API -- iOS/iPadOS Safari's support for the native API is unreliable, sometimes just doesn't fire. Pointer events work consistently across mouse and touch, which is what this needed to work on Jim's iPad. Used a dedicated drag-handle icon rather than making the whole row draggable, specifically so touch-scrolling the page everywhere else on a row keeps working normally on iPad -- only grabbing the handle starts a drag.
+
+Backend: replaced the old one-at-a-time swap route with a batch reorder (`/quotes/<id>/line_items/reorder`) that takes the full new top-to-bottom order and renumbers `sort_order` sequentially in one write, rather than pairwise swaps. Each line item is actually 3 DOM rows (main + 2 hidden panels for the product picker and description) or 5 for a split labor+material item -- all tagged with the same `data-id` so a drag always moves the whole group together, never splitting a row's hidden panels from its visible row.
+
+Known pre-existing gap, not introduced by this change: on tablet/iPad-width screens the line-items table's rightmost columns (including the drag handle) already sit past the visible edge and need horizontal scroll to reach -- true today with the old arrows too. Worth a look if reordering on iPad turns out to need it.
+
 ## 2026-08-28 — Salesperson can give up their own commission to close a deal
 
 Jim's scenario: mid-negotiation, a rep says "if I can come down $500 more, do you sign?" — customer says yes. Rather than cutting the actual price (which would touch margin floors and change what every other role sees), the rep can instead just give up part of their own payout. Price never moves; gross profit to the business is unaffected; net profit to the business actually *increases* by the giveup amount, since less commission goes out the door.

@@ -3708,34 +3708,27 @@ def toggle_package_item_optional(item_id):
     db.commit()
     return redirect(url_for('admin_packages'))
 
-@app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/reorder', methods=['POST'])
+@app.route('/quotes/<int:quote_id>/line_items/reorder', methods=['POST'])
 @login_required
-def reorder_line_item(quote_id, item_id):
+def reorder_line_items(quote_id):
+    """Persists a drag-and-drop reorder in one call. item_ids is the new top-to-bottom
+    order for one section (main line items or optional add-ons -- a drag never crosses
+    between the two tables, so this doesn't need to know which section it's touching).
+    sort_order is renumbered sequentially for exactly those ids, so an arbitrary
+    multi-position move is one write instead of the old swap-one-step-at-a-time route this
+    replaced. The other section's sort_order values are left untouched and don't need to be
+    contiguous with these -- edit_quote() already splits line items into separate lists by
+    is_optional before either list's relative order matters."""
     db = get_db()
     if _is_locked_contract(db, quote_id):
         return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
-    data = request.json
-    direction = data.get('direction', 1)
-    row = db.execute("SELECT is_optional FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
-    if not row:
-        return jsonify({'error': 'Not found'}), 404
-    is_optional = 1 if row['is_optional'] else 0
-    items = db.execute(
-        "SELECT id, sort_order FROM quote_line_items WHERE quote_id=? AND COALESCE(is_optional,0)=? ORDER BY sort_order",
-        (quote_id, is_optional)
-    ).fetchall()
-    ids = [r['id'] for r in items]
-    if item_id not in ids:
-        return jsonify({'error': 'Not found'}), 404
-    idx = ids.index(item_id)
-    swap_idx = idx + direction
-    if swap_idx < 0 or swap_idx >= len(ids):
-        return jsonify({'success': True})
-    swap_id = ids[swap_idx]
-    my_sort = items[idx]['sort_order']
-    swap_sort = items[swap_idx]['sort_order']
-    db.execute("UPDATE quote_line_items SET sort_order=? WHERE id=?", (swap_sort, item_id))
-    db.execute("UPDATE quote_line_items SET sort_order=? WHERE id=?", (my_sort, swap_id))
+    data = request.get_json(silent=True) or {}
+    item_ids = data.get('item_ids') or []
+    valid_ids = {r['id'] for r in db.execute("SELECT id FROM quote_line_items WHERE quote_id=?", (quote_id,)).fetchall()}
+    if not item_ids or any(i not in valid_ids for i in item_ids):
+        return jsonify({'error': 'Invalid item list.'}), 400
+    for idx, item_id in enumerate(item_ids):
+        db.execute("UPDATE quote_line_items SET sort_order=? WHERE id=? AND quote_id=?", (idx, item_id, quote_id))
     db.commit()
     return jsonify({'success': True})
 

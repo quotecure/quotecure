@@ -416,14 +416,13 @@
 
         <!-- Actions -->
         <td style="text-align:right;white-space:nowrap;">
-          <button class="reorder-btn" onclick="moveRow({{ item.id }},-1)" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:11px;">▲</button>
-          <button class="reorder-btn" onclick="moveRow({{ item.id }},1)" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:11px;">▼</button>
+          <span class="drag-handle" data-id="{{ item.id }}" title="Drag to reorder" style="cursor:grab;touch-action:none;user-select:none;padding:2px 6px;color:var(--text3);font-size:13px;display:inline-block;">⋮⋮</span>
           <button onclick="deleteItem({{ item.id }})" style="background:none;border:none;color:var(--red);cursor:pointer;padding:2px 6px;font-size:12px;">✕</button>
         </td>
       </tr>
 
       <!-- Product picker row (inline, hidden by default) -->
-      <tr id="pprow-{{ item.id }}" style="display:none;">
+      <tr id="pprow-{{ item.id }}" data-id="{{ item.id }}" style="display:none;">
         <td colspan="10" style="padding:0 10px 10px 10px;">
           <div class="product-picker open" id="pp-{{ item.id }}">
             {% if item.work_type_id == 1 %}
@@ -500,7 +499,7 @@
       </tr>
 
       <!-- Description picker row (inline, hidden by default) -->
-      <tr id="descrow-{{ item.id }}" style="display:none;">
+      <tr id="descrow-{{ item.id }}" data-id="{{ item.id }}" style="display:none;">
         <td colspan="10" style="padding:0 10px 10px 10px;">
           <div class="product-picker open">
             <label class="nr-label">Quote Description (shown to customer on PDF)</label>
@@ -515,7 +514,7 @@
 
       <!-- Split sub-rows if labor+material -->
       {% if is_split %}
-      <tr class="qrow-split" style="border-bottom:1px solid var(--border2);">
+      <tr class="qrow-split" data-id="{{ item.id }}" style="border-bottom:1px solid var(--border2);">
         <td style="padding-left:20px;">
           <span class="split-tag tag-l">Labor</span>
           <span style="font-size:11px;color:var(--text2);">{{ item.sub_name or '—' }}</span>
@@ -538,7 +537,7 @@
         <td class="r mono" style="font-size:12px;{{ 'color:#f87171;' if item.labor_total_price < 0 }}" id="price-labor-{{ item.id }}">{{ money(item.labor_total_price) }}</td>
         <td></td>
       </tr>
-      <tr class="qrow-split" style="border-bottom:2px solid var(--border);">
+      <tr class="qrow-split" data-id="{{ item.id }}" style="border-bottom:2px solid var(--border);">
         <td style="padding-left:20px;">
           <span class="split-tag tag-m">Material</span>
           <span style="font-size:11px;color:var(--text2);">{{ item.material_label or '—' }}</span>
@@ -1209,14 +1208,76 @@ async function adjMarkup(id, component, delta) {
   updateSummaryCards(d);
 }
 
-// ── Reorder / Delete ──────────────────────────────────────────────
-async function moveRow(id, dir) {
-  if (LOCKED) { lockedAlert(); return; }
-  await fetch('/quotes/' + QID + '/line_items/' + id + '/reorder', {
-    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({direction: dir})
-  });
-  location.reload();
+// ── Reorder (drag-and-drop, pointer events -- works on mouse and iPad touch) ──
+// An item is 3 rows (main + hidden product-picker + hidden description) or 5 if it's a
+// split labor+material item (+2 sub-rows); all share data-id and always move as one block.
+let dragState = null;
+
+function getGroupRows(tbody, id) {
+  return Array.from(tbody.querySelectorAll('[data-id="' + id + '"]'));
 }
+
+function initDragReorder() {
+  document.querySelectorAll('.drag-handle').forEach(function(handle) {
+    handle.addEventListener('pointerdown', onDragStart);
+  });
+}
+
+function onDragStart(e) {
+  if (LOCKED) { lockedAlert(); return; }
+  e.preventDefault();
+  const handle = e.currentTarget;
+  const id = handle.dataset.id;
+  const tbody = handle.closest('tbody');
+  const group = getGroupRows(tbody, id);
+  if (!group.length) return;
+  handle.setPointerCapture(e.pointerId);
+  dragState = { id: id, tbody: tbody, group: group };
+  group.forEach(function(r) { r.style.opacity = '0.4'; });
+  document.addEventListener('pointermove', onDragMove);
+  document.addEventListener('pointerup', onDragEnd);
+}
+
+function onDragMove(e) {
+  if (!dragState) return;
+  e.preventDefault();
+  const tbody = dragState.tbody, group = dragState.group, id = dragState.id;
+  const anchors = Array.from(tbody.querySelectorAll('tr.qrow')).filter(function(r) { return r.dataset.id !== id; });
+  if (!anchors.length) return;
+  let target = anchors[0], after = false;
+  for (const anchor of anchors) {
+    const rect = anchor.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    target = anchor;
+    if (e.clientY < mid) { after = false; break; }
+    after = true;
+  }
+  const targetGroup = getGroupRows(tbody, target.dataset.id);
+  const refNode = after ? targetGroup[targetGroup.length - 1].nextSibling : targetGroup[0];
+  if (refNode !== group[0]) {
+    group.forEach(function(r) { tbody.insertBefore(r, refNode); });
+  }
+}
+
+async function onDragEnd(e) {
+  if (!dragState) return;
+  const tbody = dragState.tbody, group = dragState.group;
+  group.forEach(function(r) { r.style.opacity = ''; });
+  document.removeEventListener('pointermove', onDragMove);
+  document.removeEventListener('pointerup', onDragEnd);
+  const orderedIds = Array.from(tbody.querySelectorAll('tr.qrow')).map(function(r) { return parseInt(r.dataset.id, 10); });
+  dragState = null;
+  try {
+    const resp = await fetch('/quotes/' + QID + '/line_items/reorder', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({item_ids: orderedIds})
+    });
+    if (!resp.ok) { alert('Could not save the new order — reloading.'); location.reload(); }
+  } catch (err) {
+    alert('Could not save the new order — reloading.'); location.reload();
+  }
+}
+initDragReorder();
 
 async function deleteItem(id) {
   if (LOCKED) { lockedAlert(); return; }
