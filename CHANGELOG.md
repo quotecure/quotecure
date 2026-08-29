@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Search box on Admin > Work Types
+
+Talked through organizing the 45-row Work Types table -- categorizing and grouping them, with a filter UI -- before building anything. Landed on something much lighter first: a plain search box, pure client-side JS, filtering rows by name as you type. No schema change, no category taxonomy to get right up front. Confirmed live: typing "paver" narrows 45 rows down to exactly the 4 that match.
+
+Deliberately not the grouping/filtering system discussed first -- that's still on the table if browsing-by-category turns out to matter (the space freed up by an earlier fix, stacking the table above the Add Work Type form, would fit a category rail well), but search alone should cover the actual pain point of "find one thing fast to edit it."
+
 ## 2026-08-28 — End-of-quote discount ($ or %)
 
 The simpler replacement for the backlogged "cut every line item's price by X%" idea. That approach would've had to fight each work type's own markup floor one line item at a time; this doesn't touch line items at all -- a single discount applied once at the end of the quote, same effect for the customer, none of the per-line floor complexity.

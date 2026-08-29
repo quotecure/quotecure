@@ -10,6 +10,10 @@
   </div>
   <div style="display:flex; flex-direction:column; gap:24px;">
     <div class="card">
+      <div style="padding:16px 20px 0;">
+        <input class="form-control" id="wt-search" type="text" placeholder="Search work types…" oninput="filterWorkTypes()" style="max-width:320px;">
+        <div id="wt-search-empty" style="display:none;color:var(--text3);font-size:12px;margin-top:10px;">No work types match "<span id="wt-search-empty-term"></span>".</div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -21,7 +25,7 @@
           </thead>
           <tbody>
             {% for wt in work_types %}
-            <tr id="row-{{ wt.work_type_id }}" class="{% if wt.active != 'Y' %}edit-row{% endif %}">
+            <tr id="row-{{ wt.work_type_id }}" data-name="{{ wt.work_type|lower }}" class="{% if wt.active != 'Y' %}edit-row{% endif %}">
               <td class="mono">{{ wt.work_type_id }}</td>
               <td style="font-weight:500">{{ wt.work_type }}</td>
               <td><span class="badge badge-blue">{{ wt.unit }}</span></td>
@@ -199,6 +203,26 @@
 function toggleEdit(id) {
   const row = document.getElementById('edit-' + id);
   row.classList.toggle('open');
+}
+
+function filterWorkTypes() {
+  const term = document.getElementById('wt-search').value.trim().toLowerCase();
+  const rows = document.querySelectorAll('tr[id^="row-"]');
+  let visibleCount = 0;
+  rows.forEach(row => {
+    const id = row.id.replace('row-', '');
+    const match = !term || (row.dataset.name || '').includes(term);
+    row.style.display = match ? '' : 'none';
+    if (match) visibleCount++;
+    else {
+      // Filtered out -- close its edit form too, so nothing is left open and orphaned
+      // with no visible row above it once the search narrows the list back down.
+      const editRow = document.getElementById('edit-' + id);
+      if (editRow) editRow.classList.remove('open');
+    }
+  });
+  document.getElementById('wt-search-empty').style.display = (term && visibleCount === 0) ? 'block' : 'none';
+  document.getElementById('wt-search-empty-term').textContent = term;
 }
 </script>
 {% endblock %}
