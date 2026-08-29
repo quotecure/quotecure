@@ -943,6 +943,20 @@ def _net_commission(quote):
     this instead of reading quote['commission'] directly."""
     return max(0.0, float(quote['commission'] or 0) - float(quote['commission_giveup'] or 0))
 
+def _optional_total(db, quote_id):
+    """Sum of every non-declined optional add-on's total_price -- 'if all added' on the
+    Optional Add-Ons card. edit_quote() computes this fresh on every full page load, but
+    several edit routes (markup adjust, quantity/cost edits, modifier toggle, tax toggle)
+    patch a line item's own price live via JS without a full reload, and this figure was
+    never included in any of their responses -- so it went stale the moment someone edited
+    an optional item without reloading the page, showing what was true before the edit
+    instead of after it. Every one of those routes should include this in its response."""
+    items = db.execute(
+        "SELECT total_price FROM quote_line_items WHERE quote_id=? AND is_optional=1 AND (is_declined=0 OR is_declined IS NULL)",
+        (quote_id,)
+    ).fetchall()
+    return round(sum(float(i['total_price'] or 0) for i in items), 2)
+
 def _recalc_change_order(db, co_id):
     """Mirrors _recalc_quote's commission math exactly, summing change_order_items
     instead of quote_line_items. Never touches payment_schedules -- a Change Order
@@ -2097,6 +2111,7 @@ def update_markup(quote_id, item_id):
         'quote_commission': commission,
         'quote_gross_profit': round(gross_profit, 2),
         'quote_net_profit': round(gross_profit - commission, 2),
+        'optional_total': _optional_total(db, quote_id),
         'at_floor': new_markup <= min_m and not can_override
     })
 
@@ -4032,6 +4047,7 @@ def update_line_item(quote_id, item_id):
         'quote_gross_profit': round(gross, 2),
         'quote_commission': round(commission, 2),
         'quote_net_profit': round(gross - commission, 2),
+        'optional_total': _optional_total(db, quote_id),
     })
 
 @app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/modifiers/toggle', methods=['POST'])
@@ -4097,6 +4113,7 @@ def toggle_modifier(quote_id, item_id):
         'quote_gross_profit': round(gross, 2),
         'quote_commission': round(commission, 2),
         'quote_net_profit': round(gross - commission, 2),
+        'optional_total': _optional_total(db, quote_id),
     })
 
 @app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/tax/toggle', methods=['POST'])
@@ -4128,6 +4145,7 @@ def toggle_tax(quote_id, item_id):
         'quote_gross_profit': round(gross, 2),
         'quote_commission': round(commission, 2),
         'quote_net_profit': round(gross - commission, 2),
+        'optional_total': _optional_total(db, quote_id),
     })
 
 # ══════════════════════════════════════════════════════════════════════════════

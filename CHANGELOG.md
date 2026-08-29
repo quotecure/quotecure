@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Fixed: Optional Add-Ons "if all added" total went stale after live edits
+
+Jim had Concrete Removal ($5,840.10) and Paver Installation ($13,931.73) both in Optional Add-Ons -- should sum to ~$19,771.83 -- but the "if all added" total at the top of the card showed $8,800.10. Not a math bug: `optional_total` was only ever computed once, server-side, at full page load (`edit_quote()`). Every edit that changes an optional item's price without a full reload -- markup adjust, quantity/cost edits, a modifier or tax toggle -- patches that item's own row live via JS, but none of those routes' responses included the aggregate optional total, so the card header just kept showing whatever was true before any of those edits happened.
+
+Added a shared `_optional_total(db, quote_id)` helper (same sum, now reusable) and included it in all four live-patch routes' JSON responses (`update_markup`, `update_line_item`, `toggle_modifier`, `toggle_tax`), plus a line in `updateSummaryCards` to patch the header span whenever a response carries it. Confirmed live: adjusted Paver Installation's markup and watched the header total update in place, no reload, from $7,860.10 to $7,730.10 matching the item's new price exactly.
+
 ## 2026-08-29 — Fixed: picking a sub from the new Labor-row dropdown silently discarded the selection
 
 Immediately after shipping the Labor sub-row's sub picker, Jim reported the dropdown opened fine but a selection "just goes back to blank." Root cause: the `sub` and `unit` inline-edit dropdowns both had an `onblur` handler wired alongside `onchange` -- `onblur` tears the `<select>` out of the DOM (`closeActiveCell` removes it) and restores the old display underneath. On some browsers, picking a native dropdown option can fire `blur` before (or racing) `change`; when blur wins, the select gets ripped out and the old (blank) value restored before the save ever runs, discarding a real selection with no error. This wasn't new in the Labor-row picker specifically -- the exact same risky pattern has been on the main row's sub picker the whole time, just apparently never lost the race there.

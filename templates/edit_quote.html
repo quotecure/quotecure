@@ -708,9 +708,9 @@
         <div style="font-size:13px;font-weight:700;color:var(--text);">Optional Add-Ons</div>
         <div style="font-size:11px;color:var(--text3);margin-top:2px;">Priced but not included in the quote total. Customer decides.</div>
       </div>
-      {% if optional_items %}
-      <div class="mono" style="font-size:13px;color:var(--text2);">{{ money(optional_total) }} if all added</div>
-      {% endif %}
+      <div class="mono" id="optional-total-wrap" style="font-size:13px;color:var(--text2);{% if not optional_items %}display:none;{% endif %}">
+        <span id="optional-total">{{ money(optional_total) }}</span> if all added
+      </div>
     </div>
     <table class="qt">
       {{ qt_head() }}
@@ -1555,6 +1555,12 @@ function updateSummaryCards(d) {
   if (d.quote_gross_profit !== undefined && document.getElementById('sum-gross')) document.getElementById('sum-gross').textContent = '$' + d.quote_gross_profit.toFixed(2);
   if (d.quote_commission !== undefined && document.getElementById('sum-commission')) document.getElementById('sum-commission').textContent = '$' + d.quote_commission.toFixed(2);
   if (d.quote_net_profit !== undefined && document.getElementById('sum-net')) document.getElementById('sum-net').textContent = '$' + d.quote_net_profit.toFixed(2);
+  if (d.optional_total !== undefined && document.getElementById('optional-total')) {
+    // Match the money() Jinja macro's formatting -- optional items can include a negative
+    // replacement/credit line, so this can legitimately go negative.
+    const ot = d.optional_total;
+    document.getElementById('optional-total').textContent = (ot >= 0 ? '$' : '-$') + Math.abs(ot).toFixed(2);
+  }
   updateTierNudge(d.quote_total_margin, d.quote_gross_profit);
 }
 
