@@ -124,7 +124,8 @@
         <form method="POST" action="/admin/work_types/add">
           <div class="form-group">
             <label class="form-label">Work Type Name</label>
-            <input class="form-control" name="work_type" required placeholder="e.g. Coping Installation">
+            <input class="form-control" name="work_type" id="add-wt-name" required placeholder="e.g. Coping Installation" oninput="checkDuplicateWorkType()" autocomplete="off">
+            <div id="add-wt-dupe-warning" style="display:none;margin-top:8px;padding:8px 10px;background:#78350f22;border:1px solid #78350f;border-radius:var(--radius-sm);font-size:12px;color:var(--text2);"></div>
           </div>
           <div class="form-row form-row-2">
             <div class="form-group" style="margin:0">
@@ -203,6 +204,45 @@
 function toggleEdit(id) {
   const row = document.getElementById('edit-' + id);
   row.classList.toggle('open');
+}
+
+function checkDuplicateWorkType() {
+  const raw = document.getElementById('add-wt-name').value.trim();
+  const term = raw.toLowerCase();
+  const warning = document.getElementById('add-wt-dupe-warning');
+  if (term.length < 2) { warning.style.display = 'none'; return; }
+
+  const rows = Array.from(document.querySelectorAll('tr[id^="row-"]'));
+  const exact = rows.find(r => r.dataset.name === term);
+  const partial = rows.filter(r => r.dataset.name !== term &&
+    (r.dataset.name.includes(term) || term.includes(r.dataset.name)));
+
+  if (exact) {
+    const id = exact.id.replace('row-', '');
+    warning.innerHTML = '⚠ You already have this exact work type. ' +
+      '<a href="#" onclick="jumpToWorkType(' + id + ');return false;" style="color:#93c5fd;">Edit it instead →</a>';
+    warning.style.display = 'block';
+  } else if (partial.length) {
+    const links = partial.map(r => {
+      const id = r.id.replace('row-', '');
+      const name = r.querySelector('td:nth-child(2)').textContent.trim();
+      return '<a href="#" onclick="jumpToWorkType(' + id + ');return false;" style="color:#93c5fd;">' + name + '</a>';
+    }).join(', ');
+    warning.innerHTML = '💡 Similar existing work type' + (partial.length > 1 ? 's' : '') + ': ' + links;
+    warning.style.display = 'block';
+  } else {
+    warning.style.display = 'none';
+  }
+}
+
+function jumpToWorkType(id) {
+  document.getElementById('wt-search').value = '';
+  filterWorkTypes();
+  const row = document.getElementById('row-' + id);
+  row.scrollIntoView({behavior: 'smooth', block: 'center'});
+  document.getElementById('edit-' + id).classList.add('open');
+  row.style.outline = '2px solid var(--blue-light)';
+  setTimeout(() => { row.style.outline = ''; }, 1500);
 }
 
 function filterWorkTypes() {

@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Live duplicate check on Add Work Type
+
+Typing a name into Add Work Type now checks it against the existing list as you type (reuses the same row data the search box already has, no new backend call). An exact match ("you already have this exact work type") gets a direct "Edit it instead →" link; a partial match ("Pave" while typing toward "Paver Installation") lists the similar existing names, each clickable. Either link scrolls to that row, opens its edit form, and briefly highlights it -- so a near-duplicate gets caught before it's created instead of needing manual cleanup after.
+
 ## 2026-08-29 — Search box on Admin > Work Types
 
 Talked through organizing the 45-row Work Types table -- categorizing and grouping them, with a filter UI -- before building anything. Landed on something much lighter first: a plain search box, pure client-side JS, filtering rows by name as you type. No schema change, no category taxonomy to get right up front. Confirmed live: typing "paver" narrows 45 rows down to exactly the 4 that match.
