@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Fixed three more split-row (labor+material) editing gaps; PDF "Includes:" line
+
+Same day, same underlying pattern as the quantity-floor bug -- split rows (an item with both a labor and material component, like Paver Installation + Flagstone) kept having pieces that looked normal but weren't actually wired up:
+
+1. **Selecting a material never actually saved its quantity.** The `field='material'` update used the item's current labor quantity to compute a one-time cost/price, but never wrote `material_quantity` to the row at all -- it silently stayed at 0. So editing the labor quantity afterward recalculated labor correctly but material cost stayed frozen at whatever it happened to be the moment the material was picked, with no way to see or fix it. Fixed to actually persist `material_quantity` (defaulting to match labor_quantity, same fallback `build_line_item` already uses at creation).
+2. **The material quantity cell wasn't editable at all** -- a plain `<td>`, never wired to `editCell` like its cost/unit neighbor already was. Wired it the same way, field `mat_qty` (already fully supported server-side).
+3. **A split item's sub couldn't be set after the fact if it was missing.** The Labor sub-row's sub name was plain text with no click handler -- the *main* row above it does have a working sub picker, but a split item visually splits attention onto the Labor/Material rows and that's where staff actually look for it. Wired the Labor row's own sub name to the same `editCell(..., 'sub')` picker the main row already uses.
+
+Confirmed all three live: picked Finishing & Flooring Pros as the sub directly from the Labor row, edited material quantity from 500 to 450 and watched the cost recompute to $1,575 without a reload.
+
+**Also added**: an "Includes: ..." line on the PDF, right below a line item's description, listing whatever Modifiers (and Tax) are checked on it -- e.g. "Includes: Freight, Excavation, Tax". Sourced from the same `modifiers`/`tax_included` data already used to compute the item's price, so it can't drift out of sync with what's actually being charged.
+
 ## 2026-08-29 — Fixed: editing quantity silently dropped the sub's minimum-charge floor
 
 Jim saw a Paver Installation line item with Finishing & Flooring Pros showing a $1,500 cost despite a 0.0 quantity, and said the quantity field wouldn't edit. Reproduced it exactly (same sub, same $1,500 min_total_cost rate) and found two real, separate bugs stacked on top of each other:

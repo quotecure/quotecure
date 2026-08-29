@@ -3929,6 +3929,11 @@ def update_line_item(quote_id, item_id):
                 material_label = f"{m['supplier_name']} — {m['series']}"
                 mat_cpu = float(m['cost_per_quote_unit'])
         from line_item_logic import calc_component
+        # Defaults material_quantity to match labor_quantity at the moment a material is
+        # picked -- matches build_line_item's same fallback at creation time. Previously
+        # this only used labor_quantity to compute the one-time cost/price and never
+        # actually wrote material_quantity itself, so it silently stayed at 0/stale and
+        # never tracked a later labor-quantity edit again.
         qty = float(row['labor_quantity'])
         markup = float(row['labor_markup_pct'])
         min_m = float(row['material_min_markup'] or 10)
@@ -3939,10 +3944,10 @@ def update_line_item(quote_id, item_id):
         total_price = round(l_price + m_price, 2)
         total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
         db.execute("""UPDATE quote_line_items SET
-                      material_id=?, material_label=?, material_cost_per_unit=?,
+                      material_id=?, material_label=?, material_quantity=?, material_cost_per_unit=?,
                       material_total_cost=?, material_total_price=?, material_margin_pct=?,
                       total_cost=?, total_price=?, total_margin_pct=? WHERE id=?""",
-                   (material_id, material_label, mat_cpu, m_cost, m_price, m_margin,
+                   (material_id, material_label, qty, mat_cpu, m_cost, m_price, m_margin,
                     total_cost, total_price, total_margin, item_id))
 
     elif field == 'description':
@@ -4006,6 +4011,7 @@ def update_line_item(quote_id, item_id):
     commission = _net_commission(q)
     return jsonify({
         'labor_quantity': float(updated['labor_quantity'] or 0),
+        'material_quantity': float(updated['material_quantity'] or 0),
         'labor_total_price': float(updated['labor_total_price']),
         'labor_total_cost': float(updated['labor_total_cost'] or 0),
         'labor_cost_per_unit': float(updated['labor_cost_per_unit'] or 0),

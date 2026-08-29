@@ -554,12 +554,12 @@
       <!-- Split sub-rows if labor+material -->
       {% if is_split %}
       <tr class="qrow-split" data-id="{{ item.id }}" style="border-bottom:1px solid var(--border2);">
-        <td style="padding-left:20px;">
+        <td class="ec" style="padding-left:20px;" onclick="editCell(this, {{ item.id }}, 'sub')" id="cell-sub-split-{{ item.id }}">
           <span class="split-tag tag-l">Labor</span>
-          <span style="font-size:11px;color:var(--text2);">{{ item.sub_name or '—' }}</span>
+          <span class="ec-val" style="font-size:11px;color:var(--text2);">{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}—{% endif %}</span>
         </td>
         <td></td>
-        <td class="r mono" style="font-size:12px;color:var(--text2);">{{ item.labor_quantity }}</td>
+        <td class="r mono" style="font-size:12px;color:var(--text2);" id="split-labor-qty-{{ item.id }}">{{ item.labor_quantity }}</td>
         <td class="r" style="font-size:11px;color:var(--text3);">{{ item.labor_unit }}</td>
         <td class="ec r" onclick="editCell(this, {{ item.id }}, 'labor_cpu')" id="cell-labor-cpu-{{ item.id }}">
           <span class="ec-val mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.labor_cost_per_unit) }}</span>
@@ -582,7 +582,9 @@
           <span style="font-size:11px;color:var(--text2);">{{ item.material_label or '—' }}</span>
         </td>
         <td></td>
-        <td class="r mono" style="font-size:12px;color:var(--text2);" id="mat-qty-{{ item.id }}">{{ item.material_quantity }}</td>
+        <td class="ec r" onclick="editCell(this, {{ item.id }}, 'mat_qty')" id="mat-qty-{{ item.id }}">
+          <span class="ec-val mono" style="font-size:12px;color:var(--text2);">{{ item.material_quantity }}</span>
+        </td>
         <td class="r" style="font-size:11px;color:var(--text3);">{{ item.material_unit }}</td>
         <td class="ec r" onclick="editCell(this, {{ item.id }}, 'mat_cpu')" id="cell-mat-cpu-{{ item.id }}">
           <span class="ec-val mono" style="font-size:12px;color:var(--text2);" id="mat-cpu-{{ item.id }}">${{ '%.2f'|format(item.material_cost_per_unit) }}</span>
@@ -968,6 +970,15 @@ function updateRowDOM(id, d) {
   if (d.labor_quantity !== undefined) {
     const qtyEl = document.querySelector('#cell-qty-' + id + ' .ec-val');
     if (qtyEl) qtyEl.textContent = d.labor_quantity;
+    // Split items show labor_quantity a second time on their own sub-row (read-only there
+    // -- the main row's Qty cell above is the one editable place for it), which also needs
+    // patching or it goes stale after an edit until the next full page load.
+    const splitLaborQtyEl = document.getElementById('split-labor-qty-' + id);
+    if (splitLaborQtyEl) splitLaborQtyEl.textContent = d.labor_quantity;
+  }
+  if (d.material_quantity !== undefined) {
+    const matQtyEl = document.querySelector('#mat-qty-' + id + ' .ec-val');
+    if (matQtyEl) matQtyEl.textContent = d.material_quantity;
   }
   if (d.labor_cost_per_unit !== undefined) {
     // Split items keep the main row's Cost/Unit cell showing "—" (not editable there,
