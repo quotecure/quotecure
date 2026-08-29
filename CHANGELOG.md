@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Fixed: picking a sub from the new Labor-row dropdown silently discarded the selection
+
+Immediately after shipping the Labor sub-row's sub picker, Jim reported the dropdown opened fine but a selection "just goes back to blank." Root cause: the `sub` and `unit` inline-edit dropdowns both had an `onblur` handler wired alongside `onchange` -- `onblur` tears the `<select>` out of the DOM (`closeActiveCell` removes it) and restores the old display underneath. On some browsers, picking a native dropdown option can fire `blur` before (or racing) `change`; when blur wins, the select gets ripped out and the old (blank) value restored before the save ever runs, discarding a real selection with no error. This wasn't new in the Labor-row picker specifically -- the exact same risky pattern has been on the main row's sub picker the whole time, just apparently never lost the race there.
+
+Removed `onblur` from both selects entirely -- `onchange` already saves, closes, and reloads/patches on its own, and `editCell`'s existing guard (closes any other open cell when a different one is clicked) already covers stray-click cleanup. The only cost is a cosmetic one: opening a dropdown and clicking away from the whole table without picking anything leaves it visually open until another cell is touched, instead of auto-closing -- a fair trade for never silently losing a real selection again. Confirmed live: the select now has no onblur handler at all, and picking Finishing & Flooring Pros from the Labor row correctly persists.
+
 ## 2026-08-29 — Fixed three more split-row (labor+material) editing gaps; PDF "Includes:" line
 
 Same day, same underlying pattern as the quantity-floor bug -- split rows (an item with both a labor and material component, like Paver Installation + Flagstone) kept having pieces that looked normal but weren't actually wired up:

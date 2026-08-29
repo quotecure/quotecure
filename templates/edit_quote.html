@@ -902,12 +902,18 @@ function editCell(td, id, field) {
     // Set current value
     const curSub = td.querySelector('.chip')?.textContent?.trim() || '';
     [...sel.options].forEach(o => { if (o.textContent.trim() === curSub) o.selected = true; });
+    // No onblur handler here on purpose -- picking a native <select> option can fire
+    // blur before (or racing) change on some browsers, and an onblur that tears the
+    // select down (closeActiveCell removes it from the DOM) can win that race and
+    // discard a real selection before onchange's save ever runs, reverting the cell
+    // back to blank. onchange alone already saves + closes + reloads; editCell's own
+    // guard (closes any other open cell when a different one is clicked) covers cleanup
+    // if the user opens this and clicks away without picking anything.
     sel.onchange = async () => {
       await saveCell(id, field, sel.value);
       closeActiveCell();
       location.reload();
     };
-    sel.onblur = () => { closeActiveCell(); };
     val.style.display = 'none';
     td.appendChild(sel);
     sel.focus();
@@ -918,8 +924,8 @@ function editCell(td, id, field) {
     const sel = document.createElement('select');
     sel.innerHTML = '<option value="each">each</option><option value="sqft">sqft</option><option value="lf">lf</option>';
     [...sel.options].forEach(o => { if (o.value === currentText) o.selected = true; });
+    // No onblur here either -- same race as the 'sub' select above.
     sel.onchange = async () => { await saveCell(id, field, sel.value); closeActiveCell(); };
-    sel.onblur = () => closeActiveCell();
     val.style.display = 'none';
     td.appendChild(sel);
     sel.focus();
