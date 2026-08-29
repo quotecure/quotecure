@@ -2317,6 +2317,36 @@ def add_quote_discount(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN subtotal_price REAL DEFAULT 0")
 
 
+@migration
+def add_financing_link(conn):
+    """Acorn Finance referral link -- Jim gets nothing from a customer using it, it's purely
+    a courtesy for customers who need financing ('we get nothing from this except the
+    opportunity to remodel your pool'). URL and message live in company_settings (one link
+    for the business, editable without a code change) rather than hardcoded in a template.
+    Whether it shows on a given quote is a per-quote choice (quotes.include_financing_link,
+    off by default) -- not every customer needs it surfaced, so it's opt-in per quote rather
+    than always-on."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(company_settings)").fetchall()}
+    if 'financing_link_url' not in cols:
+        conn.execute("ALTER TABLE company_settings ADD COLUMN financing_link_url TEXT DEFAULT ''")
+        # Jim's actual Acorn Finance pre-qualify link, given directly -- seeded so it's
+        # ready to use immediately rather than making him paste it in a second time.
+        conn.execute("UPDATE company_settings SET financing_link_url=? WHERE id=1",
+                     ('https://www.acornfinance.com/pre-qualify/?d=Y94NP&utm_medium=web_pre_qual_link',))
+    if 'financing_message' not in cols:
+        # DDL can't take a bound parameter for DEFAULT -- add the column plain, then seed
+        # the starting copy via a normal parameterized UPDATE.
+        conn.execute("ALTER TABLE company_settings ADD COLUMN financing_message TEXT DEFAULT ''")
+        default_msg = ("We know this is a big investment. Financing makes sense for some "
+                        "folks -- we get nothing from this except the opportunity to remodel "
+                        "your pool, but here's an option if it helps.")
+        conn.execute("UPDATE company_settings SET financing_message=? WHERE id=1", (default_msg,))
+
+    q_cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'include_financing_link' not in q_cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN include_financing_link INTEGER DEFAULT 0")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

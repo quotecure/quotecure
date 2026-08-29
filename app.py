@@ -1623,6 +1623,7 @@ def edit_quote(quote_id):
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' AND is_modifier='N' ORDER BY work_type").fetchall()
     subs = db.execute("SELECT * FROM subs WHERE active='Y' ORDER BY name").fetchall()
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
+    settings = db.execute("SELECT financing_link_url FROM company_settings WHERE id=1").fetchone()
     schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     schedule_json = json.dumps([{'id':s['id'],'label':s['label'],'amount':s['amount'],'pct':s['pct']} for s in schedule])
     signed_co_net = float(db.execute(
@@ -1687,7 +1688,8 @@ def edit_quote(quote_id):
                            estimated_days_total=estimated_days_total, estimated_days_margin=estimated_days_margin,
                            missing_estimate_labels=missing_estimate_labels, terms_docs=terms_docs,
                            net_commission=_net_commission(quote), is_assigned_salesperson=is_assigned_salesperson,
-                           is_locked_contract=_is_locked_contract(db, quote_id))
+                           is_locked_contract=_is_locked_contract(db, quote_id),
+                           financing_link_url=settings['financing_link_url'] if settings else '')
 
 @app.route('/quotes/<int:quote_id>/commission_giveup', methods=['POST'])
 @login_required
@@ -1796,9 +1798,12 @@ def customer_view(quote_id):
     addable_work_types = db.execute(
         "SELECT work_type_id, work_type FROM work_types WHERE active='Y' AND is_modifier='N' ORDER BY work_type"
     ).fetchall()
+    settings = db.execute("SELECT financing_link_url, financing_message FROM company_settings WHERE id=1").fetchone()
     return render_template('customer_view.html', quote=quote, line_items=line_items_enriched,
                            manufacturers=manufacturers, materials=materials, schedule=schedule,
-                           addable_work_types=addable_work_types)
+                           addable_work_types=addable_work_types,
+                           financing_link_url=settings['financing_link_url'] if settings else '',
+                           financing_message=settings['financing_message'] if settings else '')
 
 @app.route('/quotes/<int:quote_id>/delete', methods=['POST'])
 @login_required
@@ -2936,6 +2941,18 @@ def set_quote_terms_document(quote_id):
     db.commit()
     return jsonify({'terms_document_id': terms_document_id})
 
+@app.route('/quotes/<int:quote_id>/set_financing_link', methods=['POST'])
+@login_required
+def set_quote_financing_link(quote_id):
+    """Per-quote opt-in for showing the Acorn Finance link (see admin_settings for the
+    URL/message) on the customer-facing quote and PDF -- not every customer needs financing
+    surfaced, so this is a deliberate choice per quote rather than always-on."""
+    db = get_db()
+    include = bool(request.json.get('include'))
+    db.execute("UPDATE quotes SET include_financing_link=? WHERE quote_id=?", (1 if include else 0, quote_id))
+    db.commit()
+    return jsonify({'include_financing_link': include})
+
 @app.route('/quotes/<int:quote_id>/payment_schedule/regenerate', methods=['POST'])
 @login_required
 def regenerate_payment_schedule(quote_id):
@@ -2957,13 +2974,16 @@ def admin_settings():
     db = get_db()
     if request.method == 'POST':
         db.execute("""UPDATE company_settings SET company_name=?,address=?,phone=?,email=?,
-                      license_number=?,quote_validity_days=?,terms_text=?,tax_rate_pct=? WHERE id=1""",
+                      license_number=?,quote_validity_days=?,terms_text=?,tax_rate_pct=?,
+                      financing_link_url=?,financing_message=? WHERE id=1""",
                    (request.form['company_name'], request.form.get('address',''),
                     request.form.get('phone',''), request.form.get('email',''),
                     request.form.get('license_number',''),
                     int(request.form.get('quote_validity_days', 30)),
                     request.form.get('terms_text',''),
-                    float(request.form.get('tax_rate_pct', 7.0) or 0)))
+                    float(request.form.get('tax_rate_pct', 7.0) or 0),
+                    request.form.get('financing_link_url','').strip(),
+                    request.form.get('financing_message','').strip()))
         db.commit()
         return redirect(url_for('admin_settings'))
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()

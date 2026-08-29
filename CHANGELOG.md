@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Per-quote Acorn Finance link
+
+Jim's own framing for this, verbatim, is now the default copy: "we know this is a big investment... we get nothing from this except the opportunity to remodel your pool, but here's an option." Not every customer needs financing surfaced, so it's a deliberate per-quote choice rather than always-on -- a "Financing link" checkbox next to the Terms selector on the quote page (`quotes.include_financing_link`, off by default), mirroring how Terms document selection already works.
+
+The URL and message live in Company Settings (`financing_link_url`, `financing_message`), not hardcoded in a template, so Jim can update either without a code change. Seeded immediately with his actual Acorn Finance pre-qualify link (given directly, not guessed) so it's usable right away without a trip to Admin first.
+
+Shows on both customer-facing surfaces when the per-quote toggle is on: `customer_view` and the PDF, quietly at the very bottom past the signature block -- matches how Jim described wanting it ("buried at the bottom"), confirmed live with the real link rendering correctly on both.
+
 ## 2026-08-29 — Live duplicate check on Add Work Type
 
 Typing a name into Add Work Type now checks it against the existing list as you type (reuses the same row data the search box already has, no new backend call). An exact match ("you already have this exact work type") gets a direct "Edit it instead →" link; a partial match ("Pave" while typing toward "Paver Installation") lists the similar existing names, each clickable. Either link scrolls to that row, opens its edit form, and briefly highlights it -- so a near-duplicate gets caught before it's created instead of needing manual cleanup after.

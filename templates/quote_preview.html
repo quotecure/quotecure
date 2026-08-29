@@ -299,6 +299,13 @@
     All work subject to standard terms and conditions.
   </div>
 
+  {% if quote.include_financing_link and settings and settings.financing_link_url %}
+  <div style="text-align:center;margin-top:14px;font-size:10px;color:#94a3b8;line-height:1.5;">
+    {{ settings.financing_message }}
+    <br><a href="{{ settings.financing_link_url }}" style="color:#1d4ed8;">Check financing options →</a>
+  </div>
+  {% endif %}
+
   {% if visualization %}
   <div class="viz-section">
     <div class="viz-title">Visualization{% if visualization.package_label %} — {{ visualization.package_label }}{% endif %}</div>
