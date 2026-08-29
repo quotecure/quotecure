@@ -2440,6 +2440,30 @@ def rename_qualifiers_to_modifiers(conn):
         conn.execute("ALTER TABLE quote_line_items RENAME COLUMN qualifiers_total_cost TO modifiers_total_cost")
 
 
+@migration
+def flagstone_pavers_becomes_paver_material(conn):
+    """Jim had both a standalone 'Flagstone Pavers' work type AND a material of the same
+    name -- the material was scoped to that work type's own id, so it only ever showed up
+    if you added 'Flagstone Pavers' as its own line item. What he actually wanted: pick
+    Flagstone as a pattern/material under the regular 'Paver Installation' work type, the
+    same way Surface Application already offers many finish choices under one work type.
+
+    Re-scopes the material (work_type_id 38 -> 7, the material's own FK, not a table
+    rename) so it shows up in Paver Installation's material picker going forward. Doesn't
+    touch or delete the standalone 'Flagstone Pavers' work type itself -- confirmed a real
+    quote already has a line item on it with this exact material frozen into its own
+    material_label, so deleting either the work type or the material row would risk that
+    quote's display. Deactivating (not deleting) the standalone work type just stops staff
+    from starting a NEW line item under it by accident now that Paver Installation covers
+    the same ground -- the existing quote's line item is unaffected either way, since it
+    reads its own already-stored material_label, not a live join back to this table."""
+    mat = conn.execute("SELECT material_id FROM materials WHERE series='Flagstone Pavers'").fetchone()
+    paver_wt = conn.execute("SELECT work_type_id FROM work_types WHERE work_type='Paver Installation'").fetchone()
+    if mat and paver_wt:
+        conn.execute("UPDATE materials SET work_type_id=? WHERE material_id=?", (paver_wt[0], mat[0]))
+    conn.execute("UPDATE work_types SET active='N' WHERE work_type='Flagstone Pavers'")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

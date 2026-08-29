@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Flagstone Pavers is now a material choice on Paver Installation
+
+Jim had a Flagstone Pavers material in the catalog but no way to select it when adding a Paver Installation line item -- traced it to two stacked gaps: the material picker UI in `edit_quote.html` only ever showed for work types 4/5/6 (the tile family), Paver Installation (7) was never added even though the backend materials query already anticipated it; and the Flagstone Pavers material itself was scoped to a *separate* standalone "Flagstone Pavers" work type (its own id), so it wouldn't have shown up under Paver Installation even with the picker fixed.
+
+Talked through the real question underneath that: was Flagstone meant to be its own work type, or a material choice under Paver Installation? Landed on the latter -- one work type, pick your pattern, the same way Surface Application already handles many finish choices under one work type. Re-scoped the material to Paver Installation's work_type_id and added Paver Installation to the picker's allowed work types. Left the standalone "Flagstone Pavers" work type itself alone rather than deleting it -- a real quote already has a line item on it with this material's label frozen directly into the row, so deleting either side risked that quote's display; deactivated it instead (no new line items can start there, existing ones are untouched, since they read their own already-stored label rather than a live join).
+
+Confirmed end-to-end with real numbers: selecting Flagstone ($3.50/sqft) on a 500sqft Paver Installation item adds exactly $1,750 to cost and $2,275 to price (30% markup) -- and confirmed the pre-existing real quote (QT-0277) with a Flagstone Pavers line item on the old standalone work type still renders correctly, untouched.
+
 ## 2026-08-29 — Retired the broken Modifier flag; Qualifiers renamed to Modifiers
 
 Jim noticed he kept mixing up "Modifier" and "Qualifier" and asked how they actually differed. Traced it down: they weren't really two features, they were one working feature (Qualifiers -- an optional add-on cost tied to a specific line item) and one broken one. The `is_modifier` flag on `work_types` only ever did one thing anywhere in the code -- filter that work type out of every "add this to a quote" picker -- and `modified_by` (meant to link a modifier to whatever it modifies) was written on the Add/Edit forms and never read by anything.
