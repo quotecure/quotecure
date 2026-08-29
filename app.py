@@ -3886,9 +3886,26 @@ def update_line_item(quote_id, item_id):
         m_min = float(row['material_min_markup'] or 10)
         l_cost, l_price, l_margin = calc_component(l_cpu, l_qty, l_markup, l_min, can_override)
         m_cost, m_price, m_margin = calc_component(m_cpu, m_qty, m_markup, m_min, can_override)
+
+        # Re-apply the sub's own minimum-charge floor (sub_rates.min_total_cost, e.g.
+        # Finishing & Flooring Pros' $1,500 Paver Installation minimum) -- _price_catalog_item
+        # already enforces this the moment an item is first added, but this edit path
+        # recomputed straight from calc_component with no floor at all, so editing quantity
+        # or cost/unit afterward could silently undercut what the sub actually charges.
+        if row['sub_id'] and row['work_type_id']:
+            rate_row = db.execute(
+                "SELECT min_total_cost FROM sub_rates WHERE sub_id=? AND work_type_id=?",
+                (row['sub_id'], row['work_type_id'])
+            ).fetchone()
+            if rate_row and rate_row['min_total_cost'] and l_cost < float(rate_row['min_total_cost']):
+                l_cost = float(rate_row['min_total_cost'])
+                l_price = round(l_cost * (1 + l_markup / 100), 2)
+                l_margin = round((l_markup / (100 + l_markup)) * 100, 1) if l_markup else 0
+
         total_cost = round(l_cost + m_cost, 2)
         total_price = round(l_price + m_price, 2)
-        total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
+        # And the work type's own flat min_job_price floor, same as every other pricing path.
+        total_cost, total_price, total_margin = _apply_min_job_price(db, row['work_type_id'], total_cost, total_price)
         col_map = {'labor_qty':'labor_quantity','labor_cpu':'labor_cost_per_unit',
                    'mat_qty':'material_quantity','mat_cpu':'material_cost_per_unit'}
         update_col = col_map[field]

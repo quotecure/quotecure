@@ -965,6 +965,10 @@ async function saveCell(id, field, value) {
 }
 
 function updateRowDOM(id, d) {
+  if (d.labor_quantity !== undefined) {
+    const qtyEl = document.querySelector('#cell-qty-' + id + ' .ec-val');
+    if (qtyEl) qtyEl.textContent = d.labor_quantity;
+  }
   if (d.labor_cost_per_unit !== undefined) {
     // Split items keep the main row's Cost/Unit cell showing "—" (not editable there,
     // field='none') -- only patch it for a non-split item, or we'd stomp that placeholder.

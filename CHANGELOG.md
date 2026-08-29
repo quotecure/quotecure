@@ -4,6 +4,13 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Fixed: editing quantity silently dropped the sub's minimum-charge floor
+
+Jim saw a Paver Installation line item with Finishing & Flooring Pros showing a $1,500 cost despite a 0.0 quantity, and said the quantity field wouldn't edit. Reproduced it exactly (same sub, same $1,500 min_total_cost rate) and found two real, separate bugs stacked on top of each other:
+
+1. **The floor itself is correct** -- $1,500 is Finishing & Flooring Pros' actual minimum charge for Paver Installation (`sub_rates.min_total_cost`), so that part was working as intended. But editing quantity or cost/unit via click-to-edit (`update_line_item`'s `labor_qty`/`labor_cpu`/`mat_qty`/`mat_cpu` branch) recomputed straight from `calc_component` with **no floor check at all** -- neither the sub's own `min_total_cost` nor the work type's flat `min_job_price`, both of which are already enforced everywhere else in the app (adding an item, toggling a modifier, toggling tax). So entering a real, small quantity would silently undercut what the sub actually charges -- e.g. 200 sqft at $2.80/sqft priced at $560, well under their real $1,500 minimum, with nothing to catch it. Fixed by re-applying both floors in this edit path too, confirmed both below and above the breakeven point.
+2. **The quantity display never updated after a save**, regardless of the floor bug -- `updateRowDOM` (the function that patches a row's cells after any click-to-edit save) had code to patch cost/price/margin for every field, but no line for quantity at all. The edit was genuinely saving correctly the whole time; the cell just kept showing the old number, which is exactly what "I can't edit it" looks like from the outside. Confirmed live: typed 200 into the quantity cell, it saved server-side immediately, but the cell kept showing 0.0 until this fix.
+
 ## 2026-08-29 — Flagstone Pavers is now a material choice on Paver Installation
 
 Jim had a Flagstone Pavers material in the catalog but no way to select it when adding a Paver Installation line item -- traced it to two stacked gaps: the material picker UI in `edit_quote.html` only ever showed for work types 4/5/6 (the tile family), Paver Installation (7) was never added even though the backend materials query already anticipated it; and the Flagstone Pavers material itself was scoped to a *separate* standalone "Flagstone Pavers" work type (its own id), so it wouldn't have shown up under Paver Installation even with the picker fixed.
