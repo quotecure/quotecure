@@ -2347,6 +2347,99 @@ def add_financing_link(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN include_financing_link INTEGER DEFAULT 0")
 
 
+@migration
+def retire_work_type_modifiers(conn):
+    """The 'Modifier' flag on work_types (is_modifier/modified_by) turned out to be a
+    half-built feature: flagging a work type as a Modifier only ever did one thing --
+    filter it out of every 'add this to a quote' picker -- and modified_by (meant to link a
+    modifier to whatever it modifies) was written but never read anywhere. Meanwhile
+    Qualifiers already do the real job Jim actually wants ('sometimes attached to another
+    work type with its own price, without being its own line item') -- see the next
+    migration, which renames Qualifiers to Modifiers now that the name is free.
+
+    Disposition of the 8 work types that were flagged is_modifier='Y', decided with Jim
+    directly: Excavation, Trash Removal, Drain Pool, and Cantilever Cut go back to being
+    normal standalone work types (staff may still want them as their own line item
+    sometimes) AND get added as qualifiers below, so either path is available. Tile
+    Removal is dropped entirely -- fully redundant with the Tile Removal qualifier that
+    already existed on Cap Tile Installation and Waterline Tile Installation before this
+    migration. Deck Drain Install, Spa Surface Removal, and Footers with Concrete are
+    dropped outright -- Jim doesn't want them in either form."""
+    # Un-flag the 4 that go back to being standalone, addable work types.
+    for name in ('Excavation', 'Trash Removal', 'Drain Pool', 'Cantilever Cut'):
+        conn.execute("UPDATE work_types SET is_modifier='N' WHERE work_type=?", (name,))
+
+    # Drop the 4 nobody wants in any form -- confirmed zero quote_line_items/quote_template
+    # references before this migration was written; only sub_rates/package_items rows
+    # (and for Tile Removal, the work type itself) need cleaning up alongside them.
+    for name in ('Tile Removal', 'Deck Drain Install', 'Spa Surface Removal', 'Footers with Concrete'):
+        wt = conn.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (name,)).fetchone()
+        if wt:
+            wt_id = wt[0]
+            conn.execute("DELETE FROM sub_rates WHERE work_type_id=?", (wt_id,))
+            conn.execute("DELETE FROM package_items WHERE work_type_id=?", (wt_id,))
+            conn.execute("DELETE FROM quote_template WHERE work_type_id=?", (wt_id,))
+            conn.execute("DELETE FROM work_types WHERE work_type_id=?", (wt_id,))
+
+    # New qualifiers, priced and scoped directly from Jim -- none are freight (is_freight
+    # defaults to 0), so each gets the normal cost-then-markup treatment like everything
+    # else, not freight's deliberate zero-margin pass-through.
+    new_quals = [
+        # (label, amount, per_unit, [parent work type names])
+        ('Excavation', 1.50, 1, ['Paver Installation', 'Flagstone Pavers',
+                                  'Textured Decking – Knockdown', 'Textured Decking – Variegated']),
+        ('Trash Removal', 400.00, 0, ['Surface Removal', 'Concrete Removal', 'Paver Removal',
+                                       'Coping Removal', 'Cap Removal', 'River Rock Removal']),
+        ('Drain Pool', 125.00, 0, ['Surface Removal']),
+        ('Cantilever Cut', 3.00, 1, ['Cap Tile Installation', 'Waterline Tile Installation', 'Coping Installation']),
+    ]
+    for label, amount, per_unit, parents in new_quals:
+        for parent_name in parents:
+            wt = conn.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (parent_name,)).fetchone()
+            if not wt:
+                continue
+            existing = conn.execute(
+                "SELECT qualifier_id FROM qualifiers WHERE work_type_id=? AND label=?", (wt[0], label)
+            ).fetchone()
+            if not existing:
+                conn.execute(
+                    "INSERT INTO qualifiers (work_type_id,label,amount,active,is_freight,per_unit) VALUES (?,?,?,?,?,?)",
+                    (wt[0], label, amount, 'Y', 0, per_unit)
+                )
+
+    # The flag itself is now fully retired -- nothing reads it anymore.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(work_types)").fetchall()}
+    if 'is_modifier' in cols:
+        conn.execute("ALTER TABLE work_types DROP COLUMN is_modifier")
+    if 'modified_by' in cols:
+        conn.execute("ALTER TABLE work_types DROP COLUMN modified_by")
+
+
+@migration
+def rename_qualifiers_to_modifiers(conn):
+    """'Qualifiers' and 'Modifier' were two names for pieces of the same idea, and Jim
+    found that confusing (rightly -- Modifier, the work_types flag retired in the previous
+    migration, never did anything). Modifier is the better name for what this feature
+    actually is, so it's free now: a real rename (table, PK column, and the two
+    quote_line_items columns that hold a line item's applied set), not just a UI label
+    change, so a future session reading the schema doesn't find 'qualifiers' still there
+    underneath a 'Modifiers' label."""
+    tables = {r[0] for r in conn.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+    ).fetchall()}
+    if 'qualifiers' in tables and 'modifiers' not in tables:
+        conn.execute("ALTER TABLE qualifiers RENAME TO modifiers")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(modifiers)").fetchall()}
+    if 'qualifier_id' in cols and 'modifier_id' not in cols:
+        conn.execute("ALTER TABLE modifiers RENAME COLUMN qualifier_id TO modifier_id")
+
+    qli_cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'qualifiers_json' in qli_cols and 'modifiers_json' not in qli_cols:
+        conn.execute("ALTER TABLE quote_line_items RENAME COLUMN qualifiers_json TO modifiers_json")
+    if 'qualifiers_total_cost' in qli_cols and 'modifiers_total_cost' not in qli_cols:
+        conn.execute("ALTER TABLE quote_line_items RENAME COLUMN qualifiers_total_cost TO modifiers_total_cost")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

@@ -4,6 +4,19 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Retired the broken Modifier flag; Qualifiers renamed to Modifiers
+
+Jim noticed he kept mixing up "Modifier" and "Qualifier" and asked how they actually differed. Traced it down: they weren't really two features, they were one working feature (Qualifiers -- an optional add-on cost tied to a specific line item) and one broken one. The `is_modifier` flag on `work_types` only ever did one thing anywhere in the code -- filter that work type out of every "add this to a quote" picker -- and `modified_by` (meant to link a modifier to whatever it modifies) was written on the Add/Edit forms and never read by anything.
+
+Worked through the 8 work types that had been flagged `is_modifier='Y'` with Jim directly, one at a time:
+- **Excavation** ($1.50/sqft), **Trash Removal** ($400 ea), **Drain Pool** ($125 ea), **Cantilever Cut** ($3/lf) -- un-flagged back to normal standalone work types (staff can still add them as their own line item), *and* added as modifiers on their real parent work types (Excavation on the paver/decking types; Trash Removal broadly across removal/demo work types; Drain Pool on Surface Removal; Cantilever Cut on both tile installation types plus Coping Installation) -- so either path is available, matching what Jim actually wanted: "real work that sometimes is attached to another work type... we don't necessarily want it to be its own line item."
+- **Tile Removal** -- dropped as a standalone work type entirely; fully redundant with the Tile Removal qualifier that already existed on Cap Tile Installation and Waterline Tile Installation before any of this.
+- **Deck Drain Install**, **Spa Surface Removal**, **Footers with Concrete** -- dropped outright, Jim didn't want them in either form.
+
+Along the way, verified (with a real before/after cost+price test, not just reading the code) that Jim's suspicion about Freight not getting marked up turned out to be a real but *separate* thing: Freight is deliberately pass-through at zero margin via an `is_freight` flag, added correctly to both cost and price but with no markup layered on top -- a real, existing design choice, not a bug, and not something that affects the 4 new modifiers, none of which are freight-flagged. Confirmed live that Excavation ($1.50/sqft × 1000sqft) correctly adds $1,500 to cost and $1,950 to price (30% markup) -- cost first, then markup, per usual.
+
+Once "Modifier" was fully retired -- `is_modifier`/`modified_by` columns dropped, the column and Add/Edit-form fields removed from Admin > Work Types -- the name was free, so Qualifiers became Modifiers for real: table rename (`qualifiers`→`modifiers`, `qualifier_id`→`modifier_id`), the two `quote_line_items` columns that hold a line item's applied set, every route/function/JS name, the nav link, and the admin page (`/admin/qualifiers`→`/admin/modifiers`). Not just a label change -- a future session reading the schema won't find "qualifiers" still sitting there under a "Modifiers" label. Also added a "Per Unit?" toggle to the Add/Edit Modifier forms, previously only settable by editing a migration directly.
+
 ## 2026-08-29 — Per-quote Acorn Finance link
 
 Jim's own framing for this, verbatim, is now the default copy: "we know this is a big investment... we get nothing from this except the opportunity to remodel your pool, but here's an option." Not every customer needs financing surfaced, so it's a deliberate per-quote choice rather than always-on -- a "Financing link" checkbox next to the Terms selector on the quote page (`quotes.include_financing_link`, off by default), mirroring how Terms document selection already works.

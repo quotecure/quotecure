@@ -26,10 +26,10 @@
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .svc-desc:hover { text-decoration:underline; color:var(--text2); }
 .svc-desc.empty { font-style:italic; }
-.qual-chip { font-size:10px; padding:2px 7px; border-radius:10px; border:1px solid var(--border);
+.mod-chip { font-size:10px; padding:2px 7px; border-radius:10px; border:1px solid var(--border);
   color:var(--text3); cursor:pointer; user-select:none; }
-.qual-chip:hover { border-color:var(--text3); color:var(--text2); }
-.qual-chip.on { background:#7c3aed33; border-color:#a78bfa; color:#c4b5fd; }
+.mod-chip:hover { border-color:var(--text3); color:var(--text2); }
+.mod-chip.on { background:#7c3aed33; border-color:#a78bfa; color:#c4b5fd; }
 
 /* Product picker (inline below row) */
 .product-picker { display:none; background:var(--bg); border:1px solid var(--border);
@@ -351,7 +351,7 @@
       </thead>
   {% endmacro %}
 
-  {% macro qt_rows(items, qualifiers_by_wt, additives) %}
+  {% macro qt_rows(items, modifiers_by_wt, additives) %}
       {% for item in items %}
       {% set has_mat = item.material_cost_per_unit and item.material_cost_per_unit > 0 %}
       {% set is_split = has_mat %}
@@ -383,19 +383,19 @@
                onclick="toggleDescPicker({{ item.id }})">
             {{ item.description or '+ Add description' }}
           </div>
-          {% set wt_quals = qualifiers_by_wt.get(item.work_type_id, []) %}
-          {% if wt_quals or item.work_type_id in (6, 7) %}
+          {% set wt_mods = modifiers_by_wt.get(item.work_type_id, []) %}
+          {% if wt_mods or item.work_type_id in (6, 7) %}
           <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;">
-            {% for ql in wt_quals %}
-            {% set applied = ql.qualifier_id in item.applied_qualifier_ids %}
-            <span class="qual-chip {% if applied %}on{% endif %}"
-                  id="qual-{{ item.id }}-{{ ql.qualifier_id }}"
-                  onclick="toggleQualifier({{ item.id }}, {{ ql.qualifier_id }}, {{ (not applied)|tojson }})">
+            {% for ql in wt_mods %}
+            {% set applied = ql.modifier_id in item.applied_modifier_ids %}
+            <span class="mod-chip {% if applied %}on{% endif %}"
+                  id="mod-{{ item.id }}-{{ ql.modifier_id }}"
+                  onclick="toggleModifier({{ item.id }}, {{ ql.modifier_id }}, {{ (not applied)|tojson }})">
               {% if ql.per_unit %}{{ ql.label }} (+${{ '%.2f'|format(ql.amount) }}/{{ item.labor_unit }}){% else %}{{ ql.label }} (+${{ '%.0f'|format(ql.amount) }}){% endif %}
             </span>
             {% endfor %}
             {% if item.work_type_id in (6, 7) %}
-            <span class="qual-chip {% if item.tax_included %}on{% endif %}"
+            <span class="mod-chip {% if item.tax_included %}on{% endif %}"
                   id="tax-{{ item.id }}"
                   onclick="toggleTax({{ item.id }}, {{ (not item.tax_included)|tojson }})">
               Tax
@@ -690,7 +690,7 @@
     <table class="qt">
       {{ qt_head() }}
       <tbody id="qt-body">
-      {{ qt_rows(line_items, qualifiers_by_wt, additives) }}
+      {{ qt_rows(line_items, modifiers_by_wt, additives) }}
       {% if not line_items %}
       <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text3);">No line items yet.</td></tr>
       {% endif %}
@@ -713,7 +713,7 @@
     <table class="qt">
       {{ qt_head() }}
       <tbody id="qt-body-opt">
-      {{ qt_rows(optional_items, qualifiers_by_wt, additives) }}
+      {{ qt_rows(optional_items, modifiers_by_wt, additives) }}
       {% if not optional_items %}
       <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text3);">No optional items yet.</td></tr>
       {% endif %}
@@ -1150,19 +1150,19 @@ async function restoreDeclined(id) {
   if (resp.ok) location.reload();
 }
 
-// ── Qualifiers ────────────────────────────────────────────────────
-async function toggleQualifier(itemId, qualifierId, checked) {
+// ── Modifiers ─────────────────────────────────────────────────────
+async function toggleModifier(itemId, modifierId, checked) {
   if (LOCKED) { lockedAlert(); return; }
-  const resp = await fetch('/quotes/' + QID + '/line_items/' + itemId + '/qualifiers/toggle', {
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + itemId + '/modifiers/toggle', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({qualifier_id: qualifierId, checked: checked})
+    body: JSON.stringify({modifier_id: modifierId, checked: checked})
   });
   if (!resp.ok) return;
   const d = await resp.json();
   if (d.reload) { location.reload(); return; }
-  const chip = document.getElementById('qual-' + itemId + '-' + qualifierId);
+  const chip = document.getElementById('mod-' + itemId + '-' + modifierId);
   chip.classList.toggle('on', checked);
-  chip.setAttribute('onclick', 'toggleQualifier(' + itemId + ',' + qualifierId + ',' + (!checked) + ')');
+  chip.setAttribute('onclick', 'toggleModifier(' + itemId + ',' + modifierId + ',' + (!checked) + ')');
   if (document.getElementById('tcost-' + itemId)) document.getElementById('tcost-' + itemId).textContent = '$' + d.total_cost.toFixed(2);
   if (document.getElementById('price-' + itemId)) document.getElementById('price-' + itemId).textContent = '$' + d.total_price.toFixed(2);
   if (document.getElementById('margin-' + itemId)) document.getElementById('margin-' + itemId).textContent = d.total_margin_pct.toFixed(0) + '%';

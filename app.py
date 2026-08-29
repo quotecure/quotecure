@@ -996,7 +996,7 @@ def change_order_builder(quote_id, co_id):
             effective[it['work_type_id']] = dict(it)
     removable = list(effective.values())
     work_types = [dict(wt) for wt in db.execute(
-        "SELECT * FROM work_types WHERE active='Y' AND is_modifier='N' ORDER BY work_type").fetchall()]
+        "SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()]
     subs = db.execute("SELECT * FROM subs WHERE active='Y' ORDER BY name").fetchall()
     materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
@@ -1620,7 +1620,7 @@ def edit_quote(quote_id):
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     line_items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
-    work_types = db.execute("SELECT * FROM work_types WHERE active='Y' AND is_modifier='N' ORDER BY work_type").fetchall()
+    work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
     subs = db.execute("SELECT * FROM subs WHERE active='Y' ORDER BY name").fetchall()
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
     settings = db.execute("SELECT financing_link_url FROM company_settings WHERE id=1").fetchone()
@@ -1646,7 +1646,7 @@ def edit_quote(quote_id):
             if p:
                 item_dict['mfr_id'] = p['manufacturer_id']
                 item_dict['product_line_name'] = p['product_line']
-        item_dict['applied_qualifier_ids'] = {q['id'] for q in json.loads(item_dict.get('qualifiers_json') or '[]')}
+        item_dict['applied_modifier_ids'] = {q['id'] for q in json.loads(item_dict.get('modifiers_json') or '[]')}
         line_items_enriched.append(item_dict)
     id_to_label = {i['id']: i['work_type_label'] for i in line_items_enriched}
     for item_dict in line_items_enriched:
@@ -1663,16 +1663,16 @@ def edit_quote(quote_id):
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
                               WHERE m.active='Y'
                               ORDER BY m.category, m.series""").fetchall()
-    qualifier_rows = db.execute("SELECT * FROM qualifiers WHERE active='Y' ORDER BY label").fetchall()
-    qualifiers_by_wt = {}
-    for q in qualifier_rows:
+    modifier_rows = db.execute("SELECT * FROM modifiers WHERE active='Y' ORDER BY label").fetchall()
+    modifiers_by_wt = {}
+    for q in modifier_rows:
         # Leak Detection has two variants (pool vs. pool & spa) that only differ by
         # whether the job has a spa — show just the one that matches this quote's
         # dimensions instead of making staff pick the right one manually.
         if q['work_type_id'] == 1 and q['label'] in ('Leak Detection', 'Leak Detection – Pool & Spa'):
             if bool(quote['has_spa']) != ('Spa' in q['label']):
                 continue
-        qualifiers_by_wt.setdefault(q['work_type_id'], []).append(dict(q))
+        modifiers_by_wt.setdefault(q['work_type_id'], []).append(dict(q))
     additives = db.execute("SELECT * FROM surface_additives WHERE active='Y' ORDER BY label").fetchall()
     terms_docs = db.execute("SELECT id,label FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
     is_assigned_salesperson = bool(g.user and quote['salesperson'] and
@@ -1684,7 +1684,7 @@ def edit_quote(quote_id):
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
                            contract_total=contract_total, change_orders=change_orders, versions=versions,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
-                           qualifiers_by_wt=qualifiers_by_wt, additives=additives,
+                           modifiers_by_wt=modifiers_by_wt, additives=additives,
                            estimated_days_total=estimated_days_total, estimated_days_margin=estimated_days_margin,
                            missing_estimate_labels=missing_estimate_labels, terms_docs=terms_docs,
                            net_commission=_net_commission(quote), is_assigned_salesperson=is_assigned_salesperson,
@@ -1796,7 +1796,7 @@ def customer_view(quote_id):
                               ORDER BY category, series""").fetchall()
     schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     addable_work_types = db.execute(
-        "SELECT work_type_id, work_type FROM work_types WHERE active='Y' AND is_modifier='N' ORDER BY work_type"
+        "SELECT work_type_id, work_type FROM work_types WHERE active='Y' ORDER BY work_type"
     ).fetchall()
     settings = db.execute("SELECT financing_link_url, financing_message FROM company_settings WHERE id=1").fetchone()
     return render_template('customer_view.html', quote=quote, line_items=line_items_enriched,
@@ -2073,7 +2073,7 @@ def update_markup(quote_id, item_id):
         db.execute("UPDATE quote_line_items SET material_markup_pct=?,material_margin_pct=?,material_total_price=? WHERE id=?",
                    (new_markup, margin, total_price, item_id))
 
-    # Recalc item rollup (labor + material + qualifiers)
+    # Recalc item rollup (labor + material + modifiers)
     new_total_cost, new_total_price, new_total_margin = _rollup_item_totals(db, item_id)
     row = db.execute("SELECT * FROM quote_line_items WHERE id=?", (item_id,)).fetchone()
     db.commit()
@@ -2145,11 +2145,11 @@ def quick_add_line_item(quote_id):
         'quote_total_price': updated_quote['total_price'],
     })
 
-def _qualifier_cost(q, item_row):
-    """A qualifier snapshot's 'amount' is either a flat dollar figure, or -- when 'per_unit'
+def _modifier_cost(q, item_row):
+    """A modifier snapshot's 'amount' is either a flat dollar figure, or -- when 'per_unit'
     is set -- a $/unit rate multiplied by the item's own labor_quantity (e.g. Tile Removal
-    at $3/lf). Shared by every place that sums an item's qualifiers_json, so a per-unit
-    qualifier stays in sync if the item's quantity is edited after it was applied, rather
+    at $3/lf). Shared by every place that sums an item's modifiers_json, so a per-unit
+    modifier stays in sync if the item's quantity is edited after it was applied, rather
     than a dollar amount snapshotted once and going stale."""
     if q.get('per_unit'):
         return float(q['amount']) * float(item_row['labor_quantity'] or 0)
@@ -2157,14 +2157,14 @@ def _qualifier_cost(q, item_row):
 
 def _rollup_item_totals(db, item_id):
     """Recompute a line item's total_cost/total_price/total_margin_pct from labor + material +
-    qualifiers, using the item's labor markup to price the qualifier cost. Call after any edit
-    that changes labor/material components or qualifiers. Returns (total_cost, total_price, total_margin)."""
+    modifiers, using the item's labor markup to price the modifier cost. Call after any edit
+    that changes labor/material components or modifiers. Returns (total_cost, total_price, total_margin)."""
     row = db.execute("SELECT * FROM quote_line_items WHERE id=?", (item_id,)).fetchone()
-    quals = json.loads(row['qualifiers_json'] or '[]')
-    pass_through_ids = {r['qualifier_id'] for r in db.execute(
-        "SELECT qualifier_id FROM qualifiers WHERE is_freight=1").fetchall()}
-    markup_cost = sum(_qualifier_cost(q, row) for q in quals if q['id'] not in pass_through_ids)
-    pass_through_cost = sum(_qualifier_cost(q, row) for q in quals if q['id'] in pass_through_ids)
+    quals = json.loads(row['modifiers_json'] or '[]')
+    pass_through_ids = {r['modifier_id'] for r in db.execute(
+        "SELECT modifier_id FROM modifiers WHERE is_freight=1").fetchall()}
+    markup_cost = sum(_modifier_cost(q, row) for q in quals if q['id'] not in pass_through_ids)
+    pass_through_cost = sum(_modifier_cost(q, row) for q in quals if q['id'] in pass_through_ids)
     q_price = round(markup_cost * (1 + float(row['labor_markup_pct'] or 0) / 100), 2) + round(pass_through_cost, 2)
     q_cost = round(markup_cost + pass_through_cost, 2)
 
@@ -2533,12 +2533,11 @@ def admin_work_types():
 def add_work_type():
     db = get_db()
     db.execute("""INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,
-                  is_modifier,modified_by,show_on_quote,active,description,estimated_days,estimated_days_margin,timeline_exempt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  show_on_quote,active,description,estimated_days,estimated_days_margin,timeline_exempt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                (request.form['work_type'], request.form['unit'], request.form['cost_structure'],
                 float(request.form.get('default_markup',30) or 30),
                 float(request.form.get('min_markup',10) or 10),
                 float(request.form.get('min_margin',9.1) or 9.1),
-                request.form.get('is_modifier','N'), request.form.get('modified_by',''),
                 request.form.get('show_on_quote','Y'), 'Y', request.form.get('description',''),
                 float(request.form.get('estimated_days',0) or 0),
                 float(request.form.get('estimated_days_margin',0) or 0),
@@ -3053,7 +3052,7 @@ def _quote_preview_html(quote_id):
     all_items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     all_items = [dict(i) for i in all_items]
     for i in all_items:
-        i['qualifiers'] = json.loads(i.get('qualifiers_json') or '[]')
+        i['modifiers'] = json.loads(i.get('modifiers_json') or '[]')
     line_items = [i for i in all_items if not i['is_optional']]
     optional_items = [i for i in all_items if i['is_optional'] and not i['is_declined']]
     declined_items = [i for i in all_items if i['is_optional'] and i['is_declined']]
@@ -4012,27 +4011,27 @@ def update_line_item(quote_id, item_id):
         'quote_net_profit': round(gross - commission, 2),
     })
 
-@app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/qualifiers/toggle', methods=['POST'])
+@app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/modifiers/toggle', methods=['POST'])
 @login_required
-def toggle_qualifier(quote_id, item_id):
+def toggle_modifier(quote_id, item_id):
     db = get_db()
     if _is_locked_contract(db, quote_id):
         return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
     data = request.json
-    qualifier_id = int(data.get('qualifier_id'))
+    modifier_id = int(data.get('modifier_id'))
     checked = bool(data.get('checked'))
     row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
     if not row:
         return jsonify({'error': 'Not found'}), 404
-    quals = json.loads(row['qualifiers_json'] or '[]')
-    quals = [q for q in quals if q['id'] != qualifier_id]
-    qrow = db.execute("SELECT * FROM qualifiers WHERE qualifier_id=?", (qualifier_id,)).fetchone()
+    quals = json.loads(row['modifiers_json'] or '[]')
+    quals = [q for q in quals if q['id'] != modifier_id]
+    qrow = db.execute("SELECT * FROM modifiers WHERE modifier_id=?", (modifier_id,)).fetchone()
     if checked:
         if qrow:
-            quals.append({'id': qualifier_id, 'label': qrow['label'], 'amount': float(qrow['amount']), 'per_unit': bool(qrow['per_unit'])})
-    qualifiers_total_cost = round(sum(_qualifier_cost(q, row) for q in quals), 2)
-    db.execute("UPDATE quote_line_items SET qualifiers_json=?,qualifiers_total_cost=? WHERE id=?",
-               (json.dumps(quals), qualifiers_total_cost, item_id))
+            quals.append({'id': modifier_id, 'label': qrow['label'], 'amount': float(qrow['amount']), 'per_unit': bool(qrow['per_unit'])})
+    modifiers_total_cost = round(sum(_modifier_cost(q, row) for q in quals), 2)
+    db.execute("UPDATE quote_line_items SET modifiers_json=?,modifiers_total_cost=? WHERE id=?",
+               (json.dumps(quals), modifiers_total_cost, item_id))
     total_cost, total_price, total_margin = _rollup_item_totals(db, item_id)
 
     # Freight can only be charged once per quote — checking it here clears it from
@@ -4044,16 +4043,16 @@ def toggle_qualifier(quote_id, item_id):
             (quote_id, item_id)
         ).fetchall()
         for other in other_items:
-            other_quals = json.loads(other['qualifiers_json'] or '[]')
+            other_quals = json.loads(other['modifiers_json'] or '[]')
             other_freight_ids = {q['id'] for q in other_quals} & {
-                r['qualifier_id'] for r in db.execute(
-                    "SELECT qualifier_id FROM qualifiers WHERE is_freight=1"
+                r['modifier_id'] for r in db.execute(
+                    "SELECT modifier_id FROM modifiers WHERE is_freight=1"
                 ).fetchall()
             }
             if other_freight_ids:
                 filtered = [q for q in other_quals if q['id'] not in other_freight_ids]
-                filtered_cost = round(sum(_qualifier_cost(q, other) for q in filtered), 2)
-                db.execute("UPDATE quote_line_items SET qualifiers_json=?,qualifiers_total_cost=? WHERE id=?",
+                filtered_cost = round(sum(_modifier_cost(q, other) for q in filtered), 2)
+                db.execute("UPDATE quote_line_items SET modifiers_json=?,modifiers_total_cost=? WHERE id=?",
                            (json.dumps(filtered), filtered_cost, other['id']))
                 _rollup_item_totals(db, other['id'])
                 other_item_cleared = True
@@ -4064,7 +4063,7 @@ def toggle_qualifier(quote_id, item_id):
     gross = float(q['total_price']) - float(q['total_cost'])
     commission = _net_commission(q)
     return jsonify({
-        'qualifiers': quals,
+        'modifiers': quals,
         'total_cost': total_cost,
         'total_price': total_price,
         'total_margin_pct': total_margin,
@@ -4109,44 +4108,46 @@ def toggle_tax(quote_id, item_id):
     })
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ADMIN: QUALIFIERS
+# ADMIN: MODIFIERS
 # ══════════════════════════════════════════════════════════════════════════════
-@app.route('/admin/qualifiers')
+@app.route('/admin/modifiers')
 @require_permission('can_edit_work_types')
-def admin_qualifiers():
+def admin_modifiers():
     db = get_db()
-    qualifiers = db.execute("""SELECT q.*, wt.work_type FROM qualifiers q
+    modifiers = db.execute("""SELECT q.*, wt.work_type FROM modifiers q
                                JOIN work_types wt ON q.work_type_id=wt.work_type_id
                                ORDER BY wt.work_type, q.label""").fetchall()
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
-    return render_template('admin_qualifiers.html', qualifiers=qualifiers, work_types=work_types)
+    return render_template('admin_modifiers.html', modifiers=modifiers, work_types=work_types)
 
-@app.route('/admin/qualifiers/add', methods=['POST'])
+@app.route('/admin/modifiers/add', methods=['POST'])
 @require_permission('can_edit_work_types')
-def add_qualifier():
+def add_modifier():
     db = get_db()
-    db.execute("INSERT INTO qualifiers (work_type_id,label,amount,active) VALUES (?,?,?,'Y')",
-               (request.form['work_type_id'], request.form['label'], float(request.form.get('amount', 0) or 0)))
+    db.execute("INSERT INTO modifiers (work_type_id,label,amount,per_unit,active) VALUES (?,?,?,?,'Y')",
+               (request.form['work_type_id'], request.form['label'],
+                float(request.form.get('amount', 0) or 0), 1 if request.form.get('per_unit') else 0))
     db.commit()
-    return redirect(url_for('admin_qualifiers'))
+    return redirect(url_for('admin_modifiers'))
 
-@app.route('/admin/qualifiers/edit/<int:qualifier_id>', methods=['POST'])
+@app.route('/admin/modifiers/edit/<int:modifier_id>', methods=['POST'])
 @require_permission('can_edit_work_types')
-def edit_qualifier(qualifier_id):
+def edit_modifier(modifier_id):
     db = get_db()
-    db.execute("UPDATE qualifiers SET label=?,amount=?,active=? WHERE qualifier_id=?",
+    db.execute("UPDATE modifiers SET label=?,amount=?,per_unit=?,active=? WHERE modifier_id=?",
                (request.form['label'], float(request.form.get('amount', 0) or 0),
-                request.form.get('active', 'Y'), qualifier_id))
+                1 if request.form.get('per_unit') else 0,
+                request.form.get('active', 'Y'), modifier_id))
     db.commit()
-    return redirect(url_for('admin_qualifiers'))
+    return redirect(url_for('admin_modifiers'))
 
-@app.route('/admin/qualifiers/delete/<int:qualifier_id>', methods=['POST'])
+@app.route('/admin/modifiers/delete/<int:modifier_id>', methods=['POST'])
 @require_permission('can_edit_work_types')
-def delete_qualifier(qualifier_id):
+def delete_modifier(modifier_id):
     db = get_db()
-    db.execute("DELETE FROM qualifiers WHERE qualifier_id=?", (qualifier_id,))
+    db.execute("DELETE FROM modifiers WHERE modifier_id=?", (modifier_id,))
     db.commit()
-    return redirect(url_for('admin_qualifiers'))
+    return redirect(url_for('admin_modifiers'))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ADMIN: SURFACE ADDITIVES
