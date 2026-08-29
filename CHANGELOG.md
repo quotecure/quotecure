@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-28 — End-of-quote discount ($ or %)
+
+The simpler replacement for the backlogged "cut every line item's price by X%" idea. That approach would've had to fight each work type's own markup floor one line item at a time; this doesn't touch line items at all -- a single discount applied once at the end of the quote, same effect for the customer, none of the per-line floor complexity.
+
+Two new raw-input columns on `quotes` (`discount_type`: '', 'amount', or 'pct'; `discount_value`), resolved into a real dollar `discount_amount` inside `_recalc_quote` -- the one place every other total already gets computed. `total_price` becomes the true final (post-discount) price, exactly what every existing reader of that column already assumes it means -- commission, margin, the payment schedule, the PDF, contract signing -- so none of those needed touching, only `_recalc_quote` itself. `subtotal_price` (the pre-discount line-item sum) is kept alongside it so the quote can show "Subtotal / Discount / Total" instead of just a lower number with no explanation.
+
+Guardrail: can't discount past break-even by default -- `_recalc_quote` clamps the discount so `total_price` never drops below `total_cost`, gated by the same `can_override_min_markup` permission already used for per-line markup floors, so this didn't need a new permission of its own. Since commission is already a pure function of cost/price, a discount naturally reduces commission too, proportional to whatever the active commission formula is -- which is actually closer to what Jim originally asked for (commission declining with a price cut) than the backlogged per-line version would have been.
+
+Shows on all three places the total appears: the quote detail page (with an "Apply discount" control next to Total Price, gated pre-signature same as everything else), the customer-facing `customer_view` page, and the emailed/downloaded PDF -- all three now show Subtotal/Discount/Total when a discount is active, confirmed live in the browser on all three.
+
 ## 2026-08-28 — Non-pool jobs: a way to skip pool measurements on New Quote
 
 QuoteCure was built pool-first, but Jim's business also does driveway/patio pavers and other non-pool work (~25% of jobs). New Quote had no way to say "this isn't a pool job" -- you'd have to click through a Perimeter/Shallow/Deep/Spa/Sunshelf section that doesn't apply, then hit Create and get a stack of auto-added pool line items (Surface Application, Surface Prep, etc. from the default quote template) that need deleting by hand before you could even start on the actual job.

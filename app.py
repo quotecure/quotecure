@@ -1726,6 +1726,46 @@ def commission_giveup(quote_id):
     return jsonify({'success': True, 'commission_giveup': round(amount, 2),
                     'net_commission': round(_net_commission(updated), 2)})
 
+@app.route('/quotes/<int:quote_id>/discount', methods=['POST'])
+@login_required
+def set_quote_discount(quote_id):
+    """Sets (or clears, with type='') an end-of-quote discount -- $ or % off the line-item
+    subtotal, applied once at the end rather than touching any individual line item's price
+    or markup. _recalc_quote does the actual math (including the can't-sell-at-a-loss
+    clamp); this route just validates input and re-runs it."""
+    db = get_db()
+    quote = db.execute("SELECT quote_id FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return jsonify({'error': 'Quote not found'}), 404
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
+    data = request.get_json(silent=True) or {}
+    discount_type = data.get('discount_type', '')
+    if discount_type not in ('', 'amount', 'pct'):
+        return jsonify({'error': 'Invalid discount type.'}), 400
+    try:
+        discount_value = float(data.get('discount_value') or 0)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Enter a valid number.'}), 400
+    if discount_value < 0:
+        return jsonify({'error': 'Discount cannot be negative.'}), 400
+    if discount_type == 'pct' and discount_value > 100:
+        return jsonify({'error': 'Percentage discount cannot exceed 100%.'}), 400
+    db.execute("UPDATE quotes SET discount_type=?, discount_value=? WHERE quote_id=?",
+               (discount_type, discount_value, quote_id))
+    db.commit()
+    _recalc_quote(db, quote_id)
+    updated = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    return jsonify({
+        'success': True,
+        'subtotal_price': float(updated['subtotal_price']),
+        'discount_amount': float(updated['discount_amount']),
+        'total_price': float(updated['total_price']),
+        'total_cost': float(updated['total_cost']),
+        'total_margin': float(updated['total_margin']),
+        'commission': float(updated['commission']),
+    })
+
 @app.route('/quotes/<int:quote_id>/customer_view')
 @login_required
 def customer_view(quote_id):
@@ -2269,12 +2309,33 @@ def _recalc_quote(db, quote_id):
         (quote_id,)
     ).fetchall()
     total_cost = sum(float(i['total_cost'] or 0) for i in items)
-    total_price = sum(float(i['total_price'] or 0) for i in items)
+    subtotal_price = sum(float(i['total_price'] or 0) for i in items)
+
+    # End-of-quote discount ($ or %), resolved against the fresh subtotal every time this
+    # runs -- so it stays correct as line items change, same as everything else here.
+    dq = db.execute("SELECT discount_type, discount_value FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    discount_type = dq['discount_type'] if dq else ''
+    discount_value = float(dq['discount_value'] or 0) if dq else 0.0
+    if discount_type == 'pct':
+        discount_amount = subtotal_price * discount_value / 100
+    elif discount_type == 'amount':
+        discount_amount = discount_value
+    else:
+        discount_amount = 0.0
+    can_override = bool(g.role and g.role['can_override_min_markup'])
+    if not can_override:
+        # Can't discount past break-even -- clamp so the final price never drops below
+        # total cost, same override-permission gate already used for markup floors.
+        discount_amount = min(discount_amount, max(0.0, subtotal_price - total_cost))
+    total_price = subtotal_price - discount_amount
+
     margin = ((total_price - total_cost) / total_price * 100) if total_price else 0
     policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
     commission = _compute_commission(policy, total_cost, total_price)
-    db.execute("UPDATE quotes SET total_cost=?,total_price=?,total_margin=?,commission=? WHERE quote_id=?",
-               (round(total_cost,2), round(total_price,2), round(margin,1), round(commission,2), quote_id))
+    db.execute(
+        "UPDATE quotes SET total_cost=?,subtotal_price=?,discount_amount=?,total_price=?,total_margin=?,commission=? WHERE quote_id=?",
+        (round(total_cost,2), round(subtotal_price,2), round(discount_amount,2), round(total_price,2),
+         round(margin,1), round(commission,2), quote_id))
     db.commit()
     generate_payment_schedule(db, quote_id, round(total_price,2))
 

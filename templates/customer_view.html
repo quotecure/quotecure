@@ -118,6 +118,16 @@
     <button class="btn btn-secondary btn-sm" onclick="cvAddItem()">+ Add</button>
   </div>
 
+  {% if quote.discount_amount %}
+  <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);padding:4px 0;">
+    <div>Subtotal</div>
+    <div class="mono">${{ '%.2f'|format(quote.subtotal_price) }}</div>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:13px;color:#4ade80;padding:4px 0;">
+    <div>Discount</div>
+    <div class="mono">−${{ '%.2f'|format(quote.discount_amount) }}</div>
+  </div>
+  {% endif %}
   <div class="cv-total">
     <div class="cv-total-label">Total</div>
     <div class="cv-total-value" id="cv-total">${{ '%.2f'|format(quote.total_price) }}</div>

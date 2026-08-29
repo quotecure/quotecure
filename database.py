@@ -2293,6 +2293,30 @@ def add_commission_giveup(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN commission_giveup_at TEXT DEFAULT ''")
 
 
+@migration
+def add_quote_discount(conn):
+    """A single end-of-quote discount ($ or %) instead of the harder alternative -- cutting
+    every line item's price individually, which would have to fight each work type's own
+    markup floor one item at a time. This is simpler and safer: it never touches a line
+    item, so it can't undercut a per-work-type floor. discount_type/discount_value are the
+    raw input (e.g. 'pct', 10); discount_amount is the resolved dollar figure, recomputed
+    by _recalc_quote alongside everything else it already recalculates -- subtotal_price
+    (the pre-discount line-item sum) is kept too so the quote can show 'Subtotal / Discount
+    / Total' rather than just a lower number with no explanation. total_price itself becomes
+    the true final (post-discount) price, which is what every existing reader of
+    total_price already expects it to mean (commission, margin, payment schedule, PDF,
+    contract signing) -- so none of those needed to change, only _recalc_quote itself."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'discount_type' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN discount_type TEXT DEFAULT ''")
+    if 'discount_value' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN discount_value REAL DEFAULT 0")
+    if 'discount_amount' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN discount_amount REAL DEFAULT 0")
+    if 'subtotal_price' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN subtotal_price REAL DEFAULT 0")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

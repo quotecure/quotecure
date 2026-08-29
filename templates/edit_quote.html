@@ -229,7 +229,16 @@
   <!-- Summary -->
   <div class="sum-grid">
     <div class="sum-card"><div class="sum-lbl">Total Cost</div><div class="sum-val" id="sum-cost">${{ '%.2f'|format(quote.total_cost) }}</div></div>
-    <div class="sum-card"><div class="sum-lbl">Total Price</div><div class="sum-val blue" id="sum-price">${{ '%.2f'|format(quote.total_price) }}</div></div>
+    <div class="sum-card">
+      <div class="sum-lbl">Total Price</div>
+      <div class="sum-val blue" id="sum-price">${{ '%.2f'|format(quote.total_price) }}</div>
+      {% if quote.discount_amount %}
+      <div style="font-size:10px;color:#fbbf24;margin-top:3px;" id="sum-discount-note">of ${{ '%.2f'|format(quote.subtotal_price) }} — ${{ '%.2f'|format(quote.discount_amount) }} discount</div>
+      {% endif %}
+      {% if not is_locked_contract %}
+      <button class="btn btn-secondary btn-sm" type="button" style="margin-top:6px;font-size:10px;padding:3px 8px;" onclick="toggleDiscount()">{{ 'Edit discount' if quote.discount_amount else 'Apply discount' }}</button>
+      {% endif %}
+    </div>
     <div class="sum-card"><div class="sum-lbl">Margin</div><div class="sum-val green" id="sum-margin">{{ '%.0f'|format(quote.total_margin) }}%</div></div>
     {% if line_items %}
     <div class="sum-card">
@@ -282,6 +291,30 @@
       </div>
     </div>
     <div id="giveup-error" style="color:#f87171;font-size:12px;margin-top:8px;display:none;"></div>
+  </div>
+  {% endif %}
+
+  {% if not is_locked_contract %}
+  <div id="discount-panel" style="display:none;margin:-6px 0 14px;padding:14px 16px;background:var(--surface2);border:1px solid var(--blue);border-radius:var(--radius-sm);">
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Apply a discount to the whole quote at once — comes off the subtotal at the end, without changing any individual line item's price or markup. Clear it (set to $0) to remove.</div>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+      <div>
+        <label class="form-label">Type</label>
+        <select class="form-control" id="discount-type-inp" style="width:110px;" onchange="updateDiscountUnit()">
+          <option value="amount" {{ 'selected' if quote.discount_type != 'pct' }}>Dollar ($)</option>
+          <option value="pct" {{ 'selected' if quote.discount_type == 'pct' }}>Percent (%)</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" id="discount-value-label">{{ 'Discount (%)' if quote.discount_type == 'pct' else 'Discount ($)' }}</label>
+        <input class="form-control" id="discount-value-inp" type="number" step="0.01" min="0" value="{{ quote.discount_value or 0 }}" style="width:120px;">
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary btn-sm" type="button" onclick="saveDiscount()" id="discount-save-btn">Save</button>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="toggleDiscount()">Cancel</button>
+      </div>
+    </div>
+    <div id="discount-error" style="color:#f87171;font-size:12px;margin-top:8px;display:none;"></div>
   </div>
   {% endif %}
 
@@ -1028,6 +1061,46 @@ async function saveCommissionGiveup() {
     if (resp.ok) {
       document.getElementById('sum-commission').textContent = '$' + d.net_commission.toFixed(2);
       toggleCommissionGiveup();
+      location.reload();
+    } else {
+      errBox.textContent = d.error || 'Could not save.';
+      errBox.style.display = 'block';
+    }
+  } catch (e) {
+    errBox.textContent = 'Could not save: ' + e;
+    errBox.style.display = 'block';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Save';
+}
+
+// ── End-of-quote discount ──────────────────────────────────────────
+function toggleDiscount() {
+  const panel = document.getElementById('discount-panel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  document.getElementById('discount-error').style.display = 'none';
+}
+function updateDiscountUnit() {
+  const isPct = document.getElementById('discount-type-inp').value === 'pct';
+  document.getElementById('discount-value-label').textContent = isPct ? 'Discount (%)' : 'Discount ($)';
+}
+async function saveDiscount() {
+  const btn = document.getElementById('discount-save-btn');
+  const errBox = document.getElementById('discount-error');
+  errBox.style.display = 'none';
+  const type = document.getElementById('discount-type-inp').value;
+  const value = parseFloat(document.getElementById('discount-value-inp').value);
+  if (isNaN(value) || value < 0) { errBox.textContent = 'Enter a valid amount.'; errBox.style.display = 'block'; return; }
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const resp = await fetch('/quotes/' + QID + '/discount', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({discount_type: value > 0 ? type : '', discount_value: value})
+    });
+    const d = await resp.json();
+    if (resp.ok) {
+      toggleDiscount();
       location.reload();
     } else {
       errBox.textContent = d.error || 'Could not save.';
