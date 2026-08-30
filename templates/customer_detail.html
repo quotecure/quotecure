@@ -7,7 +7,10 @@
       <div class="page-title">{{ customer.name }}</div>
       <div class="page-subtitle">Customer record — editing name, phone, or email here updates every quote for this customer</div>
     </div>
-    <a href="/customers" class="btn btn-secondary">← Customers</a>
+    <div style="display:flex;gap:8px;">
+      <a href="/quotes/new?customer_id={{ customer.customer_id }}" class="btn btn-primary">+ New Quote</a>
+      <a href="/customers" class="btn btn-secondary">← Customers</a>
+    </div>
   </div>
 
   <div style="display:grid; grid-template-columns:1fr 2fr; gap:24px; align-items:start;">

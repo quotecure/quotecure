@@ -1406,7 +1406,16 @@ def new_quote():
         customer_name = request.form['customer_name']
         address = request.form.get('address','')
         customer_email = request.form.get('customer_email','').strip()
-        customer_id = _get_or_create_customer(db, customer_name, address, customer_email)
+        # An explicit customer_id (picked from the existing-customer search, or carried in
+        # from a "+ New Quote" link on that customer's own page) ties this quote to the
+        # right customer directly -- no name-matching involved, so a typo or a second
+        # person sharing a name can't silently merge or miss. Only falls back to matching
+        # by name when nothing was actually picked, i.e. a genuinely new customer.
+        picked_customer_id = request.form.get('customer_id', '').strip()
+        if picked_customer_id and db.execute("SELECT 1 FROM customers WHERE customer_id=?", (picked_customer_id,)).fetchone():
+            customer_id = int(picked_customer_id)
+        else:
+            customer_id = _get_or_create_customer(db, customer_name, address, customer_email)
         db.execute("""INSERT INTO quotes (customer_name,address,salesperson,
                       pool_perimeter,pool_shallow,pool_deep,pool_sqft,
                       has_spa,spa_perimeter,spa_depth,spa_sqft,
@@ -1475,8 +1484,16 @@ def new_quote():
             return redirect(url_for('select_materials', quote_id=qid, package_id=package_id))
         return redirect(url_for('edit_quote', quote_id=qid))
     salesperson_name = g.user['display_name'] if g.user and g.user['display_name'] else ''
-    packages = get_db().execute("SELECT * FROM packages WHERE active='Y' ORDER BY sort_order").fetchall()
-    return render_template('new_quote.html', salesperson_name=salesperson_name, packages=packages)
+    db = get_db()
+    packages = db.execute("SELECT * FROM packages WHERE active='Y' ORDER BY sort_order").fetchall()
+    customers = db.execute("SELECT customer_id, name, address, email FROM customers ORDER BY name").fetchall()
+    prefill_customer = None
+    prefill_customer_id = request.args.get('customer_id', type=int)
+    if prefill_customer_id:
+        prefill_customer = db.execute("SELECT customer_id, name, address, email FROM customers WHERE customer_id=?",
+                                      (prefill_customer_id,)).fetchone()
+    return render_template('new_quote.html', salesperson_name=salesperson_name, packages=packages,
+                           customers=customers, prefill_customer=prefill_customer)
 
 @app.route('/quotes/<int:quote_id>/select_materials')
 @login_required

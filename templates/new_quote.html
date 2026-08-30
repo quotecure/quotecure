@@ -95,19 +95,29 @@ input:checked + .slider:before { transform:translateX(16px); }
         <div class="form-row form-row-2">
           <div class="form-group">
             <label class="form-label">Customer Name *</label>
-            <input class="form-control" name="customer_name" required placeholder="Smith Residence">
+            <input class="form-control" name="customer_name" id="customer-name-inp" required
+                   placeholder="Smith Residence" list="customer-list" autocomplete="off"
+                   value="{{ prefill_customer.name if prefill_customer else '' }}"
+                   oninput="onCustomerNameInput()">
+            <datalist id="customer-list">
+              {% for c in customers %}
+              <option value="{{ c.name }}">
+              {% endfor %}
+            </datalist>
+            <div id="existing-customer-note" style="display:{{ 'block' if prefill_customer else 'none' }};font-size:11px;color:#4ade80;margin-top:6px;">✓ Linked to existing customer — address/email below still editable for this job.</div>
           </div>
           <div class="form-group">
             <input type="hidden" name="salesperson" value="{{ salesperson_name }}">
+            <input type="hidden" name="customer_id" id="customer-id-inp" value="{{ prefill_customer.customer_id if prefill_customer else '' }}">
           </div>
         </div>
         <div class="form-group">
           <label class="form-label">Customer Email</label>
-          <input class="form-control" name="customer_email" type="email" placeholder="customer@email.com">
+          <input class="form-control" name="customer_email" id="customer-email-inp" type="email" placeholder="customer@email.com" value="{{ prefill_customer.email if prefill_customer else '' }}">
         </div>
         <div class="form-group">
           <label class="form-label">Address</label>
-          <input class="form-control" name="address" placeholder="1234 Palm Dr, Tampa, FL">
+          <input class="form-control" name="address" id="customer-address-inp" placeholder="1234 Palm Dr, Tampa, FL" value="{{ prefill_customer.address if prefill_customer else '' }}">
         </div>
 
         <!-- Pool job toggle -->
@@ -289,6 +299,32 @@ input:checked + .slider:before { transform:translateX(16px); }
 </div>
 
 <script>
+// ── Existing-customer picker ─────────────────────────────────────
+// Customer Name doubles as a search box (same <input list=datalist> pattern as the work
+// type picker elsewhere) -- typing a name that exactly matches an existing customer links
+// this quote to that customer_id directly, no name-matching guesswork involved, and
+// auto-fills address/email as a starting point (both stay editable -- the job site or
+// contact can legitimately differ from what's on file for a repeat customer).
+const CUSTOMER_DATA = {
+  {% for c in customers %}
+  {{ c.name|tojson }}: {id: {{ c.customer_id }}, address: {{ (c.address or '')|tojson }}, email: {{ (c.email or '')|tojson }}},
+  {% endfor %}
+};
+function onCustomerNameInput() {
+  const name = document.getElementById('customer-name-inp').value;
+  const note = document.getElementById('existing-customer-note');
+  const match = CUSTOMER_DATA[name];
+  if (match) {
+    document.getElementById('customer-id-inp').value = match.id;
+    document.getElementById('customer-address-inp').value = match.address;
+    document.getElementById('customer-email-inp').value = match.email;
+    note.style.display = 'block';
+  } else {
+    document.getElementById('customer-id-inp').value = '';
+    note.style.display = 'none';
+  }
+}
+
 function recalc() {
   const perim = parseFloat(document.getElementById('pool_perimeter').value) || 0;
   const shallow = parseFloat(document.getElementById('pool_shallow').value) || 0;

@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — New Quote now links to an existing customer explicitly
+
+Two related gaps Jim flagged together: no way to jump from a customer's own page straight into creating a quote for them, and no way on New Quote to actually *pick* an existing customer at all -- just free-text fields, silently tied together after the fact by `_get_or_create_customer` matching on exact customer name text. Fragile by design (a typo creates a duplicate customer instead of linking to the right one), and gave Jim no visibility into whether a quote was actually going to end up linked correctly.
+
+Added a "+ New Quote" button on the customer detail page (`/quotes/new?customer_id=X`), and turned New Quote's Customer Name field into the same searchable `<input list=datalist>` pattern already used for the work-type picker -- typing a name that exactly matches an existing customer auto-fills address/email (both stay independently editable, since a repeat customer's job site or contact can legitimately differ) and sets a hidden `customer_id` that the backend now uses directly instead of falling back to name-matching. No match -- including from the query-param prefill path -- still falls through to the old behavior unchanged, so a genuinely new customer still just works by typing.
+
 ## 2026-08-29 — Deck Drain Install split into 3 real work types; 2 new services
 
 Deck Drain Install (the work type deleted earlier today) turned out to be too coarse -- Jim clarified it's genuinely 3 different services with different pricing per sub: installing a drain between pavers with no slab to cut ("Deck Drain Over Base"), cutting into and installing around a drain in an existing concrete slab ("Deck Drain Cutting Concrete"), and tearing out an old drain from a slab and putting in a new one ("Replace Deck Drain"). Added all 3 as real work types, plus 2 more brand-new ones from Tampa Bay Elite Pavers' price sheet with no prior match at all: Retaining Block, Facing Steps with Pavers. Tampa Bay gets rates on all 5 ($7/$10/$15/lf for the deck-drain trio, $12/lf each for the other two).
