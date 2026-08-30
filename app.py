@@ -3924,17 +3924,39 @@ def update_line_item(quote_id, item_id):
             if not s: s = db.execute("SELECT name FROM surface_applicators WHERE sub_id=?", (value,)).fetchone()
             if s: sub_name = s['name']
         # Try to get rate for this sub + work type
-        rate_row = db.execute("SELECT rate FROM sub_rates WHERE sub_id=? AND work_type_id=?",
-                              (value, row['work_type_id'])).fetchone()
-        new_cpu = float(rate_row['rate']) if rate_row else float(row['labor_cost_per_unit'])
+        rate_row = db.execute("SELECT rate, min_total_cost FROM sub_rates WHERE sub_id=? AND work_type_id=?",
+                              (value, row['work_type_id'])).fetchone() if value else None
+        if rate_row:
+            new_cpu = float(rate_row['rate'])
+        elif value:
+            # A real sub was picked but has no rate on file for this work type -- silently
+            # keeping the PREVIOUS sub's cost/unit here would leave a wrong number wearing
+            # the new sub's name (exactly what Jim hit switching Paver Installation from
+            # G&B to Tampa Bay Elite Pavers on an item still pointed at the old, deactivated
+            # 'Flagstone Pavers' work type, which never got a Tampa Bay rate when it was
+            # re-scoped onto Paver Installation). Zero it out instead so the gap is obvious
+            # -- staff will see a $0 install cost immediately, not trust a plausible-looking
+            # stale one -- and it's a clear signal to go add the missing sub_rates row.
+            new_cpu = 0.0
+        else:
+            # Clearing the sub entirely (back to "— None —") -- leave whatever cost/unit was
+            # already there for manual entry, don't zero out a number staff may have typed in.
+            new_cpu = float(row['labor_cost_per_unit'])
         from line_item_logic import calc_component
         qty = float(row['labor_quantity'])
         markup = float(row['labor_markup_pct'])
         min_m = float(row['labor_min_markup'])
         l_cost, l_price, l_margin = calc_component(new_cpu, qty, markup, min_m, can_override)
-        total_cost = round(l_cost + float(row['material_total_cost']), 2)
-        total_price = round(l_price + float(row['material_total_price']), 2)
-        total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
+        # Re-apply the sub's own minimum-charge floor, same as the qty/cost-per-unit edit
+        # path already does -- a sub switch shouldn't be the one edit path that can undercut
+        # what the newly-selected sub actually charges as a minimum.
+        if rate_row and rate_row['min_total_cost'] and l_cost < float(rate_row['min_total_cost']):
+            l_cost = float(rate_row['min_total_cost'])
+            l_price = round(l_cost * (1 + markup / 100), 2)
+            l_margin = round((markup / (100 + markup)) * 100, 1) if markup else 0
+        total_cost = round(l_cost + float(row['material_total_cost'] or 0), 2)
+        total_price = round(l_price + float(row['material_total_price'] or 0), 2)
+        total_cost, total_price, total_margin = _apply_min_job_price(db, row['work_type_id'], total_cost, total_price)
         db.execute("""UPDATE quote_line_items SET sub_id=?,sub_name=?,labor_cost_per_unit=?,
                       labor_total_cost=?,labor_total_price=?,labor_margin_pct=?,
                       total_cost=?,total_price=?,total_margin_pct=? WHERE id=?""",
