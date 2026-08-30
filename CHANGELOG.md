@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-30 — Fixed: Coping Installation's material picker allowed tile products
+
+Jim caught this testing the new Keystone import: Coping Installation used to just borrow Waterline Tile/Cap Tile's whole shared catalog (a `work_type_id in [4,5,6]` special case, all three pulling from materials tagged `work_type_id=4`) -- fine when that catalog only had tile in it, wrong once it's the picker staff actually uses to price a pool edge, since 6x6 Porcelain, Glass, Mosaic/Upgrade Waterline, and Cap Tile Trim are tile products nobody installs as coping.
+
+Talked through the fix with Jim rather than guessing at exact category names on production I can't see directly. Coping now gets its own eligibility rule (`_is_coping_eligible` in `app.py`), deliberately built to exclude by known-tile-category rather than include by known-coping-category, so it doesn't depend on guessing what any admin-added coping product on production happens to be named -- only 5 specific tile categories (6x6 Porcelain, Cap Tile Trim, Glass, Mosaic Waterline, Upgrade Waterline) are excluded; everything else already under the shared catalog stays visible. On top of that, Coping now also pulls in materials tagged directly `work_type_id=6` and natural-stone Paver Installation SKUs (Travertine/Marble/Limestone/Granite/Porcelain and their Versailles-Pattern variants) -- Jim's point: a flush-edge stone paver works fine as coping, a brick-style paver with built-in spacers doesn't. The existing "Flagstone Pavers" brick-style product is correctly excluded since it carries no subcategory, without needing an explicit exclusion rule.
+
+This also unblocked something flagged in the last entry: Keystone's 173 Bullnose ("Remodeling Bullnose Coping") rows, held back over a linear-foot conversion question (the old shared catalog was uniformly priced per LF; Keystone prices these per SF/EA). With Coping no longer sharing that catalog, there's no forced unit to convert to -- these are now loaded in tagged `work_type_id=6`, priced directly off Keystone's own units, same as every other Keystone import this session.
+
+Verified live: a Coping Installation line item's material picker now shows exactly 529 options (173 coping + 356 stone pavers, zero tile), correctly grouped into 14 subcategories; picking a Bullnose SKU saved with the right label and cost. Confirmed Paver Installation's own picker (still shows Flagstone Pavers) and Waterline Tile's own picker (still shows the full tile catalog) are both completely unaffected -- only Coping's rule changed.
+
 ## 2026-08-30 — Added Sub Category + loaded Keystone Tile's 356 paver SKUs
 
 Follow-up to the Collections feature: Jim asked whether materials needed separate tables per product type. Looked at Keystone Tile's actual sheet (1,786 rows, not the ~500 estimated) to answer with real data instead of guessing -- every row prices the same way (cost per SF/EA/PCS), so separate tables would just mean the same query/admin-form/picker logic duplicated three times for products that behave identically. What the sheet actually needed was a second grouping level: it has both a "Category" (Tile/Pavers/Mosaic) and a "Sub Category" (Travertine, Marble Bullnose, Ledger, ...), and `materials` only had room for one.

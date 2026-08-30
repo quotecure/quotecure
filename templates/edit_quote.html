@@ -502,7 +502,7 @@
               {% endif %}
             </div>
             {% else %}
-            {% set effective_wt = 4 if item.work_type_id in [4,5,6] else item.work_type_id %}
+            {% set effective_wt = 4 if item.work_type_id in [4,5] else item.work_type_id %}
             <div>
               {% if effective_wt in collection_work_type_ids %}
               <div style="margin-bottom:10px;">
@@ -522,15 +522,21 @@
                     <option value="">— None —</option>
                     {% set ns = namespace(cat='') %}
                     {% for mat in materials %}
-                    {# Cap Tile/Waterline Tile/Coping (4,5,6) all draw from the same tile
-                       catalog, seeded under work_type_id=4 regardless of which of those three
-                       it ends up installed as -- so for those three, scope to wt=4 specifically
-                       rather than every active material system-wide (pavers, lights, skimmer
-                       parts, ...), which made this a 185-option wall staff couldn't use.
-                       Within that shared catalog, "Cap Tile Trim" is its own physically-distinct
-                       product line (trim pieces, not waterline tile) -- Cap Tile items see only
-                       that category, everything else sees everything but it. #}
-                    {% if (mat.work_type_id == item.work_type_id or (item.work_type_id in [4,5,6] and mat.work_type_id == 4))
+                    {# Cap Tile/Waterline Tile (4,5) draw from the same tile catalog, seeded
+                       under work_type_id=4 regardless of which of the two it ends up
+                       installed as -- rather than every active material system-wide
+                       (pavers, lights, skimmer parts, ...), which made this a 185-option
+                       wall staff couldn't use. Within that shared catalog, "Cap Tile Trim"
+                       is its own physically-distinct product line (trim pieces, not
+                       waterline tile) -- Cap Tile items see only that category, everything
+                       else sees everything but it.
+                       Coping Installation (6) does NOT share that pool -- it draws from
+                       coping_eligible_material_ids instead (see _is_coping_eligible in
+                       app.py): non-tile work_type_id=4 products, anything tagged directly
+                       as work_type_id=6, and natural-stone Paver Installation SKUs (staff
+                       sometimes lay a flush-edge stone paver as coping). #}
+                    {% if (mat.work_type_id == item.work_type_id or (item.work_type_id in [4,5] and mat.work_type_id == 4)
+                          or (item.work_type_id == 6 and mat.material_id in coping_eligible_material_ids))
                           and (mat.category == 'Cap Tile Trim') == (item.work_type_id == 5) %}
                     {% set group_label = mat.subcategory or mat.category %}
                     {% if group_label != ns.cat %}

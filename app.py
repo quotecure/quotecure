@@ -416,6 +416,34 @@ DECK_SQFT_WORK_TYPES = {
 # time -- one set, shared by the automatic pricing path below and any template that needs it.
 app.jinja_env.globals['DECK_SQFT_WORK_TYPES'] = DECK_SQFT_WORK_TYPES
 
+# Coping Installation (work_type_id 6) used to just borrow Waterline Tile/Cap Tile's whole
+# shared catalog (work_type_id 4) via the same (4,5,6)-share-wt4 rule those two use for
+# each other -- wrong, since that pool includes tile products (6x6 Porcelain, Glass,
+# Mosaic/Upgrade Waterline, Cap Tile Trim) nobody installs as coping. Coping needs a
+# narrower, DIFFERENT pool than 4/5 share: any non-tile material already living under
+# work_type_id=4 (e.g. Bullnose/Remodel-style coping products already in the catalog --
+# deliberately matched by EXCLUDING the known tile categories below rather than trying to
+# name the coping ones, since new ones could exist directly in production that this repo's
+# migrations never created), materials tagged work_type_id=6 directly (where Keystone's
+# Remodeling Bullnose Coping SKUs now live), and natural-stone Paver Installation SKUs
+# (work_type_id=7) -- staff sometimes lay a flush-edge stone paver as coping instead of a
+# dedicated bullnose piece, which a plain brick-style paver's built-in spacers can't do.
+COPING_WORK_TYPE_ID = 6
+TILE_ONLY_CATEGORIES = {'6x6 Porcelain', 'Cap Tile Trim', 'Glass', 'Mosaic Waterline', 'Upgrade Waterline'}
+STONE_PAVER_SUBCATEGORIES = {
+    'Travertine', 'Marble', 'Limestone', 'Granite', 'Porcelain',
+    'Travertine V/P', 'Marble V/P', 'Limestone V/P', 'Granite V/P',
+}
+
+def _is_coping_eligible(work_type_id, category, subcategory):
+    if work_type_id == COPING_WORK_TYPE_ID:
+        return True
+    if work_type_id == 4:
+        return category not in TILE_ONLY_CATEGORIES
+    if work_type_id == 7:
+        return subcategory in STONE_PAVER_SUBCATEGORIES
+    return False
+
 def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims, can_override):
     """Full pricing for one work-type item given a sub/material default and quote dimensions.
     wt: dict with work_type_id, work_type, unit, cost_structure, default_markup, min_markup, description.
@@ -1723,14 +1751,30 @@ def edit_quote(quote_id):
     # materials are IN a chosen collection) is fetched on demand, since that list can be
     # large (that's the whole point of narrowing to it).
     collection_rows = db.execute(
-        "SELECT DISTINCT mc.collection_id, mc.name, m.work_type_id FROM material_collections mc "
+        "SELECT DISTINCT mc.collection_id, mc.name, m.work_type_id, m.category, m.subcategory "
+        "FROM material_collections mc "
         "JOIN materials m ON m.collection_id=mc.collection_id "
         "WHERE mc.active='Y' AND m.active='Y' ORDER BY mc.name"
     ).fetchall()
     collections_by_wt = {}
     for r in collection_rows:
         collections_by_wt.setdefault(r['work_type_id'], []).append({'collection_id': r['collection_id'], 'name': r['name']})
+    # Coping Installation's collection list isn't just "collections with a wt=6 material"
+    # -- same eligibility rule as the flat picker below (see _is_coping_eligible): a
+    # collection also counts if it has a natural-stone Paver Installation SKU, since those
+    # show up in Coping's picker too. Built as its own pass (not folded into the loop
+    # above) so a wt=6 material's own collection isn't double-added.
+    coping_collections, coping_collection_ids_seen = [], set()
+    for r in collection_rows:
+        if _is_coping_eligible(r['work_type_id'], r['category'], r['subcategory']) and r['collection_id'] not in coping_collection_ids_seen:
+            coping_collection_ids_seen.add(r['collection_id'])
+            coping_collections.append({'collection_id': r['collection_id'], 'name': r['name']})
+    if coping_collections:
+        collections_by_wt[COPING_WORK_TYPE_ID] = coping_collections
     collection_work_type_ids = set(collections_by_wt.keys())
+    coping_eligible_material_ids = {
+        m['material_id'] for m in materials if _is_coping_eligible(m['work_type_id'], m['category'], m['subcategory'])
+    }
     modifier_rows = db.execute("SELECT * FROM modifiers WHERE active='Y' ORDER BY label").fetchall()
     modifiers_by_wt = {}
     for q in modifier_rows:
@@ -1755,6 +1799,7 @@ def edit_quote(quote_id):
                            contract_total=contract_total, change_orders=change_orders, versions=versions,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            collection_work_type_ids=collection_work_type_ids, collections_by_wt=collections_by_wt,
+                           coping_eligible_material_ids=coping_eligible_material_ids,
                            modifiers_by_wt=modifiers_by_wt, additives=additives,
                            estimated_days_total=estimated_days_total, estimated_days_margin=estimated_days_margin,
                            missing_estimate_labels=missing_estimate_labels, terms_docs=terms_docs,
@@ -2992,7 +3037,20 @@ def api_material_collections():
     up in the quote-screen picker, same filtering-by-relevance the sub/material pickers
     already do elsewhere."""
     db = get_db()
-    work_type_id = request.args.get('work_type_id')
+    work_type_id = int(request.args.get('work_type_id'))
+    if work_type_id == COPING_WORK_TYPE_ID:
+        rows = db.execute(
+            "SELECT DISTINCT mc.collection_id, mc.name, m.work_type_id, m.category, m.subcategory "
+            "FROM material_collections mc JOIN materials m ON m.collection_id=mc.collection_id "
+            "WHERE mc.active='Y' AND m.active='Y'"
+        ).fetchall()
+        seen, out = set(), []
+        for r in rows:
+            if _is_coping_eligible(r['work_type_id'], r['category'], r['subcategory']) and r['collection_id'] not in seen:
+                seen.add(r['collection_id'])
+                out.append({'collection_id': r['collection_id'], 'name': r['name']})
+        out.sort(key=lambda c: c['name'])
+        return jsonify(out)
     rows = db.execute(
         "SELECT DISTINCT mc.collection_id, mc.name FROM material_collections mc "
         "JOIN materials m ON m.collection_id=mc.collection_id "
@@ -3010,12 +3068,20 @@ def api_materials_in_collection():
     <option> elements either way."""
     db = get_db()
     collection_id = request.args.get('collection_id')
-    work_type_id = request.args.get('work_type_id')
-    rows = db.execute(
-        "SELECT material_id, category, subcategory, series, cost_per_quote_unit, quote_unit FROM materials "
-        "WHERE collection_id=? AND work_type_id=? AND active='Y' ORDER BY COALESCE(subcategory, category), series",
-        (collection_id, work_type_id)
-    ).fetchall()
+    work_type_id = int(request.args.get('work_type_id'))
+    if work_type_id == COPING_WORK_TYPE_ID:
+        candidates = db.execute(
+            "SELECT material_id, category, subcategory, series, cost_per_quote_unit, quote_unit, work_type_id FROM materials "
+            "WHERE collection_id=? AND active='Y' ORDER BY COALESCE(subcategory, category), series",
+            (collection_id,)
+        ).fetchall()
+        rows = [r for r in candidates if _is_coping_eligible(r['work_type_id'], r['category'], r['subcategory'])]
+    else:
+        rows = db.execute(
+            "SELECT material_id, category, subcategory, series, cost_per_quote_unit, quote_unit FROM materials "
+            "WHERE collection_id=? AND work_type_id=? AND active='Y' ORDER BY COALESCE(subcategory, category), series",
+            (collection_id, work_type_id)
+        ).fetchall()
     return jsonify([{
         'material_id': r['material_id'], 'category': r['category'], 'subcategory': r['subcategory'],
         'group_label': r['subcategory'] or r['category'], 'series': r['series'],

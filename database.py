@@ -3098,6 +3098,227 @@ Porcelain|3cm 6X12 Basalto Porcelain Pavers|KP-2273|SF|5.99"""
         )
 
 
+@migration
+def add_keystone_tile_coping(conn):
+    """Keystone's 173 Bullnose ('Remodeling Bullnose Coping') rows, held back from
+    add_keystone_tile_pavers over a unit-conversion question (Keystone prices these per SF
+    or EA; the OLD shared work_type_id=4 coping catalog was uniformly per linear foot,
+    which would've needed the physical coping width to convert -- not reliably in the
+    sheet). Resolved by _is_coping_eligible / COPING_WORK_TYPE_ID in app.py: Coping
+    Installation no longer shares work_type_id=4's pool at all, so these can go in tagged
+    work_type_id=6 directly, priced straight off Keystone's own SF/EA units like every
+    other Keystone import -- no conversion needed once Coping has its own scoping.
+
+    Same 'Keystone Tile' collection as the pavers (a collection is the company, not a
+    work type -- Keystone's coping and paver SKUs coexist there, distinguished by their
+    own work_type_id column, same as any other material)."""
+    supplier = conn.execute("SELECT supplier_id FROM suppliers WHERE name='Keystone Tile'").fetchone()
+    if not supplier:
+        return  # add_keystone_tile_pavers creates it; if that hasn't run yet, this will next time
+    supplier_id = supplier[0]
+
+    collection = conn.execute(
+        "SELECT collection_id FROM material_collections WHERE supplier_id=? AND name='Keystone Tile'", (supplier_id,)
+    ).fetchone()
+    if not collection:
+        return
+    collection_id = collection[0]
+
+    # subcategory|item name|SKU|UOM|price -- Keystone's Pavers category, Bullnose-family
+    # subcategories only (Bullnose, Marble/Travertine/Limestone/Granite Bullnose).
+    DATA = """Travertine Bullnose|10cm 12x12 Tiramisu Tumbled Remodeling Bullnose Coping|KPB-1004|EA|19.89
+Travertine Bullnose|10cm 4x9 American Chestnut Tumbled Remodeling Bullnose Coping|KPB-1050|EA|7.79
+Marble Bullnose|10cm 4x9 Belfonte Marble Sandblasted Remodeling Bullnose Coping|KPB-1082|EA|7.79
+Travertine Bullnose|10cm 4x9 Extra Light Tumbled Remodeling Bullnose Coping|KPB-1053|EA|7.49
+Travertine Bullnose|10cm 4x9 Gold Tumbled Remodeling Bullnose Coping|KPB-1052|EA|7.49
+Travertine Bullnose|10cm 4x9 Ivory Light Tumbled Remodeling Bullnose Coping-New|KPB-1083|EA|8.59
+Marble Bullnose|10cm 4x9 Maldives Blue Remodeling Bullnose Coping-New|KPB-1084|EA|8.59
+Travertine Bullnose|10cm 4x9 Nordic Silver Tumbled Remodeling Bullnose Coping|KPB-1054|EA|7.79
+Limestone Bullnose|10cm 4x9 Shell Beach Tumbled Remodeling Bullnose Coping-New|KPB-1085|EA|8.59
+Marble Bullnose|10cm 4x9 Snow White Sandblasted Remodeling Bullnose Coping-New|KPB-1086|EA|9.29
+Marble Bullnose|10cm 4x9 Snow White Tumbled Remodeling Bullnose Coping-New|KPB-1087|EA|8.59
+Travertine Bullnose|10cm 4x9 Tiramisu Tumbled Remodeling Bullnose Coping|KPB-1056|EA|9.69
+Marble Bullnose|10cm 4x9 Troy Beige Sandblasted Remodeling Bullnose Coping-New|KPB-1088|EA|9.29
+Marble Bullnose|10cm 4x9 Water Lilies Sandblasted Remodeling Bullnose Coping-New|KPB-1089|EA|9.29
+Travertine Bullnose|12X12 Extra Light Bullnose Coping|KS-1277|SF|8.39
+Travertine Bullnose|12X12 Tiramisu Bullnose Coping|KS-1282|SF|8.79
+Travertine Bullnose|12X24 American Chestnut Bullnose Coping|KS-1292|SF|6.99
+Marble Bullnose|12X24 Aqua Gray Sandblasted Bullnose Coping|KS-1254|SF|9.99
+Marble Bullnose|12X24 Atlantis Gray Sandblasted Bullnose Coping - New|KS-3098|SF|7.79
+Marble Bullnose|12X24 Belfonte Sandblasted Bullnose Coping|KS-2666|SF|7.99
+Marble Bullnose|12X24 Blue Moon Sandblasted Bullnose Coping|KS-1820|SF|7.79
+Marble Bullnose|12X24 Caesars Palace Sandblasted Bullnose Coping|KS-1971|SF|7.99
+Marble Bullnose|12X24 Cleopatra Gray Sandblasted Bullnose Coping|KS-1967|SF|7.99
+Travertine Bullnose|12X24 Colorado Bullnose Coping|KS-1295|SF|9.99
+Travertine Bullnose|12X24 Escabesa Bullnose Coping|KS-1296|SF|6.99
+Travertine Bullnose|12X24 Excalibur Bullnose Coping|KS-3001|SF|7.79
+Travertine Bullnose|12X24 Extra Light Bullnose Coping|KS-1299|SF|8.49
+Marble Bullnose|12X24 Husky White Sandblasted Bullnose Coping|KS-3044|SF|7.79
+Marble Bullnose|12X24 Iceberg Sandblasted Bullnose Coping|KS-1980|SF|7.79
+Travertine Bullnose|12X24 Ivory Light Bullnose Coping|KS-1301|SF|6.99
+Travertine Bullnose|12X24 Ivory Rustic Bullnose Coping|KS-1298|SF|6.99
+Travertine Bullnose|12X24 Light Classic Bullnose Coping|KS-1917|SF|5.89
+Marble Bullnose|12X24 Maldives Blue Bullnose Coping|KS-2816|SF|7.99
+Marble Bullnose|12X24 Mont Blanc Sandblasted Bullnose Coping|KS-3112|SF|7.79
+Travertine Bullnose|12X24 Nordic Silver Bullnose Coping|KS-1300|SF|7.99
+Travertine Bullnose|12x24 Premium Silver Bullnose Coping|KS-2678|SF|7.99
+Limestone Bullnose|12X24 Shell Beach Bullnose Coping|KS-1240|SF|7.79
+Marble Bullnose|12X24 Snow White Sandblasted Bullnose Coping|KS-1259|SF|7.99
+Marble Bullnose|12X24 Starlit Gray Bullnose Coping-NEW|KS-3015|SF|7.79
+Marble Bullnose|12x24 Surf Beach Leather Finish Bullnose Coping|KS-2769|SF|7.79
+Marble Bullnose|12X24 Thunderstruck Bullnose Coping|KS-3024|SF|7.79
+Travertine Bullnose|12X24 Tiramisu Bullnose Coping|KS-1304|SF|8.79
+Marble Bullnose|12X24 Troy Beige Sandblasted BULLNOSE Pool Coping|KS-2548|SF|7.99
+Marble Bullnose|12X24 Water Lilies Sandblasted Bullnose Coping|KS-2974|SF|7.79
+Travertine Bullnose|12X24 Wild Oyster Bullnose Coping|KS-2699|SF|9.89
+Marble Bullnose|3cm 12x24 Amalfi Sunset Leather Finish Bullnose Coping|KS-2738|SF|7.29
+Limestone Bullnose|3cm 12X24 Aruba Bullnose Coping|KPB-1006|SF|7.89
+Marble Bullnose|3cm 12x24 Hawaii Beach Leather Finish Bullnose Coping|KS-2758|SF|7.29
+Marble Bullnose|3cm 12x24 Ivory Extra Bullnose Coping|KS-2779|SF|7.79
+Marble Bullnose|3cm 12x24 Moonlit Gray Bullnose Coping|KS-2836|SF|10.89
+Granite Bullnose|3cm 12x24 Portofino Gray Granite Flammed Bullnose Coping - New|KS-2745|SF|5.99
+Marble Bullnose|3cm 12x24 Silk Road Leather Finish Bullnose Coping|KS-2749|SF|7.29
+Travertine Bullnose|3cm 4X8 American Chestnut Travertine Bullnose Coping|KPB-1040|EA|2.89
+Marble Bullnose|3cm 4X8 Aqua Gray Sandblasted Bullnose Coping -New|KPB-1090|EA|2.79
+Marble Bullnose|3cm 4X8 Belfonte Sandblasted Bullnose Coping -New|KPB-1091|EA|2.79
+Marble Bullnose|3cm 4X8 Caesars Palace Sandblasted Bullnose Coping -New|KPB-1092|EA|2.79
+Marble Bullnose|3cm 4X8 Cleopatra Gray Sandblasted Bullnose Coping -New|KPB-1093|EA|2.79
+Travertine Bullnose|3cm 4X8 Extra Light Travertine Bullnose Coping|KPB-1043|EA|2.79
+Travertine Bullnose|3cm 4X8 Ivory Light Bullnose Coping -New|KPB-1094|EA|2.79
+Marble Bullnose|3cm 4X8 Maldives Blue Bullnose Coping -New|KPB-1095|EA|2.79
+Travertine Bullnose|3cm 4X8 Nordic Silver Travertine Bullnose Coping|KPB-1045|EA|2.99
+Limestone Bullnose|3cm 4X8 Shell Beach Bullnose Coping -New|KPB-1096|EA|2.79
+Marble Bullnose|3cm 4X8 Snow White Sandblasted Bullnose Coping -New|KPB-1097|EA|2.79
+Marble Bullnose|3cm 4X8 Snow White Tumbled Bullnose Coping -New|KPB-1098|EA|2.79
+Marble Bullnose|3cm 4X8 Troy Beige Sandblasted Bullnose Coping -New|KPB-1099|EA|2.79
+Marble Bullnose|3cm 4X8 Water Lilies Sandblasted Bullnose Coping -New|KPB-1100|EA|2.79
+Marble Bullnose|3cm 6x12 Atlantis Gray Sandblasted Bullnose Coping - New|KS-3101|SF|6.89
+Travertine Bullnose|3cm 6X12 Colorado Travertine Bullnose Coping|KPB-1079|SF|6.99
+Travertine Bullnose|3cm 6X12 Extra Light Travertine Bullnose Coping|KPB-1064|SF|7.59
+Marble Bullnose|3cm 6x12 Hawaii Beach Leather Finish Bullnose Coping|KS-2761|SF|7.89
+Marble Bullnose|3cm 6x12 Husky White Sandblasted Bullnose Coping|KS-3039|SF|6.89
+Travertine Bullnose|3cm 6X12 Nordic Silver Travertine Bullnose Coping|KPB-1080|SF|7.89
+Limestone Bullnose|3cm 6X12 Shell Beach Limestone Bullnose Coping|KS-1813|SF|6.89
+Marble Bullnose|3cm 6x12 Silk Road Leather Finish Bullnose Coping|KS-2752|SF|9.39
+Marble Bullnose|3cm 6x12 Snow White Sandblasted Bullnose Coping|KS-1950|SF|7.29
+Travertine Bullnose|3cm 6X12 Tuscany Rustic Travertine Bullnose Coping|KPB-1066|SF|6.99
+Marble Bullnose|3cm 6x12 Water Lilies Sandblasted Bullnose Coping-New|KS-3073|SF|6.89
+Travertine Bullnose|3cm 6X12 Wild Oyster Travertine Bullnose Coping -New|KS-2709|SF|7.99
+Travertine Bullnose|4X12 Extra Light Bullnose Coping|KS-1337|SF|5.69
+Travertine Bullnose|5cm 12X12 Extra Light Bullnose Coping|KS-1289|SF|12.39
+Travertine Bullnose|5cm 12x12 Nordic Silver Bullnose Coping|KS-1269|SF|12.49
+Marble Bullnose|5cm 12x24 Amalfi Sunset Leather Finish Bullnose Coping|KS-2742|SF|12.89
+Travertine Bullnose|5cm 12X24 American Chestnut Bullnose Coping|KS-1308|SF|12.89
+Marble Bullnose|5cm 12X24 Aqua Gray Sandblasted Bullnose Coping|KS-2893|SF|12.89
+Marble Bullnose|5cm 12X24 Atlantis Gray Sandblasted Bullnose Coping - New|KS-3102|SF|12.89
+Marble Bullnose|5cm 12x24 Belfonte Sandblasted Bullnose Coping|KS-2812|SF|12.89
+Marble Bullnose|5cm 12x24 Caesars Palace Sandblasted Bullnose Coping|KS-2802|SF|12.89
+Marble Bullnose|5cm 12x24 Cleopatra Gray Sandblasted Bullnose Coping|KS-2807|SF|12.89
+Travertine Bullnose|5cm 12X24 Colorado Bullnose Coping|KS-1310|SF|12.89
+Travertine Bullnose|5cm 12X24 Escabesa Bullnose Coping|KS-1311|SF|12.89
+Travertine Bullnose|5cm 12X24 Excalibur Bullnose Coping|KS-2997|SF|12.89
+Travertine Bullnose|5cm 12X24 Extra Light Bullnose Coping|KS-1315|SF|12.89
+Travertine Bullnose|5cm 12X24 Extra Light Eased Edge|KS-2947|SF|12.89
+Marble Bullnose|5cm 12x24 Hawaii Beach Leather Finish Bullnose Coping|KS-2764|SF|12.89
+Marble Bullnose|5cm 12X24 Husky White Sandblasted Bullnose Coping|KS-3048|SF|12.89
+Marble Bullnose|5cm 12x24 Ivory Extra Bullnose Coping|KS-2783|SF|12.89
+Travertine Bullnose|5cm 12X24 Ivory Light Bullnose Coping|KS-1319|SF|12.89
+Travertine Bullnose|5cm 12X24 Ivory Light Eased Edge|KS-2919|SF|12.89
+Travertine Bullnose|5cm 12X24 Ivory Rustic Bullnose Coping|KS-1314|SF|12.89
+Travertine Bullnose|5cm 12X24 Ivory Rustic Eased Edge|KS-2927|SF|12.89
+Marble Bullnose|5cm 12x24 Maldives Blue Bullnose Coping|KS-2819|SF|12.89
+Marble Bullnose|5cm 12x24 Maldives Blue Eased Edge|KS-2924|SF|12.89
+Marble Bullnose|5cm 12x24 Moonlit Gray Bullnose Coping|KS-2841|SF|12.89
+Travertine Bullnose|5cm 12X24 Nordic Silver Bullnose Coping|KS-1317|SF|12.89
+Travertine Bullnose|5cm 12X24 Nordic Silver Eased Edge|KS-2928|SF|12.89
+Travertine Bullnose|5cm 12X24 Premium Silver Bullnose Coping - New|KS-2690|SF|12.89
+Limestone Bullnose|5cm 12X24 Shell Beach Bullnose Coping|KS-1241|SF|12.89
+Marble Bullnose|5cm 12x24 Silk Road Leather Finish Bullnose Coping|KS-2755|SF|12.89
+Marble Bullnose|5cm 12X24 Snow White Sandblasted Bullnose Coping|KS-2920|SF|12.89
+Marble Bullnose|5cm 12X24 Starlit Gray Bullnose Coping-NEW|KS-3017|SF|12.89
+Marble Bullnose|5cm 12x24 Surf Beach Leather Finish Bullnose coping|KS-2773|SF|12.89
+Travertine Bullnose|5cm 12X24 Tiramisu Bullnose Coping|KS-1323|SF|12.89
+Marble Bullnose|5cm 12x24 Troy Beige Sandblasted Bullnose Coping|KS-2808|SF|12.89
+Marble Bullnose|5cm 12X24 Water Lilies Sandblasted Bullnose Coping|KS-2986|SF|12.89
+Travertine Bullnose|5cm 12X24 Wild Oyster Bullnose Coping - New|KS-2711|SF|12.89
+Travertine Bullnose|5cm 16X24 Extra Light Bullnose Coping|KS-1333|SF|14.89
+Travertine Bullnose|5cm 4x12 American Chestnut Bullnose Coping|KS-2853|sqf|12.89
+Marble Bullnose|5cm 4x12 Belfonte Sandblasted Bullnose Coping|KS-2848|sqf|12.89
+Marble Bullnose|5cm 4x12 Caesars Palace Sandblasted Bullnose Coping|KS-2870|sqf|12.89
+Marble Bullnose|5cm 4x12 Cleopatra Gray Sandblasted Bullnose Coping|KS-2872|sqf|12.89
+Travertine Bullnose|5cm 4x12 Colorado Bullnose Coping|KS-2845|sqf|12.89
+Travertine Bullnose|5cm 4x12 Escabesa Bullnose Coping|KS-2875|sqf|12.89
+Travertine Bullnose|5cm 4x12 Excalibur Bullnose Coping -NEW|KS-3029|sqf|12.89
+Travertine Bullnose|5cm 4x12 Extra Light Bullnose Coping|KS-2866|sqf|12.89
+Travertine Bullnose|5cm 4x12 Husky White Bullnose Coping -NEW|KS-3095|sqf|12.89
+Travertine Bullnose|5cm 4x12 Ivory Light Bullnose Coping|KS-2863|sqf|12.89
+Travertine Bullnose|5cm 4x12 Ivory Rustic Bullnose Coping|KS-2856|sqf|12.89
+Marble Bullnose|5cm 4x12 Maldives Blue Bullnose Coping|KS-2850|sqf|12.89
+Travertine Bullnose|5cm 4x12 Nordic Silver Bullnose Coping|KS-2844|sqf|12.89
+Marble Bullnose|5cm 4x12 Snow White Bullnose Coping|KS-2861|sqf|12.89
+Marble Bullnose|5cm 4x12 Snow White Sandblasted Bullnose Coping|KS-2858|sqf|12.89
+Marble Bullnose|5cm 4x12 Starlit Gray Bullnose Coping-NEW|KS-3020|sqf|12.89
+Travertine Bullnose|5cm 4x12 Tiramisu Bullnose Coping|KS-2952|sqf|12.89
+Marble Bullnose|5cm 4x12 Troy Beige Sandblasted Bullnose Coping|KS-2874|sqf|12.89
+Travertine Bullnose|5cm 4x12 Water Lilies Bullnose Coping -NEW|KS-3071|sqf|12.89
+Travertine Bullnose|6X12 American Chestnut Bullnose Coping|KS-1700|SF|6.89
+Marble Bullnose|6X12 Aqua Gray Sandblasted Bullnose Coping|KS-1812|SF|7.89
+Marble Bullnose|6x12 Atlantis Gray Sandblasted PAVERS - New|KS-3100|SF|5.29
+Marble Bullnose|6X12 Belfonte Sandblasted Bullnose Coping|KS-2908|SF|6.89
+Marble Bullnose|6x12 Caesars Palace Sandblasted Bullnose Coping|KS-2905|SF|6.89
+Marble Bullnose|6x12 Cleopatra Gray Sandblasted Bullnose Coping|KS-2904|SF|6.89
+Travertine Bullnose|6X12 Escabesa Bullnose Coping|KS-1810|SF|6.89
+Travertine Bullnose|6x12 Excalibur Bullnose PAVERS|KS-3030|SF|6.89
+Marble Bullnose|6x12 Ivory Extra Bullnose Coping|KS-2784|SF|6.89
+Travertine Bullnose|6X12 Ivory Light Bullnose Coping|KS-1811|SF|6.99
+Travertine Bullnose|6X12 Ivory Rustic Bullnose Coping|KS-1702|SF|6.69
+Marble Bullnose|6X12 Maldives Blue Bullnose Coping|KS-2910|SF|6.89
+Marble Bullnose|6X12 Starlit Gray Bullnose Coping-NEW|KS-3019|SF|7.89
+Marble Bullnose|6x12 Surf Beach Leather Finish Bullnose Coping|KS-2775|SF|7.89
+Travertine Bullnose|6X12 Tiramisu Bullnose Coping|KS-1703|SF|7.39
+Marble Bullnose|6x12 Troy Beige Sandblasted Bullnose Coping|KS-2903|SF|6.89
+Bullnose|12X24 Aspen Basalt Porcelain Bullnose Coping|KP-2212|SF|24.99
+Bullnose|12X24 Aspen Rock Gray Porcelain Bullnose Coping|KP-1950|SF|24.99
+Bullnose|12X24 Aspen Snow Porcelain Bullnose Coping|KP-1949|SF|24.99
+Bullnose|12X24 Davos Antracite Porcelain Bullnose Coping|KP-1955|SF|24.99
+Bullnose|12X24 Davos Bianco Porcelain Bullnose Coping|KP-1957|SF|24.99
+Bullnose|12X24 Davos Grigio Porcelain Bullnose Coping|KP-1956|SF|24.99
+Bullnose|12X24 Forge Inox Porcelain Bullnose Coping|KP-2032|SF|24.99
+Bullnose|12X24 Keystone Fog Porcelain Bullnose Coping|KP-2028|SF|24.99
+Bullnose|12X24 Keystone Fossil Porcelain Bullnose Coping|KP-2029|SF|24.99
+Bullnose|12X24 Keystone Pure Porcelain Bullnose Coping|KP-1958|SF|24.99
+Bullnose|12x24 Khroma W1 Talco Porcelain Bullnose Coping|KP-2030|sqf|24.99
+Bullnose|12x24 Khroma W2 Avorio Porcelain Bullnose Coping|KP-2031|SF|24.99
+Bullnose|12X24 Thermae Honey Porcelain Bullnose Coping|KP-1954|SF|24.99
+Bullnose|12X24 Thermae Milk Porcelain Bullnose Coping|KP-1952|SF|24.99
+Bullnose|12X24 Thermae Storm Porcelain Bullnose Coping|KP-1953|SF|24.99
+Bullnose|12X24 Urbe Cream Porcelain Bullnose Coping|KP-2041|SF|24.99
+Bullnose|12X24 Urbe White Porcelain Bullnose Coping|KP-1951|SF|24.99
+Bullnose|13x24 Calacatta Porcelain Bullnose Coping|KP-1963|SF|24.99
+Bullnose|13x24 Fruhling Natural Porcelain Bullnose Coping|KP-1961|SF|24.99
+Bullnose|13x24 Holystone White Porcelain Bullnose Coping|KP-1962|SF|24.99
+Bullnose|13x24 Silver Quartz Grey Porcelain Bullnose Coping|KP-1966|SF|24.99
+Bullnose|13x24 Silver Quartz White Porcelain Bullnose Coping|KP-1965|SF|24.99"""
+
+    for line in DATA.strip().splitlines():
+        subcategory, series, item_code, uom, price_str = line.split('|')
+        existing = conn.execute(
+            "SELECT material_id FROM materials WHERE supplier_id=? AND item_code=?", (supplier_id, item_code)
+        ).fetchone()
+        if existing:
+            continue
+        raw_price = float(price_str)
+        quote_unit = 'each' if uom == 'EA' else 'sqft'
+        price_unit = 'per_piece' if uom == 'EA' else 'per_sqft'
+        conn.execute(
+            "INSERT INTO materials (supplier_id,category,subcategory,series,item_code,raw_price,"
+            "price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,collection_id,active) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (supplier_id, 'Pavers', subcategory, series, item_code, raw_price,
+             price_unit, 1.0, quote_unit, raw_price, 6, collection_id, 'Y')
+        )
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
