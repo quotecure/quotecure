@@ -2538,6 +2538,66 @@ def add_tampa_bay_elite_pavers(conn):
             )
 
 
+@migration
+def split_deck_drain_into_three_work_types(conn):
+    """Deck Drain Install (deleted earlier today as part of the Modifier cleanup, per Jim's
+    own request at the time) turned out to be too coarse -- Jim clarified it's actually 3
+    distinct services with genuinely different pricing across subs: installing a drain
+    between pavers with no existing slab to cut ('Over Base'), cutting into and installing
+    around a drain in an existing concrete slab ('Cutting Concrete'), and tearing out an old
+    drain from a slab and installing a new one ('Replace'). Plus 2 new services from Tampa
+    Bay Elite Pavers' price sheet with no prior match in the catalog at all: Retaining Block,
+    Facing Steps with Pavers.
+
+    Only Tampa Bay Elite Pavers gets rates here -- their price sheet is the one with actual
+    numbers for all 5. G&B, Prizma, and Finishing & Flooring Pros were also named as having
+    real pricing for the deck-drain family, but: G&B's and Prizma's old Deck Drain Install
+    sub_rates were destroyed when that work type was deleted (no backup, no way to recover
+    the numbers), and Finishing & Flooring Pros' 2026 sheet has 3 deck-drain line items whose
+    mapping to these 3 new categories is Claude's inference, not confirmed by Jim -- so none
+    of those three subs get rates written here without that confirmation."""
+    new_types = [
+        # (work_type, unit, cost_structure)
+        ('Deck Drain Over Base', 'lf', 'labor_only'),
+        ('Deck Drain Cutting Concrete', 'lf', 'labor_only'),
+        ('Replace Deck Drain', 'lf', 'labor_only'),
+        ('Retaining Block', 'lf', 'labor_only'),
+        ('Facing Steps with Pavers', 'lf', 'labor_only'),
+    ]
+    wt_ids = {}
+    for name, unit, cost_structure in new_types:
+        existing = conn.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (name,)).fetchone()
+        if existing:
+            wt_ids[name] = existing[0]
+            continue
+        cur = conn.execute(
+            "INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,"
+            "show_on_quote,active,description) VALUES (?,?,?,?,?,?,?,?,?) RETURNING work_type_id",
+            (name, unit, cost_structure, 30.0, 10.0, 9.1, 'Y', 'Y', '')
+        )
+        wt_ids[name] = cur.fetchone()[0]
+
+    tbep = conn.execute("SELECT sub_id FROM subs WHERE name='Tampa Bay Elite Pavers'").fetchone()
+    if tbep:
+        sub_id = tbep[0]
+        tbep_rates = [
+            ('Deck Drain Over Base', 7.00),
+            ('Deck Drain Cutting Concrete', 10.00),
+            ('Replace Deck Drain', 15.00),
+            ('Retaining Block', 12.00),
+            ('Facing Steps with Pavers', 12.00),
+        ]
+        for name, rate in tbep_rates:
+            existing_rate = conn.execute(
+                "SELECT id FROM sub_rates WHERE sub_id=? AND work_type_id=?", (sub_id, wt_ids[name])
+            ).fetchone()
+            if not existing_rate:
+                conn.execute(
+                    "INSERT INTO sub_rates (sub_id, work_type_id, rate, unit) VALUES (?,?,?,'lf')",
+                    (sub_id, wt_ids[name], rate)
+                )
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

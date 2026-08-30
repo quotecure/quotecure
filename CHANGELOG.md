@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Deck Drain Install split into 3 real work types; 2 new services
+
+Deck Drain Install (the work type deleted earlier today) turned out to be too coarse -- Jim clarified it's genuinely 3 different services with different pricing per sub: installing a drain between pavers with no slab to cut ("Deck Drain Over Base"), cutting into and installing around a drain in an existing concrete slab ("Deck Drain Cutting Concrete"), and tearing out an old drain from a slab and putting in a new one ("Replace Deck Drain"). Added all 3 as real work types, plus 2 more brand-new ones from Tampa Bay Elite Pavers' price sheet with no prior match at all: Retaining Block, Facing Steps with Pavers. Tampa Bay gets rates on all 5 ($7/$10/$15/lf for the deck-drain trio, $12/lf each for the other two).
+
+Deliberately did NOT add rates for the other subs named as having pricing for these: G&B's and Prizma's old Deck Drain Install rates were destroyed when that work type was deleted earlier today (no backup, genuinely unrecoverable), and Finishing & Flooring Pros' 2026 sheet has 3 deck-drain line items whose mapping to these new categories is an inference, not something Jim confirmed -- so none of those three subs get rates written until that's sorted out with him directly.
+
 ## 2026-08-29 — Added Tampa Bay Elite Pavers as a sub
 
 New sub (S16) from their subcontractor price sheet PDF, phone/email included. Only added the 3 services that mapped unambiguously to an existing work type: Paver Installation ($3.50/sqft, Travertine variant noted at $4.00/sqft), Cantilever Cut ($3.00/lf), Excavation ($2.00/sqft, "remove and haul off").
