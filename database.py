@@ -2498,6 +2498,46 @@ def update_finishing_flooring_pros_2026_prices(conn):
         )
 
 
+@migration
+def add_tampa_bay_elite_pavers(conn):
+    """New sub, from their subcontractor price sheet PDF. Only the 3 services that mapped
+    unambiguously to an existing work type are added here -- Retaining Block and Facing
+    Steps with Pavers don't match anything in the catalog, and the three 'Deck or Drain'
+    line items are ambiguous against the deleted Deck Drain Install work type (flagged to
+    Jim, not guessed at). Sheet also notes: pricing is labor only (drain/fittings not
+    included), and they supply base/sand with no delivery fee up to 5 yards, $150 over --
+    business context worth knowing but with no clean field to store structurally, so it's
+    not encoded here."""
+    existing = conn.execute("SELECT sub_id FROM subs WHERE name='Tampa Bay Elite Pavers'").fetchone()
+    if existing:
+        return
+    nums = []
+    for r in conn.execute("SELECT sub_id FROM subs").fetchall():
+        try:
+            nums.append(int(r[0].replace('S', '')))
+        except ValueError:
+            pass
+    sub_id = 'S' + str(max(nums) + 1 if nums else 1)
+    conn.execute(
+        "INSERT INTO subs (sub_id, name, active, phone, email) VALUES (?,?,?,?,?)",
+        (sub_id, 'Tampa Bay Elite Pavers', 'Y', '727-265-1731', 'tampabayelitepavers@gmail.com')
+    )
+
+    rates = [
+        # (work_type name, rate, unit, notes)
+        ('Paver Installation', 3.50, 'sqft', 'Standard (straight/regular) pavers. Travertine $4.00/sqft -- see attached price sheet.'),
+        ('Cantilever Cut', 3.00, 'lf', ''),
+        ('Excavation', 2.00, 'sqft', 'Remove and haul off.'),
+    ]
+    for wt_name, rate, unit, notes in rates:
+        wt = conn.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (wt_name,)).fetchone()
+        if wt:
+            conn.execute(
+                "INSERT INTO sub_rates (sub_id, work_type_id, rate, unit, notes) VALUES (?,?,?,?,?)",
+                (sub_id, wt[0], rate, unit, notes)
+            )
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

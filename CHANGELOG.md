@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Added Tampa Bay Elite Pavers as a sub
+
+New sub (S16) from their subcontractor price sheet PDF, phone/email included. Only added the 3 services that mapped unambiguously to an existing work type: Paver Installation ($3.50/sqft, Travertine variant noted at $4.00/sqft), Cantilever Cut ($3.00/lf), Excavation ($2.00/sqft, "remove and haul off").
+
+Left off, flagged to Jim rather than guessed: Retaining Block and Facing Steps with Pavers don't match anything currently in the catalog; the three "Deck or Drain" line items (Over Base $7/lf, Cutting Concrete $10/lf, Replace w/o Damaging Deck $15/lf) are ambiguous against the Deck Drain Install work type deleted earlier today. Sheet also notes pricing is labor-only (drain/fittings not included) and they supply base/sand with a $150 fee over 5 yards -- useful context with no clean field to store it in, so it's not encoded anywhere structural.
+
 ## 2026-08-29 — Finishing & Flooring Pros 2026 price update
 
 Cross-checked Elvis's new 2026 price sheet PDF against all 24 of his current sub_rates line by line. Only two actually changed: Pool/Spa Prep $1.00 -> $1.50/sqft, and Fiberglass/whole-pool-interior Removal $7.50 -> $8.00/sqft (the sheet lists both cases at the same new price, so one updated note covers both instead of needing a second field). Everything else on the sheet -- including the exact $1,500 Small Paver Job minimum already on file -- matched what was already there, so nothing else touched.
