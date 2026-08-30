@@ -1714,6 +1714,23 @@ def edit_quote(quote_id):
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
                               WHERE m.active='Y'
                               ORDER BY m.category, m.series""").fetchall()
+    # Work types that have at least one collection-grouped material (e.g. Paver
+    # Installation once Keystone Tile's stone pavers are loaded in) get the extra
+    # Collection narrowing selector in the material picker; everything else keeps the
+    # existing flat list untouched. See add_material_collections. Rendered server-side
+    # (not via /api/material_collections) so the picker's first dropdown is populated
+    # instantly on open with no extra round trip -- only the second level (which
+    # materials are IN a chosen collection) is fetched on demand, since that list can be
+    # large (that's the whole point of narrowing to it).
+    collection_rows = db.execute(
+        "SELECT DISTINCT mc.collection_id, mc.name, m.work_type_id FROM material_collections mc "
+        "JOIN materials m ON m.collection_id=mc.collection_id "
+        "WHERE mc.active='Y' AND m.active='Y' ORDER BY mc.name"
+    ).fetchall()
+    collections_by_wt = {}
+    for r in collection_rows:
+        collections_by_wt.setdefault(r['work_type_id'], []).append({'collection_id': r['collection_id'], 'name': r['name']})
+    collection_work_type_ids = set(collections_by_wt.keys())
     modifier_rows = db.execute("SELECT * FROM modifiers WHERE active='Y' ORDER BY label").fetchall()
     modifiers_by_wt = {}
     for q in modifier_rows:
@@ -1737,6 +1754,7 @@ def edit_quote(quote_id):
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
                            contract_total=contract_total, change_orders=change_orders, versions=versions,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
+                           collection_work_type_ids=collection_work_type_ids, collections_by_wt=collections_by_wt,
                            modifiers_by_wt=modifiers_by_wt, additives=additives,
                            estimated_days_total=estimated_days_total, estimated_days_margin=estimated_days_margin,
                            missing_estimate_labels=missing_estimate_labels, terms_docs=terms_docs,
@@ -2821,8 +2839,14 @@ def admin_materials():
 
     categories = db.execute("SELECT DISTINCT category FROM materials ORDER BY category").fetchall()
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
+    collections = db.execute(
+        "SELECT mc.*, s.name as supplier_name, "
+        "(SELECT COUNT(*) FROM materials WHERE collection_id=mc.collection_id) as material_count "
+        "FROM material_collections mc JOIN suppliers s ON mc.supplier_id=s.supplier_id "
+        "ORDER BY s.name, mc.name"
+    ).fetchall()
     return render_template('admin_materials.html', suppliers=suppliers, materials=materials,
-                           categories=categories, work_types=work_types,
+                           categories=categories, work_types=work_types, collections=collections,
                            selected_supplier=selected_supplier, selected_category=selected_category)
 
 @app.route('/admin/materials/add', methods=['POST'])
@@ -2833,13 +2857,42 @@ def add_material():
     conv = float(request.form['conversion_factor'])
     cost_per_qu = raw_price * conv
     db.execute("""INSERT INTO materials (supplier_id,category,series,item_code,raw_price,
-                  price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,active)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                  price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,collection_id,active)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                (request.form['supplier_id'], request.form['category'], request.form['series'],
                 request.form.get('item_code',''), raw_price, request.form['price_unit'],
                 conv, request.form['quote_unit'], round(cost_per_qu,4),
-                request.form.get('work_type_id') or None, 'Y'))
+                request.form.get('work_type_id') or None,
+                request.form.get('collection_id') or None, 'Y'))
     db.commit()
+    return redirect(url_for('admin_materials'))
+
+@app.route('/admin/materials/collections/add', methods=['POST'])
+@require_permission('can_edit_sub_rates')
+def add_material_collection():
+    """A collection is just a named grouping under a supplier -- Jim's own framing is
+    'it's basically the company' (Keystone Tile, StoneMart, ...). Kept as a plain add form
+    here rather than a whole separate admin page since it's a small, infrequent action
+    (one new collection per manufacturer catalog Jim starts carrying), not a page's worth
+    of its own workflow."""
+    db = get_db()
+    name = request.form.get('name', '').strip()
+    supplier_id = request.form.get('supplier_id')
+    if name and supplier_id:
+        db.execute("INSERT INTO material_collections (supplier_id, name, active) VALUES (?,?,'Y')",
+                   (supplier_id, name))
+        db.commit()
+    return redirect(url_for('admin_materials'))
+
+@app.route('/admin/materials/collections/toggle/<int:collection_id>', methods=['POST'])
+@require_permission('can_edit_sub_rates')
+def toggle_material_collection(collection_id):
+    db = get_db()
+    cur = db.execute("SELECT active FROM material_collections WHERE collection_id=?", (collection_id,)).fetchone()
+    if cur:
+        new_val = 'N' if cur['active'] == 'Y' else 'Y'
+        db.execute("UPDATE material_collections SET active=? WHERE collection_id=?", (new_val, collection_id))
+        db.commit()
     return redirect(url_for('admin_materials'))
 
 @app.route('/admin/materials/toggle/<int:mat_id>', methods=['POST'])
@@ -2863,6 +2916,7 @@ def upload_materials_csv():
     conv = float(request.form.get('conversion_factor', 0.5))
     quote_unit = request.form.get('quote_unit','lf')
     work_type_id = request.form.get('work_type_id') or None
+    collection_id = request.form.get('collection_id') or None
     f = request.files.get('csv_file')
     if not f:
         return redirect(url_for('admin_materials'))
@@ -2885,16 +2939,16 @@ def upload_materials_csv():
         existing = db.execute("SELECT material_id FROM materials WHERE supplier_id=? AND item_code=? AND item_code!=''",
                               (supplier_id, item_code)).fetchone()
         if existing:
-            db.execute("""UPDATE materials SET series=?,raw_price=?,cost_per_quote_unit=?,category=?
+            db.execute("""UPDATE materials SET series=?,raw_price=?,cost_per_quote_unit=?,category=?,collection_id=?
                           WHERE material_id=?""",
-                       (series, raw_price, cost_per_qu, category, existing['material_id']))
+                       (series, raw_price, cost_per_qu, category, collection_id, existing['material_id']))
             updated += 1
         else:
             db.execute("""INSERT INTO materials (supplier_id,category,series,item_code,raw_price,
-                          price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,active)
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                          price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,collection_id,active)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                        (supplier_id, category, series, item_code, raw_price,
-                        price_unit, conv, quote_unit, cost_per_qu, work_type_id, 'Y'))
+                        price_unit, conv, quote_unit, cost_per_qu, work_type_id, collection_id, 'Y'))
             added += 1
     db.commit()
     return redirect(url_for('admin_materials') + f'?supplier_id={supplier_id}&msg={added}+added+{updated}+updated')
@@ -2922,6 +2976,43 @@ def materials_for_work_type():
         'cost': r['cost_per_quote_unit'],
         'quote_unit': r['quote_unit'],
         'category': r['category']
+    } for r in rows])
+
+@app.route('/api/material_collections')
+@login_required
+def api_material_collections():
+    """Collections (manufacturers like Keystone Tile) that have at least one active
+    material for this work type -- only ones actually relevant to what's being priced show
+    up in the quote-screen picker, same filtering-by-relevance the sub/material pickers
+    already do elsewhere."""
+    db = get_db()
+    work_type_id = request.args.get('work_type_id')
+    rows = db.execute(
+        "SELECT DISTINCT mc.collection_id, mc.name FROM material_collections mc "
+        "JOIN materials m ON m.collection_id=mc.collection_id "
+        "WHERE mc.active='Y' AND m.work_type_id=? AND m.active='Y' ORDER BY mc.name",
+        (work_type_id,)
+    ).fetchall()
+    return jsonify([{'collection_id': r['collection_id'], 'name': r['name']} for r in rows])
+
+@app.route('/api/materials_in_collection')
+@login_required
+def api_materials_in_collection():
+    """Materials within one collection, scoped to the work type being priced -- the second
+    level of the Collection -> Material cascading picker (see add_material_collections).
+    Same response shape as the flat picker's options so the client can build identical
+    <option> elements either way."""
+    db = get_db()
+    collection_id = request.args.get('collection_id')
+    work_type_id = request.args.get('work_type_id')
+    rows = db.execute(
+        "SELECT material_id, category, series, cost_per_quote_unit, quote_unit FROM materials "
+        "WHERE collection_id=? AND work_type_id=? AND active='Y' ORDER BY category, series",
+        (collection_id, work_type_id)
+    ).fetchall()
+    return jsonify([{
+        'material_id': r['material_id'], 'category': r['category'], 'series': r['series'],
+        'cost': r['cost_per_quote_unit'], 'quote_unit': r['quote_unit']
     } for r in rows])
 
 @app.route('/admin/materials/update_price/<int:mat_id>', methods=['POST'])

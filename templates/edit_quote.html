@@ -502,37 +502,51 @@
               {% endif %}
             </div>
             {% else %}
-            <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;">
-              <div>
-                <label class="nr-label">Material</label>
-                <select class="nr-input" id="pp-mat-{{ item.id }}" onchange="ppSaveMaterial({{ item.id }})">
-                  <option value="">— None —</option>
-                  {% set ns = namespace(cat='') %}
-                  {% for mat in materials %}
-                  {# Cap Tile/Waterline Tile/Coping (4,5,6) all draw from the same tile
-                     catalog, seeded under work_type_id=4 regardless of which of those three
-                     it ends up installed as -- so for those three, scope to wt=4 specifically
-                     rather than every active material system-wide (pavers, lights, skimmer
-                     parts, ...), which made this a 185-option wall staff couldn't use.
-                     Within that shared catalog, "Cap Tile Trim" is its own physically-distinct
-                     product line (trim pieces, not waterline tile) -- Cap Tile items see only
-                     that category, everything else sees everything but it. #}
-                  {% if (mat.work_type_id == item.work_type_id or (item.work_type_id in [4,5,6] and mat.work_type_id == 4))
-                        and (mat.category == 'Cap Tile Trim') == (item.work_type_id == 5) %}
-                  {% if mat.category != ns.cat %}
-                  {% if ns.cat %}</optgroup>{% endif %}
-                  <optgroup label="{{ mat.category }}">
-                  {% set ns.cat = mat.category %}
-                  {% endif %}
-                  <option value="{{ mat.material_id }}" data-cost="{{ mat.cost_per_quote_unit }}" {{ 'selected' if item.material_id == mat.material_id }}>
-                    {{ mat.series }} — ${{ '%.2f'|format(mat.cost_per_quote_unit) }}/{{ mat.quote_unit }}
-                  </option>
-                  {% endif %}
+            {% set effective_wt = 4 if item.work_type_id in [4,5,6] else item.work_type_id %}
+            <div>
+              {% if effective_wt in collection_work_type_ids %}
+              <div style="margin-bottom:10px;">
+                <label class="nr-label">Collection</label>
+                <select class="nr-input" id="pp-collection-{{ item.id }}" onchange="ppLoadCollectionMaterials({{ item.id }}, {{ effective_wt }})">
+                  <option value="">— All / Ungrouped —</option>
+                  {% for col in collections_by_wt.get(effective_wt, []) %}
+                  <option value="{{ col.collection_id }}">{{ col.name }}</option>
                   {% endfor %}
-                  {% if ns.cat %}</optgroup>{% endif %}
                 </select>
               </div>
-              <button class="btn btn-secondary btn-sm" onclick="toggleProductPicker({{ item.id }})">Done</button>
+              {% endif %}
+              <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;">
+                <div>
+                  <label class="nr-label">Material</label>
+                  <select class="nr-input" id="pp-mat-{{ item.id }}" onchange="ppSaveMaterial({{ item.id }})">
+                    <option value="">— None —</option>
+                    {% set ns = namespace(cat='') %}
+                    {% for mat in materials %}
+                    {# Cap Tile/Waterline Tile/Coping (4,5,6) all draw from the same tile
+                       catalog, seeded under work_type_id=4 regardless of which of those three
+                       it ends up installed as -- so for those three, scope to wt=4 specifically
+                       rather than every active material system-wide (pavers, lights, skimmer
+                       parts, ...), which made this a 185-option wall staff couldn't use.
+                       Within that shared catalog, "Cap Tile Trim" is its own physically-distinct
+                       product line (trim pieces, not waterline tile) -- Cap Tile items see only
+                       that category, everything else sees everything but it. #}
+                    {% if (mat.work_type_id == item.work_type_id or (item.work_type_id in [4,5,6] and mat.work_type_id == 4))
+                          and (mat.category == 'Cap Tile Trim') == (item.work_type_id == 5) %}
+                    {% if mat.category != ns.cat %}
+                    {% if ns.cat %}</optgroup>{% endif %}
+                    <optgroup label="{{ mat.category }}">
+                    {% set ns.cat = mat.category %}
+                    {% endif %}
+                    <option value="{{ mat.material_id }}" data-cost="{{ mat.cost_per_quote_unit }}" {{ 'selected' if item.material_id == mat.material_id }}>
+                      {{ mat.series }} — ${{ '%.2f'|format(mat.cost_per_quote_unit) }}/{{ mat.quote_unit }}
+                    </option>
+                    {% endif %}
+                    {% endfor %}
+                    {% if ns.cat %}</optgroup>{% endif %}
+                  </select>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="toggleProductPicker({{ item.id }})">Done</button>
+              </div>
             </div>
             {% endif %}
           </div>
@@ -1270,6 +1284,36 @@ async function ppLoadFinishes(id) {
   const sel = document.getElementById('pp-fin-' + id);
   sel.innerHTML = '<option value="">— Select —</option>';
   fins.forEach(f => sel.innerHTML += '<option value="' + f.product_id + '" data-rate="' + f.rate + '">' + f.finish + ' — $' + parseFloat(f.rate).toFixed(2) + '/sqft</option>');
+}
+
+// Collection -> Material cascading picker (see add_material_collections). Caches the
+// original flat, all-materials-for-this-work-type <option> list per item the first time
+// it's touched, so switching back to "— All / Ungrouped —" restores exactly what was
+// there before -- narrowing to a collection only ever swaps the options shown, it never
+// discards what the un-narrowed list contained.
+let ppMatOriginalHTML = {};
+async function ppLoadCollectionMaterials(id, workTypeId) {
+  const matSel = document.getElementById('pp-mat-' + id);
+  if (!(id in ppMatOriginalHTML)) ppMatOriginalHTML[id] = matSel.innerHTML;
+  const collectionId = document.getElementById('pp-collection-' + id).value;
+  if (!collectionId) {
+    matSel.innerHTML = ppMatOriginalHTML[id];
+    return;
+  }
+  const r = await fetch('/api/materials_in_collection?collection_id=' + collectionId + '&work_type_id=' + workTypeId);
+  const mats = await r.json();
+  let html = '<option value="">— None —</option>';
+  let lastCat = null;
+  mats.forEach(m => {
+    if (m.category !== lastCat) {
+      if (lastCat !== null) html += '</optgroup>';
+      html += '<optgroup label="' + m.category + '">';
+      lastCat = m.category;
+    }
+    html += '<option value="' + m.material_id + '" data-cost="' + m.cost + '">' + m.series + ' — $' + parseFloat(m.cost).toFixed(2) + '/' + m.quote_unit + '</option>';
+  });
+  if (lastCat !== null) html += '</optgroup>';
+  matSel.innerHTML = html;
 }
 
 async function ppSaveSurface(id) {

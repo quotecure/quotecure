@@ -95,6 +95,46 @@
     <!-- Right panel -->
     <div style="display:flex;flex-direction:column;gap:16px;">
 
+      <!-- Collections -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Collections</div></div>
+        <div class="card-body">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">
+            A collection groups one manufacturer's catalog (Keystone Tile, StoneMart, ...) so a big price sheet doesn't turn the quote-screen material picker into one giant list. Assign materials to a collection below or via CSV import.
+          </div>
+          {% if collections %}
+          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+            {% for c in collections %}
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 8px;background:var(--bg2);border-radius:6px;">
+              <div>
+                <span style="font-weight:500;">{{ c.name }}</span>
+                <span style="color:var(--text3);"> — {{ c.supplier_name }} · {{ c.material_count }} item{{ 's' if c.material_count != 1 }}</span>
+              </div>
+              <form method="POST" action="/admin/materials/collections/toggle/{{ c.collection_id }}" style="display:inline">
+                <button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px;">{{ 'Deactivate' if c.active == 'Y' else 'Activate' }}</button>
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          <form method="POST" action="/admin/materials/collections/add" style="display:flex;gap:8px;align-items:end;">
+            <div class="form-group" style="margin:0;flex:1;">
+              <label class="form-label">Supplier</label>
+              <select class="form-control" name="supplier_id" required>
+                {% for s in suppliers %}
+                <option value="{{ s.supplier_id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;flex:1;">
+              <label class="form-label">Collection Name</label>
+              <input class="form-control" name="name" required placeholder="Keystone Tile">
+            </div>
+            <button class="btn btn-secondary btn-sm" type="submit">Add</button>
+          </form>
+        </div>
+      </div>
+
       <!-- CSV Upload -->
       <div class="card">
         <div class="card-header"><div class="card-title">Upload Price Sheet (CSV)</div></div>
@@ -105,6 +145,15 @@
               <select class="form-control" name="supplier_id" required>
                 {% for s in suppliers %}
                 <option value="{{ s.supplier_id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Collection <span style="font-weight:400;color:var(--text3);">(optional)</span></label>
+              <select class="form-control" name="collection_id">
+                <option value="">— Ungrouped —</option>
+                {% for c in collections %}
+                <option value="{{ c.collection_id }}">{{ c.name }} ({{ c.supplier_name }})</option>
                 {% endfor %}
               </select>
             </div>
@@ -150,7 +199,7 @@
               <input class="form-control" name="csv_file" type="file" accept=".csv" required>
             </div>
             <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">
-              CSV needs columns: Series (or Product Name), Item Code (or Product Code), and a price column (Cost/SHEET, Cost/Sq. Ft., or Price). Updates existing by item code, adds new ones.
+              CSV needs columns: Series (or Product Name), Item Code (or Product Code), and a price column (Cost/SHEET, Cost/Sq. Ft., or Price). Updates existing by item code, adds new ones. One Category and one Work Type per upload -- for a catalog spanning several (e.g. Keystone's travertine vs. bluestone pavers), upload once per category, all under the same Collection.
             </div>
             <button class="btn btn-primary" type="submit">Upload & Import</button>
           </form>
@@ -167,6 +216,15 @@
               <select class="form-control" name="supplier_id" required>
                 {% for s in suppliers %}
                 <option value="{{ s.supplier_id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Collection <span style="font-weight:400;color:var(--text3);">(optional)</span></label>
+              <select class="form-control" name="collection_id">
+                <option value="">— Ungrouped —</option>
+                {% for c in collections %}
+                <option value="{{ c.collection_id }}">{{ c.name }} ({{ c.supplier_name }})</option>
                 {% endfor %}
               </select>
             </div>
