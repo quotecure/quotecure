@@ -2464,6 +2464,40 @@ def flagstone_pavers_becomes_paver_material(conn):
     conn.execute("UPDATE work_types SET active='N' WHERE work_type='Flagstone Pavers'")
 
 
+@migration
+def update_finishing_flooring_pros_2026_prices(conn):
+    """Jim's 2026 price sheet update for Finishing & Flooring Pros (Elvis) -- cross-checked
+    every one of their 24 current sub_rates line by line against the new PDF. Only two
+    actually changed price; everything else on the sheet matched what was already on file
+    (including the exact $1,500 Small Paver Job minimum and every material-variant note).
+    Flagged separately to Jim rather than silently acting on: three brand-new services on
+    the sheet with no matching work type yet (Ledger Stone Installation, Acrylic Deck Prep
+    & Coating, and raw per-yard material costs for Base/Coarse/Fine sand), and two services
+    (Deck Drain, Footers with Concrete) whose work types were deleted earlier today at
+    Jim's own request -- now showing real pricing on the new sheet, so worth confirming
+    whether he wants them back before recreating anything."""
+    ffp = conn.execute("SELECT sub_id FROM subs WHERE name='Finishing & Flooring Pros'").fetchone()
+    if not ffp:
+        return
+    sub_id = ffp[0]
+
+    # Pool/Spa Prep: $1.00/sqft -> $1.50/sqft
+    prep_wt = conn.execute("SELECT work_type_id FROM work_types WHERE work_type='Surface Prep'").fetchone()
+    if prep_wt:
+        conn.execute("UPDATE sub_rates SET rate=1.50 WHERE sub_id=? AND work_type_id=?", (sub_id, prep_wt[0]))
+
+    # Fiberglass/Surface Removal: $7.50/sqft -> $8.00/sqft. The sheet's separate "whole
+    # pool interior removal" line is the same $8.00/sqft now, so the existing "quoted
+    # case-by-case" note is folded into one line instead of needing its own field.
+    removal_wt = conn.execute("SELECT work_type_id FROM work_types WHERE work_type='Surface Removal'").fetchone()
+    if removal_wt:
+        conn.execute(
+            "UPDATE sub_rates SET rate=8.00, notes=? WHERE sub_id=? AND work_type_id=?",
+            ("Fiberglass removal, and whole-pool-interior removal -- both $8.00/sqft per the 2026 price sheet.",
+             sub_id, removal_wt[0])
+        )
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

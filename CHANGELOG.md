@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-29 — Finishing & Flooring Pros 2026 price update
+
+Cross-checked Elvis's new 2026 price sheet PDF against all 24 of his current sub_rates line by line. Only two actually changed: Pool/Spa Prep $1.00 -> $1.50/sqft, and Fiberglass/whole-pool-interior Removal $7.50 -> $8.00/sqft (the sheet lists both cases at the same new price, so one updated note covers both instead of needing a second field). Everything else on the sheet -- including the exact $1,500 Small Paver Job minimum already on file -- matched what was already there, so nothing else touched.
+
+Flagged to Jim rather than acting on unilaterally: three brand-new services on the sheet with no matching work type yet (Ledger Stone Installation $15/lf, Acrylic Deck Prep & Coating $8.75/sqft, and raw per-yard material costs for base/coarse/fine sand), and two services -- Deck Drain, Footers with Concrete -- whose work types were deleted earlier today at Jim's own request as part of the Modifier cleanup, now showing real current pricing on the new sheet.
+
 ## 2026-08-29 — Fixed: Optional Add-Ons "if all added" total went stale after live edits
 
 Jim had Concrete Removal ($5,840.10) and Paver Installation ($13,931.73) both in Optional Add-Ons -- should sum to ~$19,771.83 -- but the "if all added" total at the top of the card showed $8,800.10. Not a math bug: `optional_total` was only ever computed once, server-side, at full page load (`edit_quote()`). Every edit that changes an optional item's price without a full reload -- markup adjust, quantity/cost edits, a modifier or tax toggle -- patches that item's own row live via JS, but none of those routes' responses included the aggregate optional total, so the card header just kept showing whatever was true before any of those edits happened.
