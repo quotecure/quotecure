@@ -2663,6 +2663,441 @@ def add_material_collections(conn):
         conn.execute("ALTER TABLE materials ADD COLUMN collection_id INTEGER")
 
 
+@migration
+def add_material_subcategory(conn):
+    """Real manufacturer sheets (Keystone Tile's pavers, e.g.) carry two levels of
+    grouping, not one -- a 'Category' (Pavers) and a separate 'Sub Category' (Travertine,
+    Marble Bullnose, Ledger, ...). materials.category alone can't hold both without losing
+    the second level. Nullable and additive like collection_id: existing materials stay
+    subcategory=NULL and keep grouping by category alone in the picker exactly as before;
+    a material WITH a subcategory groups by that instead (finer, more useful once a
+    collection has hundreds of items under one category)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(materials)").fetchall()}
+    if 'subcategory' not in cols:
+        conn.execute("ALTER TABLE materials ADD COLUMN subcategory TEXT")
+
+
+@migration
+def add_keystone_tile_pavers(conn):
+    """Keystone Tile's 2025 'FULL Price List - POOL BUILDER' sheet -- 1,786 SKUs across
+    Tile/Pavers/Mosaic. Jim only wanted pavers and coping loaded in for now (not the tile
+    or mosaic lines), and even within Pavers, only the non-Bullnose rows land here: the
+    catalog's Bullnose (coping) items are priced by Keystone per SF or EA, but the existing
+    coping material catalog (work_type_id 4, shared with Cap Tile/Waterline Tile) is
+    uniformly priced per linear foot -- converting SF/EA to LF needs the physical coping
+    width, which isn't reliably in the sheet, so those ~173 rows are deliberately left out
+    rather than guessed at. Flagged to Jim; add them once real LF pricing is confirmed.
+
+    356 plain paver rows (Travertine/Marble/Limestone/Granite/V-pattern natural stone, plus
+    blank-subcategory Porcelain pavers) go in as-is: quote_unit and price map straight off
+    each row's own UOM (SF/sqf -> sqft, EA -> each) with conversion_factor=1.0, so
+    cost_per_quote_unit is just the sheet's own price, no unit math involved. Subcategory
+    falls back to the sheet's Type column (e.g. 'Porcelain') on the 49 rows where Keystone
+    left Sub Category blank, so every row still gets a real second-level grouping in the
+    picker instead of falling into an unlabeled catch-all.
+
+    Idempotent: skips a row if a material with this supplier + item_code already exists,
+    so re-running (or a future CSV re-upload of the same sheet) won't duplicate rows."""
+    supplier = conn.execute("SELECT supplier_id FROM suppliers WHERE name='Keystone Tile'").fetchone()
+    if supplier:
+        supplier_id = supplier[0]
+    else:
+        cur = conn.execute("INSERT INTO suppliers (name, active) VALUES ('Keystone Tile', 'Y') RETURNING supplier_id")
+        supplier_id = cur.fetchone()[0]
+
+    collection = conn.execute(
+        "SELECT collection_id FROM material_collections WHERE supplier_id=? AND name='Keystone Tile'", (supplier_id,)
+    ).fetchone()
+    if collection:
+        collection_id = collection[0]
+    else:
+        cur = conn.execute(
+            "INSERT INTO material_collections (supplier_id, name, active) VALUES (?, 'Keystone Tile', 'Y') RETURNING collection_id",
+            (supplier_id,)
+        )
+        collection_id = cur.fetchone()[0]
+
+    wt = conn.execute("SELECT work_type_id FROM work_types WHERE work_type='Paver Installation'").fetchone()
+    work_type_id = wt[0] if wt else None
+
+    # subcategory|item name|SKU|UOM|price -- generated from Keystone's own sheet, Pavers
+    # category only, Bullnose/coping rows excluded (see docstring).
+    DATA = """Marble|12x12 Amalfi Sunset Leather Finish Paver|KS-2794|SF|5.99
+Travertine|12x12 American Chestnut Tumbled PAVERS|KS-1115|SF|5.29
+Marble|12X12 Caesars Palace Sandblasted Pavers|KS-2443|SF|5.99
+Marble|12X12 Cleopatra Gray Sandblasted Pavers|KS-1977|SF|5.99
+Travertine|12x12 Colorado Tumbled PAVERS|KS-1119|SF|5.79
+Travertine|12x12 Escabesa Tumbled PAVERS|KS-1120|SF|5.49
+Travertine|12x12 Extra Light Tumbled PAVERS|KS-1125|SF|6.99
+Marble|12x12 Hawaii Beach Leather Finish Paver|KS-2791|SF|4.99
+Marble|12x12 Ivory Extra Tumbled Paver|KS-2781|SF|5.49
+Travertine|12x12 Ivory Light Tumbled PAVERS|KS-1127|SF|5.49
+Travertine|12X12 Ivory Rustic Tumbled PAVERS|KS-1122|SF|4.99
+Travertine|12x12 Light Classic Tumbled PAVERS|KS-1931|SF|4.29
+Travertine|12x12 Nordic Silver Tumbled PAVERS|KS-1126|SF|5.79
+Limestone|12x12 Shell Beach Tumbled PAVERS|KS-1058|SF|5.79
+Marble|12x12 Silk Road Leather Finish Paver|KS-2793|SF|4.99
+Marble|12x12 Surf Beach Leather Finish Paver|KS-2770|SF|4.99
+Travertine|12x12 Tiramisu Tumbled PAVERS|KS-1130|SF|5.99
+Marble|12X12 Water Lilies Sandblasted Pavers|KS-2984|SF|5.99
+Marble|12x24 Amalfi Sunset Leather Finish Paver|KS-2739|SF|5.99
+Travertine|12x24 American Chestnut Tumbled PAVERS|KS-1132|SF|5.59
+Marble|12X24 Aqua Gray Sandblasted Pavers|KS-1077|SF|6.49
+Marble|12x24 Atlantis Gray Sandblasted PAVERS - New|KS-3097|SF|6.29
+Marble|12x24 Belfonte SANDBLASTED PAVERS|KS-2667|SF|5.99
+Marble|12X24 Blue Moon Sandblasted Pavers|KS-2672|SF|5.79
+Marble|12X24 Caesars Palace Sandblasted Pavers|KS-1976|SF|6.29
+Travertine|12X24 Classic Travertine Tumbled PAVERS|KS-1922|SF|3.99
+Marble|12X24 Cleopatra Gray Sandblasted Pavers|KS-1968|SF|6.29
+Travertine|12x24 Colorado Tumbled PAVERS|KS-1963|SF|5.99
+Travertine|12x24 Escabesa Tumbled PAVERS|KS-1133|SF|5.99
+Travertine|12x24 Excalibur PAVERS|KS-2994|SF|5.99
+Travertine|12x24 Extra Light Tumbled PAVERS|KS-1136|SF|7.29
+Marble|12x24 Hawaii Beach Leather Finish Paver|KS-2759|SF|5.29
+Marble|12x24 Husky White SANDBLASTED PAVERS|KS-3040|SF|5.49
+Marble|12X24 Iceberg Marble Sandblasted Pavers|KS-2657|SF|5.79
+Marble|12x24 Ivory Extra Tumbled Paver|KS-2778|SF|5.79
+Travertine|12x24 Ivory Light Tumbled PAVERS|KS-1138|SF|5.99
+Travertine|12x24 Ivory Rustic Tumbled Pavers|KS-2673|SF|5.29
+Travertine|12X24 Light Classic Travertine Tumbled Pavers|KS-1919|SF|3.59
+Marble|12x24 Maldives Blue PAVERS|KS-2818|SF|5.99
+Marble|12x24 Moonlit Gray Paver|KS-2838|SF|6.99
+Travertine|12x24 Nordic Silver Tumbled PAVERS|KS-1137|SF|5.99
+Granite|12x24 Portofino Gray Granite Flammed Paver - New|KS-2747|SF|5.39
+Travertine|12x24 Premium Silver Tumbled PAVERS|KS-2679|SF|6.29
+Limestone|12x24 Shell Beach Tumbled PAVERS|KS-1059|SF|5.99
+Marble|12x24 Silk Road Leather Finish Paver|KS-2750|SF|5.79
+Marble|12x24 Snow White SANDBLASTED PAVERS|KS-1080|SF|6.79
+Marble|12X24 Starlit Gray PAVERS-NEW|KS-3014|SF|5.99
+Marble|12x24 Surf Beach Leather Finish Paver|KS-2768|SF|5.29
+Marble|12x24 Thunderstruck PAVERS|KS-3023|SF|5.79
+Travertine|12x24 Tiramisu Tumbled PAVERS|KS-1140|SF|6.29
+Marble|12X24 Troy Beige Sandblasted Pavers|KS-2547|SF|6.29
+Travertine|12x24 Tuscany Rustic Tumbled PAVERS|KS-1141|SF|5.99
+Marble|12X24 Water Lilies Sandblasted Pavers|KS-2956|SF|6.29
+Travertine|12x24 Wild Oyster Tumbled PAVERS|KS-2700|SF|7.39
+Travertine|16x16 American Chestnut Tumbled PAVERS|KS-1142|SF|5.29
+Marble|16X16 Aqua Gray Sandblasted Pavers|KS-1081|SF|5.99
+Travertine|16x16 Colorado Tumbled PAVERS|KS-1147|SF|5.79
+Travertine|16x16 Escabesa Tumbled PAVERS|KS-1148|SF|5.49
+Travertine|16x16 Extra Light Tumbled PAVERS|KS-1153|SF|6.99
+Travertine|16x16 Ivory Light Tumbled PAVERS|KS-1155|SF|5.49
+Travertine|16x16 Ivory Rustic Tumbled PAVERS|KS-1151|SF|4.99
+Travertine|16x16 Nordic Silver Tumbled PAVERS|KS-1154|SF|5.79
+Limestone|16x16 Shell Beach Tumbled PAVERS|KS-1062|SF|5.79
+Travertine|16x16 Tiramisu Tumbled PAVERS|KS-1158|SF|5.99
+Travertine|16x16 Wild Oyster Tumbled PAVERS - New|KS-2703|SF|6.99
+Marble|16x24 Amalfi Sunset Leather Finish Paver|KS-2740|SF|5.99
+Travertine|16x24 American Chestnut Tumbled PAVERS|KS-1160|SF|5.59
+Marble|16X24 Aqua Gray Sandblasted Pavers|KS-1090|SF|6.49
+Marble|16x24 Atlantis Gray Sandblasted PAVERS - New|KS-3099|SF|6.29
+Marble|16x24 Belfonte SANDBLASTED PAVERS|KS-2668|SF|5.99
+Marble|16x24 Blue Moon Sandblasted PAVERS|KS-1992|SF|5.79
+Marble|16X24 Caesars Palace Sandblasted Pavers|KS-1979|SF|6.29
+Marble|16X24 Cleopatra Gray Sandblasted Pavers|KS-1969|SF|6.29
+Travertine|16x24 Colorado Tumbled PAVERS|KS-1166|SF|5.99
+Travertine|16x24 Escabesa Tumbled PAVERS|KS-1167|SF|5.99
+Travertine|16x24 Excalibur Tumbled PAVERS|KS-2936|SF|5.99
+Travertine|16x24 Extra Light Tumbled PAVERS|KS-1172|SF|7.29
+Marble|16x24 Hawaii Beach Leather Finish Paver|KS-2760|SF|5.49
+Marble|16x24 Husky White SANDBLASTED PAVERS|KS-3041|SF|5.49
+Marble|16x24 Ivory Extra Tumbled Pavers|KS-2780|SF|5.79
+Travertine|16x24 Ivory Light Tumbled PAVERS|KS-1174|SF|5.99
+Travertine|16x24 Ivory Rustic Tumbled PAVERS|KS-1169|SF|5.29
+Marble|16x24 Maldives Blue PAVERS|KS-2817|SF|5.99
+Marble|16x24 Mont Blanc Sandblasted PAVERS|KS-3113|SF|5.79
+Marble|16x24 Moonlit Gray Paver|KS-2837|SF|6.99
+Travertine|16x24 Nordic Silver Tumbled PAVERS|KS-1173|SF|5.99
+Travertine|16x24 Premium Silver Tumbled PAVERS|KS-2685|SF|6.99
+Limestone|16x24 Shell Beach Tumbled PAVERS|KS-1063|SF|5.99
+Marble|16x24 Silk Road Leather Finish Paver|KS-2751|SF|5.29
+Marble|16x24 Snow White SANDBLASTED PAVERS|KS-1095|SF|6.79
+Marble|16x24 Starlit Gray PAVERS|KS-2981|SF|5.99
+Marble|16x24 Surf Beach Leather Finish Paver|KS-2767|SF|5.29
+Marble|16x24 Thunderstruck PAVERS|KS-3025|SF|5.79
+Travertine|16x24 Tiramisu Tumbled PAVERS|KS-1177|SF|6.29
+Marble|16X24 Troy Beige Sandblasted Pavers|KS-2664|SF|6.29
+Travertine|16x24 Tuscany Rustic Tumbled PAVERS|KS-1178|SF|5.99
+Marble|16x24 Water Lilies Sandblasted Pavers|KS-2955|SF|5.79
+Travertine|16x24 Wild Oyster Tumbled PAVERS|KS-2706|SF|7.39
+Travertine|24x24 Extra Light Tumbled PAVERS|KS-1183|SF|8.39
+Marble|24X24 Husky White SANDBLASTED PAVERS|KS-3042|SF|7.79
+Marble|24x24 Ivory Extra Tumbled PAVERS|KS-2959|SF|8.79
+Travertine|24x24 Ivory Light Tumbled PAVERS|KS-1185|SF|6.99
+Travertine|24x24 Nordic Silver Tumbled PAVERS|KS-1184|SF|8.79
+Travertine|24x24 Premium Silver Tumbled PAVERS - New|KS-2687|SF|9.49
+Limestone|24x24 Shell Beach Tumbled PAVERS|KS-1064|SF|7.79
+Marble|24X24 Snow White SANDBLASTED PAVERS|KS-2665|SF|7.99
+Marble|24x24 Terrazzo Monolayer G1I Paver|KS-2991|SF|6.59
+Marble|24x24 Terrazzo Monolayer G2M Paver|KS-2992|SF|6.59
+Marble|24x24 Water Lilies Sandblasted Pavers|KS-2978|SF|7.69
+Travertine|24x24 Wild Oyster Tumbled PAVERS - New|KS-2708|SF|8.99
+Travertine|24x36 Extra Light Tumbled PAVERS|KS-1191|SF|8.99
+Travertine|3cm 6X12 Wild Oyster Tumbled pavers -New|KS-2720|SF|6.49
+Marble|5cm 12x24 Amalfi Sunset Leather Finish Paver|KS-2741|SF|12.89
+Travertine|5cm 12X24 American Chestnut Eased Edge|KS-2926|SF|12.89
+Marble|5cm 12x24 Aqua Gray Sandblasted Eased Edge Pavers -New|KS-3105|SF|12.89
+Marble|5cm 12X24 Atlantis Gray Sandblasted Eased Edge - New|KS-3103|SF|12.89
+Marble|5cm 12x24 Belfonte Sandblasted Eased Edge|KS-2925|SF|12.89
+Marble|5cm 12x24 Blue Moon Sandblasted Bullnose Pavers|KS-3108|SF|12.89
+Marble|5cm 12x24 Blue Moon Sandblasted Eased Edge Pavers|KS-3107|SF|12.89
+Marble|5cm 12x24 Caesars Palace Sandblasted Eased Edge|KS-2930|SF|12.89
+Marble|5cm 12x24 Caesars Palace Sandblasted Pavers|KS-2803|SF|12.89
+Marble|5cm 12x24 Cleopatra Gray Sandblasted Eased Edge|KS-2929|SF|12.89
+Marble|5cm 12x24 Cleopatra Gray Sandblasted Pavers|KS-2805|SF|12.89
+Travertine|5CM 12x24 Escabesa Tumbled PAVER|KS-1312|SF|12.89
+Travertine|5cm 12X24 Excalibur Pavers|KS-2998|SF|12.89
+Travertine|5cm 12X24 Extra Light Tumbled Pavers|KS-1316|SF|12.89
+Marble|5cm 12x24 Hawaii Beach Leather Finish Paver|KS-2763|SF|12.89
+Marble|5cm 12X24 Husky White Marble Sandblasted Pavers|KS-3055|SF|12.89
+Marble|5cm 12X24 Husky White Sandblasted Eased Edge|KS-3050|SF|12.89
+Marble|5cm 12X24 Husky White Sandblasted Eased Edge -NEW|KS-3094|SF|12.89
+Marble|5cm 12X24 Ivory Extra Tumbled Eased Edge-New|KS-2961|SF|12.89
+Marble|5cm 12x24 Ivory Extra Tumbled Paver -New|KS-2801|SF|12.89
+Travertine|5cm 12X24 Ivory Light Tumbled Pavers|KS-1320|SF|12.89
+Marble|5cm 12X24 Maldives Blue Paver|KS-2820|SF|12.89
+Marble|5cm 12x24 Mont Blanc Sandblasted Bullnose Pavers|KS-3116|SF|12.89
+Marble|5cm 12x24 Mont Blanc Sandblasted Eased Edge Pavers|KS-3115|SF|12.89
+Marble|5cm 12X24 Moonlit Gray Leather Finish Eased Edge-New|KS-2964|SF|12.89
+Marble|5cm 12x24 Moonlit Gray Paver|KS-2840|SF|12.89
+Travertine|5cm 12X24 Nordic Silver Tumbled Pavers|KS-1318|SF|12.89
+Travertine|5cm 12X24 Premium Silver Tumbled Pavers- New|KS-2692|SF|12.89
+Limestone|5cm 12X24 Shell Beach Tumbled Pavers|KS-1242|SF|12.89
+Marble|5cm 12x24 Silk Road Leather Finish Paver|KS-2754|SF|12.89
+Marble|5cm 12X24 Snow White Marble Sandblasted Pavers|KS-2814|SF|12.89
+Marble|5cm 12X24 Snow White Sandblasted Eased Edge|KS-2921|SF|12.89
+Marble|5cm 12X24 Starlit Gray Eased Edge PAVER-NEW|KS-3021|SF|12.89
+Marble|5cm 12X24 Starlit Gray PAVERS-NEW|KS-3016|SF|12.89
+Marble|5cm 12x24 Surf Beach Leather Finish Paver|KS-2772|SF|12.89
+Marble|5cm 12X24 Thunderstruck Pavers|KS-3026|SF|12.89
+Travertine|5cm 12X24 Tiramisu Tumbled Eased Edge Pavers - NEW|KS-3074|SF|12.89
+Travertine|5cm 12X24 Tiramisu Tumbled Pavers|KS-1324|SF|12.89
+Marble|5cm 12x24 Troy Beige Sandblasted Eased Edge|KS-2931|SF|12.89
+Marble|5cm 12x24 Troy Beige Sandblasted Pavers|KS-2809|SF|12.89
+Marble|5cm 12X24 Water Lilies Sandblasted Eased Edge -NEW|KS-3028|SF|12.89
+Marble|5cm 12X24 Water Lilies Sandblasted Pavers|KS-2985|SF|12.89
+Travertine|5cm 12X24 Wild Oyster Eased Edge Pavers- New|KS-3222|SF|12.89
+Marble|5cm 16x24 Amalfi Sunset Leather Finish paver|KS-2743|SF|14.89
+Marble|5cm 16X24 Atlantis Gray Sandblasted Eased Edge - New|KS-3104|SF|12.89
+Marble|5cm 16X24 Belfonte Sandblasted Paver|KS-2811|SF|14.89
+Marble|5cm 16x24 Blue Moon Sandblasted Eased Edge Pavers|KS-3109|SF|14.89
+Marble|5cm 16x24 Caesars Palace Sandblasted Pavers|KS-2804|SF|14.89
+Marble|5cm 16x24 Cleopatra Gray Sandblasted Eased Edge Pavers - New|KS-3076|SF|14.89
+Marble|5cm 16x24 Cleopatra Gray Sandblasted Pavers|KS-2806|SF|14.89
+Travertine|5cm 16X24 Excalibur Eased Edge Paver - NEW|KS-3000|SF|14.89
+Travertine|5cm 16X24 Excalibur Paver|KS-2999|SF|14.89
+Travertine|5cm 16X24 Extra Light Tumbled Pavers|KS-1334|SF|14.89
+Marble|5cm 16x24 Hawaii Beach Leather Finish Paver|KS-2765|SF|14.89
+Marble|5cm 16X24 Husky White Marble Sandblasted Pavers|KS-3057|SF|14.89
+Travertine|5cm 16x24 Ivory Light Eased Edge PAVERS -New|KS-3118|SF|14.89
+Travertine|5cm 16x24 Ivory Light Tumbled PAVERS|KS-2662|SF|14.89
+Marble|5cm 16X24 Maldives Blue Eased Edge Paver - New|KS-3075|SF|14.89
+Marble|5cm 16x24 Mont Blanc Sandblasted Eased Edge Pavers|KS-3117|SF|14.89
+Marble|5cm 16x24 Moonlit Gray Paver|KS-2839|SF|14.89
+Travertine|5cm 16X24 Nordic Silver Travertine Eased Edge Paver - New|KS-3088|SF|14.89
+Travertine|5cm 16X24 Nordic Silver Travertine Tumbled Paver|KS-2643|SF|14.89
+Travertine|5cm 16X24 Premium Silver Travertine Tumbled Paver - New|KS-2691|SF|14.89
+Limestone|5cm 16X24 Shell Beach Limestone Tumbled Paver|KS-2645|SF|14.89
+Marble|5cm 16x24 Silk Road Leather Finish paver|KS-2756|SF|14.89
+Marble|5cm 16X24 Snow White Marble Sandblasted Pavers|KS-2813|SF|14.89
+Marble|5cm 16x24 Surf Beach Leather Finish paver|KS-2774|SF|14.89
+Travertine|5CM 16x24 Tiramisu Eased Edge PAVER - New|KS-3224|SF|14.89
+Travertine|5CM 16x24 Tiramisu Tumbled PAVER|KS-1332|SF|14.89
+Marble|5cm 16x24 Troy Beige Sandblasted Pavers|KS-2810|SF|14.89
+Travertine|5cm 16X24 Wild Oyster Travertine Eased Edge Paver - New|KS-3221|SF|14.89
+Marble|5cm 24X24 American Chestnut Pavers|KS-3010|SF|21.99
+Marble|5cm 24X24 Belfonte Sandblasred Pavers - New|KS-3225|SF|21.99
+Limestone|5CM 24x24 Coco Beach Tumbled PAVERS|KS-3009|SF|21.99
+Travertine|5cm 24X24 Extra Light Tumbled Pavers-NEW|KS-3012|SF|21.99
+Travertine|5cm 24X24 Ivory Light Tumbled Pavers|KS-3005|SF|21.99
+Marble|5cm 24X24 Nordic Silver Pavers - NEW|KS-3077|SF|21.99
+Marble|5cm 24X24 Snow White Marble Sandblasted Pavers -NEW|KS-2977|SF|21.99
+Marble|5cm 24X36 American Chestnut Pavers|KS-3011|SF|23.99
+Marble|5cm 24X36 Belfonte Sandblasted Pavers - New|KS-3226|SF|23.99
+Limestone|5cm 24x36 Coco Beach Tumbled pavers|KS-2670|SF|23.99
+Travertine|5cm 24X36 Extra Light Tumbled Pavers|KS-3013|SF|23.99
+Marble|5cm 24X36 Husky White Sandblasted Pavers|KS-3045|SF|23.99
+Travertine|5cm 24X36 Ivory Light Tumbled Pavers|KS-3006|SF|23.99
+Marble|5cm 24X36 Nordic Silver Pavers - NEW|KS-3084|SF|23.99
+Marble|5cm 24X36 Snow White Sandblasted Pavers|KS-3008|SF|23.99
+Travertine|5cm 4x12 American Chestnut Tumbled Paver|KS-2854|sqf|12.89
+Marble|5cm 4x12 Belfonte Sandblasted Paver|KS-2847|sqf|12.89
+Marble|5cm 4x12 Caesars Palace Sandblasted Paver|KS-2869|sqf|12.89
+Marble|5cm 4x12 Cleopatra Gray Sandblasted Paver|KS-2871|sqf|12.89
+Travertine|5cm 4x12 Colorado Tumbled Paver|KS-2846|sqf|12.89
+Travertine|5cm 4x12 Escabesa Tumbled Paver|KS-2876|sqf|12.89
+Travertine|5cm 4x12 Extra Light Tumbled Paver|KS-2865|sqf|12.89
+Marble|5cm 4x12 Ivory Extra Bullnose Coping-New|KS-2960|sqf|12.89
+Travertine|5cm 4x12 Ivory Light Tumbled Paver|KS-2864|sqf|12.89
+Travertine|5cm 4x12 Ivory Rustic Tumbled Paver|KS-2849|sqf|12.89
+Marble|5cm 4x12 Maldives Blue Leather Finish Paver|KS-2855|sqf|12.89
+Marble|5cm 4x12 Moonlit Gray Leather Finish Bullnose Coping-New|KS-2965|sqf|12.89
+Travertine|5cm 4x12 Nordic Silver Tumbled Paver|KS-2843|SF|12.89
+Marble|5cm 4x12 Snow White Sandblasted Paver|KS-2857|sqf|12.89
+Travertine|5cm 4x12 Tiramisu Tumbled Paver|KS-2877|sqf|12.89
+Marble|5cm 4x12 Troy Beige Sandblasted Paver|KS-2873|sqf|12.89
+Marble|6x12 Amalfi Sunset Leather Finish Paver|KS-2795|SF|4.69
+Travertine|6x12 American Chestnut Pavers Deck Drain|KS-1195|EA|12.09
+Travertine|6x12 American Chestnut Tumbled PAVERS|KS-1196|SF|4.79
+Marble|6x12 Aqua Gray Sandblasted Paver 3 cm|KPB-1063|SF|5.49
+Marble|6x12 Aqua Gray Sandblasted Pavers Deck Drain -New|KS-3061|EA|12.99
+Marble|6X12 Belfonte Sandblasted Pavers|KS-2913|SF|5.19
+Marble|6x12 Belfonte Sandblasted Pavers Deck Drain -New|KS-3062|EA|12.99
+Marble|6x12 Blue Moon SANDBLASTED Pavers 3 cm|KS-1973|SF|5.19
+Marble|6X12 Caesars Palace Sandblasted Pavers|KS-2663|SF|5.69
+Marble|6x12 Caesars Palace Sandblasted Pavers Deck Drain -New|KS-3063|EA|12.99
+Marble|6x12 Cleopatra Gray Sandblasted Pavers|KS-1978|SF|5.69
+Marble|6x12 Cleopatra Gray Sandblasted Pavers Deck Drain -New|KS-3064|EA|12.99
+Limestone|6X12 Coco Beach Tumbled Pavers|KS-3060|SF|4.79
+Travertine|6x12 Colorado Tumbled Pavers|KS-1197|SF|5.49
+Travertine|6x12 Excalibur PAVERS|KS-2996|SF|4.99
+Travertine|6x12 Extra Light Pavers Deck Drain|KS-1201|EA|12.49
+Travertine|6x12 Extra Light Tumbled PAVERS|KS-1202|SF|5.49
+Marble|6x12 Hawaii Beach Leather Finish Paver|KS-2762|SF|4.69
+Marble|6X12 Husky White Sandblasted Pavers|KS-3054|SF|5.19
+Marble|6x12 Ivory Extra Tumbled Paver|KS-2782|SF|5.19
+Travertine|6x12 Ivory Light Pavers Pavers Deck Drain -New|KS-3065|EA|12.99
+Travertine|6X12 Ivory Light Tumbled Pavers|KS-1206|SF|5.19
+Travertine|6X12 Ivory Rustic Tumbled Pavers|KS-1098|SF|4.69
+Marble|6X12 Maldives Blue Pavers|KS-2915|SF|5.19
+Marble|6x12 Maldives Blue Pavers Deck Drain -New|KS-3066|EA|12.99
+Marble|6x12 Mont Blanc SANDBLASTED Pavers|KS-3114|SF|5.19
+Travertine|6x12 Nordic Silver Pavers Deck Drain|KS-1204|EA|12.99
+Travertine|6x12 Nordic Silver Tumbled PAVERS|KS-1205|SF|5.49
+Limestone|6x12 Shell Beach Pavers Deck Drain|KS-1065|EA|12.99
+Limestone|6X12 Shell Beach Tumbled Pavers|KS-1689|SF|5.49
+Marble|6x12 Silk Road Leather Finish Paver|KS-2753|SF|5.19
+Marble|6X12 Snow White Sandblasted Pavers|KS-1712|SF|5.99
+Marble|6x12 Snow White Sandblasted Pavers Deck Drain -New|KS-3067|EA|12.99
+Marble|6x12 Snow White Tumbled Pavers Deck Drain -New|KS-3068|EA|12.99
+Marble|6X12 Starlit Gray PAVERS-NEW|KS-3018|SF|5.19
+Marble|6x12 Surf Beach Leather Finish|KS-2771|SF|4.69
+Travertine|6x12 Tiramisu Pavers Deck Drain|KS-1209|EA|14.69
+Travertine|6X12 Tiramisu Tumbled Pavers|KS-1208|SF|5.69
+Marble|6x12 Troy Beige Sandblasted Pavers|KS-2912|SF|5.69
+Travertine|6X12 TUSCANY RUSTIC Tumbled Pavers 3cm|KPB-1067|SF|5.19
+Marble|6X12 Water Lilies Sandblasted Pavers - New|KS-3072|SF|5.69
+Marble|6x12 Water Lilies Sandblasted Pavers Deck Drain -New|KS-3070|EA|12.99
+Marble|6x12Troy Beige Sandblasted Pavers Deck Drain -New|KS-3069|EA|12.99
+Travertine|8X8 American Chestnut Tumbled PAVERS|KS-1995|SF|4.99
+Marble|8X8 Aqua Gray Sandblasted PAVERS-SAMPLE- NOT FOR SALE|KS-1996|SF|4.99
+Marble|8x8 Caesars Palace Sandblasted Pavers|KS-1986|SF|4.99
+Marble|8x8 Cleopatra Gray Sandblasted Pavers|KS-1987|SF|4.99
+Travertine|8x8 Colorado Tumbled PAVERS|KS-1991|SF|4.99
+Travertine|8X8 Escabesa Tumbled PAVERS|KS-1994|SF|4.99
+Travertine|8x8 Extra Light Tumbled Pavers|KS-1993|SF|4.99
+Travertine|8X8 Ivory Rustic Tumbled PAVERS|KS-2007|SF|4.99
+Travertine|8x8 Nordic Silver Tumbled PAVERS|KS-1990|SF|4.99
+Marble|8X8 Snow White Sandblasted Tumbled PAVERS|KS-2000|SF|4.99
+Travertine|8X8 Tiramisu Tumbled PAVERS|KS-2003|SF|4.99
+Marble V/P|PAVERS Amalfi Sunset Leather Finish Versailles Pattern|KS-2450|SF|4.99
+Travertine V/P|PAVERS American Chestnut Tumbled Versailles Pattern|KS-1212|SF|5.29
+Marble V/P|PAVERS Aqua Gray Sandblasted Versailles Pattern|KS-1099|SF|5.99
+Marble V/P|PAVERS Atlantis Gray Sandblasted Versailles Pattern - NEW|KS-3096|SF|5.99
+Marble V/P|Pavers Belfonte Sandblasted Versailles Pattern|KS-2658|SF|5.79
+Marble V/P|Pavers Blue Moon Sandblasted Versailles Pattern|KS-1069|SF|5.49
+Marble V/P|Pavers Caesars Palace Sandblasted Versailles Pattern|KS-1970|SF|5.99
+Travertine V/P|PAVERS Classic Travertine Tumbled Versailles Pattern|KS-1824|SF|4.49
+Marble V/P|Pavers Cleopatra Gray Sandblasted Versailles Pattern|KS-1966|SF|5.99
+Travertine V/P|PAVERS Colorado Tumbled Versailles Pattern|KS-1217|SF|5.79
+Travertine V/P|PAVERS Colosseum Light Tumbled Versailles Pattern -New|KS-3223|SF|5.99
+Travertine V/P|PAVERS Escabesa Tumbled Versailles Pattern|KS-1218|SF|5.49
+Travertine V/P|PAVERS Excalibur Tumbled Versailles Pattern|KS-2935|SF|5.79
+Travertine V/P|PAVERS Extra Light Tumbled Versailles Pattern|KS-1222|SF|6.99
+Marble V/P|PAVERS Hawaii Beach Leather Finish Versailles Pattern|KS-2757|SF|4.99
+Marble V/P|Pavers Husky White Sandblasted Versailles Pattern|KS-3043|SF|5.29
+Marble V/P|Pavers Iceberg Sandblasted Versailles Pattern|KS-1710|SF|5.49
+Marble V/P|PAVERS Ivory Extra Tumbled Versailles Pattern|KS-2777|SF|5.49
+Travertine V/P|PAVERS Ivory Light Tumbled Versailles Pattern|KS-1225|SF|5.49
+Travertine V/P|PAVERS Ivory Rustic Tumbled Versailles Pattern|KS-1221|SF|4.99
+Travertine V/P|Pavers Light Classic Tumbled Versailles Pattern|KS-1233|SF|3.79
+Travertine V/P|PAVERS Light Premium Tumbled Versailles Pattern - New|KS-3119|SF|5.49
+Marble V/P|Pavers Maldives Blue Versailles Pattern|KS-2815|SF|5.79
+Marble V/P|Pavers Mont Blanc Sandblasted Versailles Pattern-New|KS-3110|SF|5.49
+Marble V/P|PAVERS Moonlit Gray Versailles Pattern|KS-2835|SF|5.99
+Travertine V/P|PAVERS Nordic Silver Tumbled Versailles Pattern|KS-1223|SF|5.79
+Granite V/P|PAVERS Portofino Gray Granite Flammed Versailles Pattern|KS-2744|SF|4.99
+Travertine V/P|PAVERS Premium Silver Tumbled Versailles Pattern|KS-2693|SF|6.59
+Limestone V/P|PAVERS Shell Beach Tumbled Versailles Pattern|KS-1066|SF|5.79
+Marble V/P|PAVERS Silk Road Leather Finish Versailles Pattern|KS-2748|SF|4.99
+Marble V/P|Pavers Snow White Sandblasted Versailles Pattern|KS-1072|SF|6.29
+Marble V/P|PAVERS Starlit Gray Versailles Pattern|KS-2980|SF|5.99
+Marble V/P|PAVERS Surf Beach Leather Finish Versailles Pattern|KS-2766|SF|4.99
+Marble V/P|Pavers Thunderstruck Versailles Pattern|KS-3022|SF|5.49
+Travertine V/P|PAVERS Tiramisu Tumbled Versailles Pattern|KS-1229|SF|5.99
+Marble V/P|Pavers Troy Beige Sandblasted Versailles Pattern|KS-2651|SF|5.99
+Travertine V/P|PAVERS Tuscany Rustic Tumbled Versailles Pattern|KS-1042|SF|5.49
+Marble V/P|Pavers Water Lilies Sandblasted Versailles Pattern|KS-1073|SF|5.99
+Travertine V/P|PAVERS Wild Oyster Tumbled Versailles Pattern|KS-2714|SF|6.99
+Porcelain|12x48 Skyline Native Porcelain Pavers|KP-1989|SF|5.99
+Porcelain|12x48 Skyline White Porcelain Pavers|KP-1990|SF|5.99
+Porcelain|24X24 Aspen Rock Gray Porcelain Pavers 3Cm|KP-1739|SF|7.99
+Porcelain|24X24 Calacatta Matte Porcelain Pavers|KP-1941|SF|4.99
+Porcelain|24X24 Forge Inox Porcelain Pavers|KP-2018|SF|4.99
+Porcelain|24X24 Fruhling Natural Porcelain Pavers|KP-1646|SF|4.99
+Porcelain|24X24 Heritage Cornsilk Porcelain Pavers - New|KP-2049|SF|4.99
+Porcelain|24X24 Keystone Fog Porcelain Pavers|KP-2027|SF|4.99
+Porcelain|24X24 Keystone Fossil Porcelain Pavers|KP-2021|SF|4.99
+Porcelain|24X24 Keystone Pure Porcelain Pavers|KP-1943|SF|4.99
+Porcelain|24X24 Limestone Coal Porcelain Pavers|KP-1027|SF|4.99
+Porcelain|24X24 Marble Stone Lava Porcelain Pavers - New|KP-2362|SF|4.99
+Porcelain|24x24 Nexus Glacier Porcelain Paver - New|KP-2318|SF|4.99
+Porcelain|24X24 Nordic Wood Walnut Bachette Porcelain Pavers|KP-1896|SF|4.99
+Porcelain|24X24 Parker Silver Matte Porcelain Pavers|KP-1913|SF|4.99
+Porcelain|24X24 Parker White Matte Porcelain Pavers|KP-1912|SF|4.99
+Porcelain|24X24 Thermae Honey Porcelain Pavers|KP-1622|SF|4.99
+Porcelain|24X24 Thermae Milk Porcelain Pavers|KP-1738|SF|4.99
+Porcelain|24X24 Thermae Storm Porcelain Pavers|KP-1624|SF|4.99
+Porcelain|24X36 Aspen Basalt Porcelain Pavers|KP-2211|SF|5.99
+Porcelain|24X36 Aspen Rock Gray Porcelain Pavers|KP-1628|SF|5.99
+Porcelain|24X36 Aspen Snow Porcelain Pavers|KP-1041|SF|5.99
+Porcelain|24X36 Cortina Avorio Porcelain Pavers|KP-2062|SF|5.99
+Porcelain|24X36 Cortina Cenere Porcelain Pavers|KP-2063|SF|5.99
+Porcelain|24X36 Davos Bianco Porcelain Pavers|KP-1948|SF|5.99
+Porcelain|24X36 Davos Grigio Porcelain Pavers|KP-1625|SF|5.99
+Porcelain|24X36 Dolomia Almond Porcelain Pavers|KP-1805|SF|5.99
+Porcelain|24X36 Dolomia Grey Porcelain Pavers|KP-1803|SF|5.99
+Porcelain|24X36 Dolomia White Porcelain Pavers|KP-1802|SF|5.99
+Porcelain|24X36 Nativa 2.0 Slate Multicolor Porcelain Pavers|KP-2240|SF|5.99
+Porcelain|24X36 Santiago Grey Porcelain Pavers - New|KP-2059|SF|5.99
+Porcelain|24X36 Santiago White Porcelain Pavers - New|KP-2058|SF|5.99
+Porcelain|24X48 Agathos Multicolor Porcelain Pavers|KP-2170|SF|5.99
+Porcelain|24X48 Agathos White Porcelain Pavers|KP-2171|SF|5.99
+Porcelain|24X48 Calacatta Matte Porcelain Pavers|KP-1942|SF|5.99
+Porcelain|24X48 Flatiron Black Porcelain Pavers|KP-2176|SF|5.99
+Porcelain|24X48 Flatiron Rust Porcelain Pavers|KP-2175|SF|5.99
+Porcelain|24X48 Flatiron White Porcelain Pavers|KP-2174|SF|5.99
+Porcelain|24x48 Holystone White Porcelain Pavers|KP-1680|SF|6.99
+Porcelain|24x48 Holystone Beige Porcelain Pavers|KP-1681|SF|6.99
+Porcelain|24x48 Holystone Dark Porcelain Pavers|KP-1678|SF|6.99
+Porcelain|24x48 Holystone Grey Porcelain Pavers|KP-1679|SF|6.99
+Porcelain|24X48 Khroma Rammed W1 Talco Porcelain Pavers|KP-2015|SF|6.99
+Porcelain|24X48 Sarancollin Porcelain Pavers|KP-2165|SF|5.99
+Porcelain|24X48 SILVER QUARTZ GRAY PORCELAIN PAVERS|KP-1790|SF|5.99
+Porcelain|24X48 SILVER QUARTZ WHITE PORCELAIN PAVERS|KP-1789|SF|5.99
+Porcelain|24X48 Urbe Cream Porcelain Pavers|KP-2017|SF|6.99
+Porcelain|24X48 Urbe White Gray Porcelain Pavers|KP-1838|SF|6.99
+Porcelain|3cm 6X12 Basalto Porcelain Pavers|KP-2273|SF|5.99"""
+
+    for line in DATA.strip().splitlines():
+        subcategory, series, item_code, uom, price_str = line.split('|')
+        existing = conn.execute(
+            "SELECT material_id FROM materials WHERE supplier_id=? AND item_code=?", (supplier_id, item_code)
+        ).fetchone()
+        if existing:
+            continue
+        raw_price = float(price_str)
+        quote_unit = 'each' if uom == 'EA' else 'sqft'
+        price_unit = 'per_piece' if uom == 'EA' else 'per_sqft'
+        conn.execute(
+            "INSERT INTO materials (supplier_id,category,subcategory,series,item_code,raw_price,"
+            "price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,collection_id,active) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (supplier_id, 'Pavers', subcategory, series, item_code, raw_price,
+             price_unit, 1.0, quote_unit, raw_price, work_type_id, collection_id, 'Y')
+        )
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

@@ -1713,7 +1713,7 @@ def edit_quote(quote_id):
     materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
                               WHERE m.active='Y'
-                              ORDER BY m.category, m.series""").fetchall()
+                              ORDER BY m.category, COALESCE(m.subcategory, ''), m.series""").fetchall()
     # Work types that have at least one collection-grouped material (e.g. Paver
     # Installation once Keystone Tile's stone pavers are loaded in) get the extra
     # Collection narrowing selector in the material picker; everything else keeps the
@@ -2856,10 +2856,11 @@ def add_material():
     raw_price = float(request.form['raw_price'])
     conv = float(request.form['conversion_factor'])
     cost_per_qu = raw_price * conv
-    db.execute("""INSERT INTO materials (supplier_id,category,series,item_code,raw_price,
+    db.execute("""INSERT INTO materials (supplier_id,category,subcategory,series,item_code,raw_price,
                   price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,collection_id,active)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-               (request.form['supplier_id'], request.form['category'], request.form['series'],
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (request.form['supplier_id'], request.form['category'],
+                request.form.get('subcategory') or None, request.form['series'],
                 request.form.get('item_code',''), raw_price, request.form['price_unit'],
                 conv, request.form['quote_unit'], round(cost_per_qu,4),
                 request.form.get('work_type_id') or None,
@@ -2925,9 +2926,13 @@ def upload_materials_csv():
     updated = 0
     added = 0
     for row in reader:
-        series = (row.get('Series') or row.get('series') or row.get('Product Name') or '').strip()
-        item_code = (row.get('Item Code') or row.get('item_code') or row.get('Product Code') or '').strip()
-        price_str = (row.get('Cost/SHEET') or row.get('Cost/Sq. Ft.') or row.get('CONTR. Price') or row.get('Price') or '0').strip()
+        series = (row.get('Series') or row.get('series') or row.get('Product Name') or row.get('Item Name') or '').strip()
+        item_code = (row.get('Item Code') or row.get('item_code') or row.get('Product Code') or row.get('SKU') or '').strip()
+        # Real manufacturer sheets (Keystone's, e.g.) carry their own Sub Category column
+        # per row -- Category stays one value for the whole upload (the form field), but
+        # Sub Category varies row to row, so it has to be read from the sheet itself.
+        subcategory = (row.get('Sub Category') or row.get('subcategory') or '').strip() or None
+        price_str = (row.get('Cost/SHEET') or row.get('Cost/Sq. Ft.') or row.get('CONTR. Price') or row.get('Price') or row.get('PBKS') or '0').strip()
         price_str = price_str.replace('$','').replace(',','').strip()
         try:
             raw_price = float(price_str)
@@ -2939,15 +2944,15 @@ def upload_materials_csv():
         existing = db.execute("SELECT material_id FROM materials WHERE supplier_id=? AND item_code=? AND item_code!=''",
                               (supplier_id, item_code)).fetchone()
         if existing:
-            db.execute("""UPDATE materials SET series=?,raw_price=?,cost_per_quote_unit=?,category=?,collection_id=?
+            db.execute("""UPDATE materials SET series=?,raw_price=?,cost_per_quote_unit=?,category=?,subcategory=?,collection_id=?
                           WHERE material_id=?""",
-                       (series, raw_price, cost_per_qu, category, collection_id, existing['material_id']))
+                       (series, raw_price, cost_per_qu, category, subcategory, collection_id, existing['material_id']))
             updated += 1
         else:
-            db.execute("""INSERT INTO materials (supplier_id,category,series,item_code,raw_price,
+            db.execute("""INSERT INTO materials (supplier_id,category,subcategory,series,item_code,raw_price,
                           price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,collection_id,active)
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                       (supplier_id, category, series, item_code, raw_price,
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       (supplier_id, category, subcategory, series, item_code, raw_price,
                         price_unit, conv, quote_unit, cost_per_qu, work_type_id, collection_id, 'Y'))
             added += 1
     db.commit()
@@ -2975,7 +2980,8 @@ def materials_for_work_type():
         'item_code': r['item_code'],
         'cost': r['cost_per_quote_unit'],
         'quote_unit': r['quote_unit'],
-        'category': r['category']
+        'category': r['category'],
+        'subcategory': r['subcategory']
     } for r in rows])
 
 @app.route('/api/material_collections')
@@ -3006,12 +3012,13 @@ def api_materials_in_collection():
     collection_id = request.args.get('collection_id')
     work_type_id = request.args.get('work_type_id')
     rows = db.execute(
-        "SELECT material_id, category, series, cost_per_quote_unit, quote_unit FROM materials "
-        "WHERE collection_id=? AND work_type_id=? AND active='Y' ORDER BY category, series",
+        "SELECT material_id, category, subcategory, series, cost_per_quote_unit, quote_unit FROM materials "
+        "WHERE collection_id=? AND work_type_id=? AND active='Y' ORDER BY COALESCE(subcategory, category), series",
         (collection_id, work_type_id)
     ).fetchall()
     return jsonify([{
-        'material_id': r['material_id'], 'category': r['category'], 'series': r['series'],
+        'material_id': r['material_id'], 'category': r['category'], 'subcategory': r['subcategory'],
+        'group_label': r['subcategory'] or r['category'], 'series': r['series'],
         'cost': r['cost_per_quote_unit'], 'quote_unit': r['quote_unit']
     } for r in rows])
 

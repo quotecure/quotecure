@@ -532,10 +532,11 @@
                        that category, everything else sees everything but it. #}
                     {% if (mat.work_type_id == item.work_type_id or (item.work_type_id in [4,5,6] and mat.work_type_id == 4))
                           and (mat.category == 'Cap Tile Trim') == (item.work_type_id == 5) %}
-                    {% if mat.category != ns.cat %}
+                    {% set group_label = mat.subcategory or mat.category %}
+                    {% if group_label != ns.cat %}
                     {% if ns.cat %}</optgroup>{% endif %}
-                    <optgroup label="{{ mat.category }}">
-                    {% set ns.cat = mat.category %}
+                    <optgroup label="{{ group_label }}">
+                    {% set ns.cat = group_label %}
                     {% endif %}
                     <option value="{{ mat.material_id }}" data-cost="{{ mat.cost_per_quote_unit }}" {{ 'selected' if item.material_id == mat.material_id }}>
                       {{ mat.series }} — ${{ '%.2f'|format(mat.cost_per_quote_unit) }}/{{ mat.quote_unit }}
@@ -1305,10 +1306,10 @@ async function ppLoadCollectionMaterials(id, workTypeId) {
   let html = '<option value="">— None —</option>';
   let lastCat = null;
   mats.forEach(m => {
-    if (m.category !== lastCat) {
+    if (m.group_label !== lastCat) {
       if (lastCat !== null) html += '</optgroup>';
-      html += '<optgroup label="' + m.category + '">';
-      lastCat = m.category;
+      html += '<optgroup label="' + m.group_label + '">';
+      lastCat = m.group_label;
     }
     html += '<option value="' + m.material_id + '" data-cost="' + m.cost + '">' + m.series + ' — $' + parseFloat(m.cost).toFixed(2) + '/' + m.quote_unit + '</option>';
   });

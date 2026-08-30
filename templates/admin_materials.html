@@ -63,7 +63,7 @@
               {% for m in materials %}
               <tr>
                 <td style="color:var(--text2);font-size:12px;">{{ m.supplier_name }}</td>
-                <td><span class="badge badge-blue" style="font-size:10px;">{{ m.category }}</span></td>
+                <td><span class="badge badge-blue" style="font-size:10px;">{{ m.category }}</span>{% if m.subcategory %}<div style="font-size:10px;color:var(--text3);margin-top:3px;">{{ m.subcategory }}</div>{% endif %}</td>
                 <td style="font-weight:500;font-size:13px;">{{ m.series }}</td>
                 <td class="mono" style="color:var(--text3);font-size:11px;">{{ m.item_code or '—' }}</td>
                 <td class="right">
@@ -199,7 +199,7 @@
               <input class="form-control" name="csv_file" type="file" accept=".csv" required>
             </div>
             <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">
-              CSV needs columns: Series (or Product Name), Item Code (or Product Code), and a price column (Cost/SHEET, Cost/Sq. Ft., or Price). Updates existing by item code, adds new ones. One Category and one Work Type per upload -- for a catalog spanning several (e.g. Keystone's travertine vs. bluestone pavers), upload once per category, all under the same Collection.
+              CSV needs columns: Series (or Product Name/Item Name), Item Code (or Product Code/SKU), and a price column (Cost/SHEET, Cost/Sq. Ft., Price, or PBKS). A Sub Category column, if present, is read per row. Updates existing by item code, adds new ones. One Category and one Work Type per upload -- for a catalog spanning several (e.g. Keystone's travertine vs. bluestone pavers), upload once per category, all under the same Collection.
             </div>
             <button class="btn btn-primary" type="submit">Upload & Import</button>
           </form>
@@ -231,6 +231,10 @@
             <div class="form-group">
               <label class="form-label">Category</label>
               <input class="form-control" name="category" required placeholder="Glass, 6x6 Porcelain...">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Sub Category <span style="font-weight:400;color:var(--text3);">(optional)</span></label>
+              <input class="form-control" name="subcategory" placeholder="Travertine, Marble Bullnose...">
             </div>
             <div class="form-group">
               <label class="form-label">Series Name</label>

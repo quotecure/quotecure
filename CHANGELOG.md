@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-30 — Added Sub Category + loaded Keystone Tile's 356 paver SKUs
+
+Follow-up to the Collections feature: Jim asked whether materials needed separate tables per product type. Looked at Keystone Tile's actual sheet (1,786 rows, not the ~500 estimated) to answer with real data instead of guessing -- every row prices the same way (cost per SF/EA/PCS), so separate tables would just mean the same query/admin-form/picker logic duplicated three times for products that behave identically. What the sheet actually needed was a second grouping level: it has both a "Category" (Tile/Pavers/Mosaic) and a "Sub Category" (Travertine, Marble Bullnose, Ledger, ...), and `materials` only had room for one.
+
+Added `materials.subcategory` (nullable, additive -- same pattern as `collection_id`). The quote-screen picker and the flat fallback list both now group by subcategory when it's set, falling back to category otherwise, so an existing material with no subcategory renders exactly as before. `/api/materials_in_collection` returns a `group_label` field (subcategory, or category if none) so the client doesn't need its own fallback logic. Admin got a Sub Category field on "Add Single Material," and the CSV importer now reads a `Sub Category` column per row (Category still one value per upload, but Sub Category genuinely varies row to row on a real sheet, so it has to come from the data).
+
+Loaded Keystone's non-Bullnose Pavers rows (356 of them -- Travertine, Marble, Limestone, Granite, Versailles-Pattern variants, and Porcelain) into a new "Keystone Tile" supplier + collection, work-type-scoped to Paver Installation, via a data-seeding migration (the only way real catalog data reaches production without direct DB access -- same pattern used all session for sub rates and other bulk additions). Each row's own price and unit (SF/sqf -> sqft, EA -> each) is used directly with no conversion math, so `cost_per_quote_unit` is exactly what Keystone charges.
+
+Deliberately left out the sheet's 173 Bullnose (coping) rows: Keystone prices those per SF or EA, but QuoteCure's existing coping catalog (shared with Cap Tile/Waterline Tile, work_type_id 4) is uniformly priced per linear foot, and converting SF/EA to LF needs the physical coping width, which isn't reliably in the sheet -- guessing at that would put a wrong number in front of a customer. Flagged to Jim rather than invented; can add once real per-LF pricing is confirmed.
+
+Verified live: picking "Keystone Tile" in the Collection dropdown on a real Paver Installation line item narrowed the Material list from the full flat catalog down to exactly 356 options across 9 correctly-populated subcategory groups (Marble: 150, Travertine: 105, Porcelain: 49, etc.), and selecting "12x12 Amalfi Sunset Leather Finish Paver" saved with the correct $5.99/sqft cost.
+
 ## 2026-08-30 — Added materials Collections (cascading picker for large catalogs)
 
 Jim got asked for stone pavers -- inevitable, given the materials catalog was already large -- and has a Keystone Tile price sheet running 500+ SKUs. Talked through the options: dump it all into the existing flat category-grouped dropdown (makes an already-crowded picker unusable), keep it as an external reference doc Jim cross-references by hand (defeats the point of a real cost engine -- easy to quote off the wrong price), or organize it. Went with organizing it, reusing the cascading-picker pattern already proven for pool surface products (`surface_manufacturers` -> `surface_products`) rather than inventing something new.
