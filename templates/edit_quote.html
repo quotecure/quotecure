@@ -432,7 +432,9 @@
 
         <!-- Markup -->
         <td class="r">
-          {% if not is_split %}
+          {% if item.is_passthrough %}
+          <span style="font-size:10px;color:var(--text3);" title="Billed at cost, no markup">at cost</span>
+          {% elif not is_split %}
           <div class="mstep {% if item.labor_markup_pct <= item.labor_min_markup %}floor{% endif %}" id="mstep-{{ item.id }}">
             <button onclick="adjMarkup({{ item.id }},'labor',-5)" {% if item.labor_markup_pct <= item.labor_min_markup %}disabled{% endif %} id="mdn-{{ item.id }}">−</button>
             <span class="mv" id="mv-{{ item.id }}">{{ '%.0f'|format(item.labor_markup_pct) }}%</span>
@@ -606,10 +608,10 @@
       {% endfor %}
   {% endmacro %}
 
-  {% macro new_row_panel(section) %}
+  {% macro new_row_panel(section, section_work_types) %}
       <!-- Add row trigger -->
       <tr class="add-row" onclick="openNewRow('{{ section }}')">
-        <td colspan="10">+ {% if section == 'opt' %}Add optional item{% else %}Add line item{% endif %}</td>
+        <td colspan="10">+ {% if section == 'opt' %}Add optional item{% elif section == 'passthrough' %}Add pass-through item{% else %}Add line item{% endif %}</td>
       </tr>
 
       <!-- New row panel -->
@@ -621,7 +623,7 @@
               <input class="nr-input" id="nr-wt-{{ section }}" list="wt-list-{{ section }}" autocomplete="off"
                      placeholder="Type to search…" onchange="onNrWorkType('{{ section }}')">
               <datalist id="wt-list-{{ section }}">
-                {% for wt in work_types %}
+                {% for wt in section_work_types %}
                 <option value="{{ wt.work_type }}">
                 {% endfor %}
               </datalist>
@@ -696,7 +698,30 @@
       {% if not line_items %}
       <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text3);">No line items yet.</td></tr>
       {% endif %}
-      {{ new_row_panel('main') }}
+      {{ new_row_panel('main', addable_work_types) }}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Estimated pass-through costs (billed separately, at cost, as incurred) -->
+  <div class="card" style="margin-top:16px;">
+    <div style="padding:14px 16px 0;display:flex;justify-content:space-between;align-items:baseline;">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--text);">Estimated Pass-Through Costs</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Billed at cost, no markup. Estimated for planning — actual cost is billed and collected separately as incurred, not part of the total above.</div>
+      </div>
+      <div class="mono" id="passthrough-total-wrap" style="font-size:13px;color:var(--text2);{% if not passthrough_items %}display:none;{% endif %}">
+        <span id="passthrough-total">{{ money(passthrough_total) }}</span> estimated
+      </div>
+    </div>
+    <table class="qt">
+      {{ qt_head() }}
+      <tbody id="qt-body-passthrough">
+      {{ qt_rows(passthrough_items, modifiers_by_wt, additives) }}
+      {% if not passthrough_items %}
+      <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text3);">No pass-through items yet.</td></tr>
+      {% endif %}
+      {{ new_row_panel('passthrough', passthrough_work_types) }}
       </tbody>
     </table>
   </div>
@@ -719,7 +744,7 @@
       {% if not optional_items %}
       <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text3);">No optional items yet.</td></tr>
       {% endif %}
-      {{ new_row_panel('opt') }}
+      {{ new_row_panel('opt', addable_work_types) }}
       {{ replacement_row_panel(replaceable_items) }}
       </tbody>
     </table>
@@ -1514,7 +1539,10 @@ function calcNrPreview(section) {
   const qty = parseFloat(document.getElementById('nr-qty-' + section).value) || 0;
   const cpu = parseFloat(document.getElementById('nr-cpu-' + section).value) || 0;
   const override = nrMarkupOverride[section];
-  const markup = override != null ? parseFloat(override) : parseFloat(WORK_TYPES[nrWorkTypeId(section)]?.markup || 30);
+  // ?? not || -- see addNrRow: a work type whose real default markup is 0 (pass-through
+  // items, billed at cost with no markup on purpose) needs that 0 to stick in the preview
+  // too, not silently show a 30% markup the actual submitted item will never have.
+  const markup = override != null ? parseFloat(override) : parseFloat(WORK_TYPES[nrWorkTypeId(section)]?.markup ?? 30);
   const total = qty * cpu * (1 + markup/100);
   const margin = markup / (100 + markup) * 100;
   const el = document.getElementById('nr-preview-' + section);
@@ -1527,7 +1555,9 @@ async function addNrRow(section) {
   const wtId = nrWorkTypeId(section);
   if (!wtId) { alert('Select a work type from the list.'); return; }
   const override = nrMarkupOverride[section];
-  const markup = override != null ? override : (WORK_TYPES[wtId]?.markup || 30);
+  // ?? not || -- a work type whose real default markup is 0 (pass-through items, billed
+  // at cost with no markup on purpose) needs that 0 to stick, not fall back to 30%.
+  const markup = override != null ? override : (WORK_TYPES[wtId]?.markup ?? 30);
   const matDefault = nrMaterialDefault[section];
   const payload = {
     work_type_id: wtId,
@@ -1560,6 +1590,10 @@ function updateSummaryCards(d) {
     // replacement/credit line, so this can legitimately go negative.
     const ot = d.optional_total;
     document.getElementById('optional-total').textContent = (ot >= 0 ? '$' : '-$') + Math.abs(ot).toFixed(2);
+  }
+  if (d.passthrough_total !== undefined && document.getElementById('passthrough-total')) {
+    const pt = d.passthrough_total;
+    document.getElementById('passthrough-total').textContent = (pt >= 0 ? '$' : '-$') + Math.abs(pt).toFixed(2);
   }
   updateTierNudge(d.quote_total_margin, d.quote_gross_profit);
 }

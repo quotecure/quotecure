@@ -180,6 +180,38 @@
     </div>
   </div>
 
+  <!-- Estimated Pass-Through Costs -->
+  {% if passthrough_items %}
+  <div class="section-title">Estimated Pass-Through Costs <span style="text-transform:none;font-weight:400;color:#94a3b8;">(billed at cost, collected separately as incurred — not part of the total above)</span></div>
+  <table>
+    <thead>
+      <tr>
+        <th>Service</th>
+        <th class="right">Estimated Cost</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in passthrough_items %}
+      <tr>
+        <td>
+          <div class="item-name">{{ item.work_type_label }}</div>
+          {% if item.description %}<div class="item-desc">{{ item.description }}</div>{% endif %}
+        </td>
+        <td class="right">${{ '%.2f'|format(item.total_price) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="totals-section">
+    <div class="totals-box">
+      <div class="total-row">
+        <span class="total-label">Estimated Pass-Through Total</span>
+        <span class="total-amount">${{ '%.2f'|format(passthrough_total) }}</span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Optional Add-Ons -->
   {% if optional_items %}
   <div class="section-title">Optional Add-Ons <span style="text-transform:none;font-weight:400;color:#94a3b8;">(not included in total above)</span></div>

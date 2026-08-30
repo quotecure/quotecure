@@ -48,7 +48,7 @@
   {% for item in line_items %}
   <div class="cv-item" id="cv-item-{{ item.id }}">
     <div style="flex:1;">
-      <div class="cv-item-name">{{ item.work_type_label }}{% if item.is_optional %} <span class="badge badge-amber" style="font-size:9px;">Optional</span>{% endif %}</div>
+      <div class="cv-item-name">{{ item.work_type_label }}{% if item.is_optional %} <span class="badge badge-amber" style="font-size:9px;">Optional</span>{% endif %}{% if item.is_passthrough %} <span class="badge" style="font-size:9px;background:#e2e8f0;color:#475569;">Pass-Through — billed at cost separately</span>{% endif %}</div>
       {% if item.description %}<div class="cv-item-desc">{{ item.description }}</div>{% endif %}
       <div class="cv-item-material" id="cv-material-{{ item.id }}">
         {{ item.product_label or item.material_label or 'No selection yet' }}

@@ -18,18 +18,39 @@ def build_line_item(data, wt, sub_name, product_label, material_label, can_overr
     quantity = float(data.get('quantity', 0) or 0)
     labor_unit = data.get('unit') or (wt['unit'] if wt else '')
     labor_min = float(wt['min_markup'] if wt else 10.0)
+    # Pass-through work types (Electrician, Deck Stabilization, ...) are billed through at
+    # exactly what the sub charges -- zero margin, and LOCKED, not just defaulted: this
+    # overrides whatever markup a caller passed in, the same way the min-markup floor below
+    # can't be bypassed even by a can_override role, so the 0% can't be reintroduced by a
+    # stray/stale client payload.
+    is_passthrough = bool(wt and wt['is_passthrough'] == 'Y')
 
     # Labor
     labor_cpu = float(data.get('labor_cost_per_unit', 0) or 0)
-    labor_markup = float(data.get('labor_markup_pct', wt['default_markup'] if wt else 30) or 30)
-    l_cost, l_price, l_margin = calc_component(labor_cpu, quantity, labor_markup, labor_min, can_override)
+    if is_passthrough:
+        labor_markup_raw = 0
+    else:
+        # `or 30` here would be wrong -- a work type whose real default_markup is 0 needs
+        # that 0 to stick, not get silently bumped back up to 30% because 0 is falsy.
+        # None/missing is the only case that should fall back to a default.
+        labor_markup_raw = data.get('labor_markup_pct')
+        if labor_markup_raw is None or labor_markup_raw == '':
+            labor_markup_raw = wt['default_markup'] if wt else 30
+    labor_markup = float(labor_markup_raw)
+    l_cost, l_price, l_margin = calc_component(labor_cpu, quantity, labor_markup, labor_min, can_override and not is_passthrough)
 
     # Material
     mat_cpu = float(data.get('material_cost_per_unit', 0) or 0)
-    mat_markup = float(data.get('material_markup_pct', wt['default_markup'] if wt else 30) or 30)
+    if is_passthrough:
+        mat_markup_raw = 0
+    else:
+        mat_markup_raw = data.get('material_markup_pct')
+        if mat_markup_raw is None or mat_markup_raw == '':
+            mat_markup_raw = wt['default_markup'] if wt else 30
+    mat_markup = float(mat_markup_raw)
     mat_min = float(data.get('material_min_markup', 10) or 10)
     mat_qty = float(data.get('material_quantity', quantity) or quantity)  # may differ due to waste
-    m_cost, m_price, m_margin = calc_component(mat_cpu, mat_qty, mat_markup, mat_min, can_override)
+    m_cost, m_price, m_margin = calc_component(mat_cpu, mat_qty, mat_markup, mat_min, can_override and not is_passthrough)
 
     total_cost = round(l_cost + m_cost, 2)
     total_price = round(l_price + m_price, 2)
@@ -43,6 +64,7 @@ def build_line_item(data, wt, sub_name, product_label, material_label, can_overr
         'work_type_id': work_type_id,
         'work_type_label': wt['work_type'] if wt else '',
         'cost_structure': cost_structure,
+        'is_passthrough': 1 if is_passthrough else 0,
         'description': description,
         'sub_id': data.get('sub_id', ''),
         'sub_name': sub_name,

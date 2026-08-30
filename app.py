@@ -957,6 +957,19 @@ def _optional_total(db, quote_id):
     ).fetchall()
     return round(sum(float(i['total_price'] or 0) for i in items), 2)
 
+def _passthrough_total(db, quote_id):
+    """Sum of the Estimated Pass-Through Costs section -- billed cost-only (zero markup,
+    total_cost==total_price for these), and deliberately excluded from the quote's own
+    total_price/payment schedule (see add_passthrough_work_types) -- Jim bills these
+    separately as the sub's actual cost comes in, not through the quote's binding total.
+    Same live-patch-staleness concern as _optional_total, same fix: every route that
+    edits a line item's price should include this in its response."""
+    items = db.execute(
+        "SELECT total_price FROM quote_line_items WHERE quote_id=? AND is_passthrough=1",
+        (quote_id,)
+    ).fetchall()
+    return round(sum(float(i['total_price'] or 0) for i in items), 2)
+
 def _recalc_change_order(db, co_id):
     """Mirrors _recalc_quote's commission math exactly, summing change_order_items
     instead of quote_line_items. Never touches payment_schedules -- a Change Order
@@ -1652,6 +1665,11 @@ def edit_quote(quote_id):
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     line_items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
+    # Pass-through work types (Electrician, Deck Stabilization, ...) only ever get added
+    # from their own section's picker -- excluded here so they can't accidentally end up
+    # as a normal marked-up main/optional line item.
+    addable_work_types = [wt for wt in work_types if wt['is_passthrough'] != 'Y']
+    passthrough_work_types = [wt for wt in work_types if wt['is_passthrough'] == 'Y']
     subs = db.execute("SELECT * FROM subs WHERE active='Y' ORDER BY name").fetchall()
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
     settings = db.execute("SELECT financing_link_url FROM company_settings WHERE id=1").fetchone()
@@ -1682,10 +1700,12 @@ def edit_quote(quote_id):
     id_to_label = {i['id']: i['work_type_label'] for i in line_items_enriched}
     for item_dict in line_items_enriched:
         item_dict['replaces_label'] = id_to_label.get(item_dict.get('replaces_item_id'))
-    line_items = [i for i in line_items_enriched if not i.get('is_optional')]
+    passthrough_items = [i for i in line_items_enriched if i.get('is_passthrough')]
+    line_items = [i for i in line_items_enriched if not i.get('is_optional') and not i.get('is_passthrough')]
     optional_items = [i for i in line_items_enriched if i.get('is_optional') and not i.get('is_declined')]
     declined_items = [i for i in line_items_enriched if i.get('is_optional') and i.get('is_declined')]
     optional_total = round(sum(float(i['total_price'] or 0) for i in optional_items), 2)
+    passthrough_total = round(sum(float(i['total_price'] or 0) for i in passthrough_items), 2)
     already_replaced_ids = {i['replaces_item_id'] for i in optional_items + declined_items if i.get('replaces_item_id')}
     replaceable_items = [i for i in line_items if i['id'] not in already_replaced_ids]
     estimated_days_total, estimated_days_margin, missing_estimate_labels = _estimated_timeline_days(db, line_items)
@@ -1710,8 +1730,10 @@ def edit_quote(quote_id):
                                    (quote['salesperson'] or '').strip().lower() == (g.user['display_name'] or '').strip().lower())
     return render_template('edit_quote.html', quote=quote, line_items=line_items,
                            optional_items=optional_items, optional_total=optional_total,
+                           passthrough_items=passthrough_items, passthrough_total=passthrough_total,
                            declined_items=declined_items, replaceable_items=replaceable_items,
-                           work_types=work_types, subs=subs, commission_policy=commission_policy,
+                           work_types=work_types, addable_work_types=addable_work_types,
+                           passthrough_work_types=passthrough_work_types, subs=subs, commission_policy=commission_policy,
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
                            contract_total=contract_total, change_orders=change_orders, versions=versions,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
@@ -1991,8 +2013,8 @@ def add_line_item(quote_id):
         "labor_cost_per_unit, labor_total_cost, labor_markup_pct, labor_margin_pct, labor_total_price, labor_min_markup, "
         "material_id, material_label, material_quantity, material_unit, "
         "material_cost_per_unit, material_total_cost, material_markup_pct, material_margin_pct, material_total_price, material_min_markup, "
-        "product_id, product_label, total_cost, total_price, total_margin_pct, sort_order, description, is_optional) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "product_id, product_label, total_cost, total_price, total_margin_pct, sort_order, description, is_optional, is_passthrough) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (quote_id, item['work_type_id'], item['work_type_label'], item['cost_structure'],
          item['sub_id'], item['sub_name'], item['labor_quantity'], item['labor_unit'],
          item['labor_cost_per_unit'], item['labor_total_cost'], item['labor_markup_pct'],
@@ -2002,7 +2024,7 @@ def add_line_item(quote_id):
          item['material_margin_pct'], item['material_total_price'], item['material_min_markup'],
          item['product_id'], item['product_label'],
          item['total_cost'], item['total_price'], item['total_margin_pct'], sort_order, item['description'],
-         1 if data.get('is_optional') else 0))
+         1 if data.get('is_optional') else 0, item['is_passthrough']))
     db.commit()
     _recalc_quote(db, quote_id)
     return jsonify({'success': True})
@@ -2084,6 +2106,14 @@ def update_markup(quote_id, item_id):
         return jsonify({'error': 'Not found'}), 404
 
     can_override = bool(g.role and g.role['can_override_min_markup'])
+    # Pass-through items (Electrician, Deck Stabilization, ...) are locked at 0% markup --
+    # not even an override-capable role can bump this, since it's billed at exactly the
+    # sub's cost by design, not a markup floor that can be waived. The UI already hides the
+    # +/- stepper for these rows (see qt_rows in edit_quote.html); this is the server-side
+    # backstop in case this endpoint is ever hit directly.
+    if row['is_passthrough']:
+        new_markup = 0
+        can_override = False
 
     if component == 'labor':
         min_m = row['labor_min_markup']
@@ -2129,6 +2159,7 @@ def update_markup(quote_id, item_id):
         'quote_gross_profit': round(gross_profit, 2),
         'quote_net_profit': round(gross_profit - commission, 2),
         'optional_total': _optional_total(db, quote_id),
+        'passthrough_total': _passthrough_total(db, quote_id),
         'at_floor': new_markup <= min_m and not can_override
     })
 
@@ -2342,7 +2373,8 @@ def _recalc_quote(db, quote_id):
         # passes through, so guard here too rather than trust every call site forever.
         return
     items = db.execute(
-        "SELECT total_cost,total_price FROM quote_line_items WHERE quote_id=? AND (is_optional=0 OR is_optional IS NULL)",
+        "SELECT total_cost,total_price FROM quote_line_items WHERE quote_id=? AND (is_optional=0 OR is_optional IS NULL) "
+        "AND (is_passthrough=0 OR is_passthrough IS NULL)",
         (quote_id,)
     ).fetchall()
     total_cost = sum(float(i['total_cost'] or 0) for i in items)
@@ -3085,9 +3117,11 @@ def _quote_preview_html(quote_id):
     all_items = [dict(i) for i in all_items]
     for i in all_items:
         i['modifiers'] = json.loads(i.get('modifiers_json') or '[]')
-    line_items = [i for i in all_items if not i['is_optional']]
+    passthrough_items = [i for i in all_items if i.get('is_passthrough')]
+    line_items = [i for i in all_items if not i['is_optional'] and not i.get('is_passthrough')]
     optional_items = [i for i in all_items if i['is_optional'] and not i['is_declined']]
     declined_items = [i for i in all_items if i['is_optional'] and i['is_declined']]
+    passthrough_total = round(sum(float(i['total_price'] or 0) for i in passthrough_items), 2)
     schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
     terms_doc = db.execute("SELECT * FROM terms_documents WHERE id=?", (quote['terms_document_id'],)).fetchone() if quote['terms_document_id'] else None
@@ -3100,6 +3134,7 @@ def _quote_preview_html(quote_id):
     valid_until = today + timedelta(days=settings['quote_validity_days'] if settings else 30)
     return render_template('quote_preview.html', quote=quote, line_items=line_items,
                            optional_items=optional_items, declined_items=declined_items,
+                           passthrough_items=passthrough_items, passthrough_total=passthrough_total,
                            schedule=schedule, settings=settings, current_role=g.role,
                            terms_doc=terms_doc, visualization=visualization,
                            today=today.strftime('%B %d, %Y'),
@@ -4065,6 +4100,7 @@ def update_line_item(quote_id, item_id):
         'quote_commission': round(commission, 2),
         'quote_net_profit': round(gross - commission, 2),
         'optional_total': _optional_total(db, quote_id),
+        'passthrough_total': _passthrough_total(db, quote_id),
     })
 
 @app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/modifiers/toggle', methods=['POST'])
@@ -4131,6 +4167,7 @@ def toggle_modifier(quote_id, item_id):
         'quote_commission': round(commission, 2),
         'quote_net_profit': round(gross - commission, 2),
         'optional_total': _optional_total(db, quote_id),
+        'passthrough_total': _passthrough_total(db, quote_id),
     })
 
 @app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/tax/toggle', methods=['POST'])
@@ -4163,6 +4200,7 @@ def toggle_tax(quote_id, item_id):
         'quote_commission': round(commission, 2),
         'quote_net_profit': round(gross - commission, 2),
         'optional_total': _optional_total(db, quote_id),
+        'passthrough_total': _passthrough_total(db, quote_id),
     })
 
 # ══════════════════════════════════════════════════════════════════════════════

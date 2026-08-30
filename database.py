@@ -2598,6 +2598,43 @@ def split_deck_drain_into_three_work_types(conn):
                 )
 
 
+@migration
+def add_passthrough_work_types(conn):
+    """Some work Jim contracts out (electrician, deck stabilization) isn't priced the
+    normal cost-plus-markup way -- he bills it through at exactly what the sub charges,
+    zero margin, same idea as Freight's is_freight modifier but for a whole standalone
+    service instead of an add-on to another line item. Talked through the billing model
+    with Jim before building: these are ESTIMATES shown to the customer for planning, but
+    billed and collected separately as the actual sub cost comes in -- not baked into the
+    quote's binding total_price or its payment schedule, since QuoteCure has no true-up
+    mechanism for a signed contract's price (Change Orders are for scope changes, not cost
+    corrections) and 'estimate now, bill the difference later' would be legally shakier
+    than just being upfront that actual billing happens outside the contract total.
+
+    work_types.is_passthrough marks a work type as belonging to this category --
+    default_markup/min_markup/min_margin all locked at 0 so nothing ever tries to add
+    margin to it. quote_line_items.is_passthrough is the same flag copied onto each line
+    item at creation time (same denormalization pattern as cost_structure), so a later
+    change to the work type's flag can't retroactively alter a quote already using it."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(work_types)").fetchall()}
+    if 'is_passthrough' not in cols:
+        conn.execute("ALTER TABLE work_types ADD COLUMN is_passthrough TEXT DEFAULT 'N'")
+    qli_cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'is_passthrough' not in qli_cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN is_passthrough INTEGER DEFAULT 0")
+
+    for name in ('Electrician', 'Deck Stabilization'):
+        existing = conn.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (name,)).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,"
+                "show_on_quote,active,description,is_passthrough) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (name, 'each', 'labor_only', 0.0, 0.0, 0.0, 'Y', 'Y', '', 'Y')
+            )
+        else:
+            conn.execute("UPDATE work_types SET is_passthrough='Y' WHERE work_type_id=?", (existing[0],))
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
