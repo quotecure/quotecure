@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block title %}Sunshelf Components — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Sunshelf Components</div>
+      <div class="page-subtitle">Rates behind the Sunshelf Construction calculator on the quote screen. This is an openly rough estimate, not a sub-rate-driven cost — tune these as you price more real shelves.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Unit</th>
+            <th class="right">Cost/Unit</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in components %}
+          <tr>
+            <td style="font-weight:500;font-size:13px;">{{ c.name }}</td>
+            <td style="font-size:11px;color:var(--text3);">{{ c.unit }}</td>
+            <td class="right">
+              <form method="POST" action="/admin/sunshelf_components/update/{{ c.id }}" style="display:inline-flex;gap:4px;align-items:center;">
+                <input class="form-control mono" name="cost_per_unit" type="number" step="0.01" value="{{ c.cost_per_unit }}" style="width:90px;padding:3px 6px;font-size:12px;text-align:right;">
+                <button class="btn btn-secondary btn-sm" type="submit" style="padding:3px 8px;">✓</button>
+              </form>
+            </td>
+            <td><span class="badge badge-{{ 'green' if c.active == 'Y' else 'red' }}">{{ 'Active' if c.active == 'Y' else 'Off' }}</span></td>
+            <td>
+              <form method="POST" action="/admin/sunshelf_components/toggle/{{ c.id }}" style="display:inline">
+                <button class="btn btn-secondary btn-sm">{{ 'Deactivate' if c.active == 'Y' else 'Activate' }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="font-size:11px;color:var(--text3);margin-top:12px;max-width:640px;">
+    Deactivating a component drops it out of the formula entirely (counts as $0), rather than removing the row — the calculator always reads these live, so a rate change here applies to the next sunshelf you add immediately.
+  </div>
+</div>
+{% endblock %}

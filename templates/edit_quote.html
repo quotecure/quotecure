@@ -378,6 +378,12 @@
             {{ item.material_label or '+ Select material' }}
           </div>
           {% endif %}
+          {% if item.is_calculated %}
+          <div class="svc-bc" onclick="openSunshelfEditor({{ item.id }})">
+            ✎ Edit dimensions
+          </div>
+          <script type="application/json" id="ss-data-{{ item.id }}">{{ item.sunshelf_breakdown|tojson }}</script>
+          {% endif %}
           <div class="svc-desc {% if not item.description %}empty{% endif %}"
                id="desc-bc-{{ item.id }}"
                onclick="toggleDescPicker({{ item.id }})">
@@ -406,23 +412,23 @@
         </td>
 
         <!-- Sub -->
-        <td class="ec" onclick="editCell(this, {{ item.id }}, 'sub')" id="cell-sub-{{ item.id }}">
+        <td class="ec" onclick="editCell(this, {{ item.id }}, {% if item.is_calculated %}'none'{% else %}'sub'{% endif %})" id="cell-sub-{{ item.id }}">
           <span class="ec-val">{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</span>
         </td>
 
         <!-- Qty -->
-        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if is_split %}'labor_qty'{% else %}'labor_qty'{% endif %})" id="cell-qty-{{ item.id }}">
+        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if item.is_calculated %}'none'{% else %}'labor_qty'{% endif %})" id="cell-qty-{{ item.id }}">
           <span class="ec-val mono">{{ item.labor_quantity }}</span>
         </td>
 
         <!-- Unit -->
-        <td class="ec r" onclick="editCell(this, {{ item.id }}, 'unit')" id="cell-unit-{{ item.id }}">
+        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if item.is_calculated %}'none'{% else %}'unit'{% endif %})" id="cell-unit-{{ item.id }}">
           <span class="ec-val" style="color:var(--text3);">{{ item.labor_unit }}</span>
         </td>
 
         <!-- Cost/Unit -->
-        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if is_split %}'none'{% else %}'labor_cpu'{% endif %})" id="cell-cpu-{{ item.id }}">
-          <span class="ec-val mono" style="color:var(--text3);">{% if is_split %}—{% else %}${{ '%.2f'|format(item.labor_cost_per_unit) }}{% endif %}</span>
+        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if is_split or item.is_calculated %}'none'{% else %}'labor_cpu'{% endif %})" id="cell-cpu-{{ item.id }}">
+          <span class="ec-val mono" style="color:var(--text3);">{% if is_split or item.is_calculated %}—{% else %}${{ '%.2f'|format(item.labor_cost_per_unit) }}{% endif %}</span>
         </td>
 
         <!-- Total Cost -->
@@ -461,6 +467,33 @@
           <button onclick="deleteItem({{ item.id }})" style="background:none;border:none;color:var(--red);cursor:pointer;padding:2px 6px;font-size:12px;">✕</button>
         </td>
       </tr>
+
+      {% if item.is_calculated %}
+      {% set breakdown = item.sunshelf_breakdown %}
+      {% if breakdown %}
+      <!-- Sunshelf nudges: point at other line items, never touch them silently -->
+      <tr data-id="{{ item.id }}">
+        <td colspan="10" style="padding:2px 12px 10px 12px;font-size:11px;color:var(--text3);">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+            {% if waterline_tile_item %}
+            <span>Tile band: +{{ breakdown.riser_len|round(1) }} ft suggested for Waterline Tile —
+              <a href="#" onclick="applySunshelfTileBand({{ waterline_tile_item.id }}, {{ breakdown.riser_len }}); return false;" style="color:var(--accent,#93c5fd);">Add to line item →</a>
+            </span>
+            {% else %}
+            <span>Tile band: this shelf's open edge is {{ breakdown.riser_len|round(1) }} ft — add that to your Waterline Tile line item once it's on the quote.</span>
+            {% endif %}
+            {% if surface_app_item and sunshelf_surface_modifier_id %}
+            <span>Surface premium: —
+              <a href="#" onclick="toggleModifier({{ surface_app_item.id }}, {{ sunshelf_surface_modifier_id }}, true); return false;" style="color:var(--accent,#93c5fd);">Check &ldquo;Sunshelf Surface Premium&rdquo; on Surface Application →</a>
+            </span>
+            {% else %}
+            <span>Surface premium: check the &ldquo;Sunshelf Surface Premium&rdquo; modifier on Surface Application once it's on the quote.</span>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endif %}
+      {% endif %}
 
       <!-- Product picker row (inline, hidden by default) -->
       <tr id="pprow-{{ item.id }}" data-id="{{ item.id }}" style="display:none;">
@@ -720,6 +753,93 @@
       <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text3);">No line items yet.</td></tr>
       {% endif %}
       {{ new_row_panel('main', addable_work_types) }}
+      {% if sunshelf_work_type %}
+      <!-- Sunshelf Construction: dedicated calculator, not the generic sub/qty/cost add-row -->
+      <tr class="add-row" onclick="openSunshelfPanel()">
+        <td colspan="10">+ Add Sunshelf Construction</td>
+      </tr>
+      <tr id="sunshelf-panel-row" style="display:none;">
+        <td colspan="10" style="padding:0;">
+          <div class="new-row-panel open" id="sunshelf-panel" style="display:block;">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:10px;max-width:640px;">
+              An estimate, not a real sub-quoted cost — Jim's own words: sunshelves are the one thing he doesn't fully know the price of. Typical range from other contractors: <strong>$6,000–$10,000</strong> depending on size. Tune rates in Admin → Sunshelf Components as you price more real ones.
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+              <div>
+                <label class="nr-label">Length (ft)</label>
+                <input class="nr-input mono" id="ss-length" type="number" step="0.1" oninput="sunshelfRecalc()">
+              </div>
+              <div>
+                <label class="nr-label">Width (ft)</label>
+                <input class="nr-input mono" id="ss-width" type="number" step="0.1" oninput="sunshelfRecalc()">
+              </div>
+              <div>
+                <label class="nr-label">Slab thickness (in)</label>
+                <input class="nr-input mono" id="ss-thickness" type="number" step="0.5" value="8" oninput="sunshelfRecalc()">
+              </div>
+              <div>
+                <label class="nr-label">Depth to floor (in)</label>
+                <input class="nr-input mono" id="ss-depth" type="number" step="1" value="31" oninput="sunshelfRecalc()">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px;">
+              <div>
+                <label class="nr-label">Riser count</label>
+                <input class="nr-input mono" id="ss-risers" type="number" step="1" value="1" min="0" oninput="sunshelfRecalc()">
+              </div>
+              <div>
+                <label class="nr-label">Steps</label>
+                <input class="nr-input mono" id="ss-steps" type="number" step="1" value="3" min="0" oninput="sunshelfRecalc()">
+              </div>
+              <div>
+                <label class="nr-label">Bubbler?</label>
+                <select class="nr-input" id="ss-bubbler" onchange="sunshelfRecalc()">
+                  <option value="1" selected>Yes</option>
+                  <option value="0">No</option>
+                </select>
+              </div>
+              <div>
+                <label class="nr-label">Light?</label>
+                <select class="nr-input" id="ss-light" onchange="sunshelfToggleLight(); sunshelfRecalc()">
+                  <option value="1" selected>Yes</option>
+                  <option value="0">No</option>
+                </select>
+              </div>
+            </div>
+            <div id="ss-conduit-row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px;">
+              <div>
+                <label class="nr-label">Conduit run (ft)</label>
+                <input class="nr-input mono" id="ss-conduit" type="number" step="1" value="50" oninput="sunshelfRecalc()">
+              </div>
+            </div>
+
+            <div id="ss-breakdown" style="margin-top:14px;padding:12px;background:var(--bg2);border-radius:8px;font-size:12px;color:var(--text2);display:none;">
+              <div style="display:flex;justify-content:space-between;"><span>Shotcrete</span><span class="mono" id="ss-b-shotcrete">—</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>Rebar (material + labor)</span><span class="mono" id="ss-b-rebar">—</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>Bubbler</span><span class="mono" id="ss-b-bubbler">—</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>Steps</span><span class="mono" id="ss-b-steps">—</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>Light + conduit</span><span class="mono" id="ss-b-light">—</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>Fill</span><span class="mono" id="ss-b-fill">—</span></div>
+              <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--border2);font-weight:600;color:var(--text);"><span>Total cost</span><span class="mono" id="ss-b-cost">—</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+                <span>Markup</span>
+                <div class="mstep" id="ss-mstep">
+                  <button onclick="sunshelfAdjMarkup(-5)" id="ss-mdn">−</button>
+                  <span class="mv" id="ss-markup-val">40%</span>
+                  <button onclick="sunshelfAdjMarkup(5)">+</button>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-top:6px;font-weight:700;color:var(--text);font-size:14px;"><span>Price</span><span class="mono" id="ss-b-price">—</span></div>
+            </div>
+
+            <div style="margin-top:12px;display:flex;gap:8px;">
+              <button class="btn btn-green btn-sm" id="ss-add-btn" onclick="addSunshelfItem()">Add</button>
+              <button class="btn btn-secondary btn-sm" onclick="closeSunshelfPanel()">Cancel</button>
+            </div>
+          </div>
+        </td>
+      </tr>
+      {% endif %}
       </tbody>
     </table>
   </div>
@@ -1626,6 +1746,129 @@ async function addNrRow(section) {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
   });
   if (resp.ok) location.reload();
+}
+
+// ── Sunshelf Construction calculator ────────────────────────────────
+// Server (_compute_sunshelf_pricing) is the only place the formula actually lives -- this
+// panel never computes a total client-side, it just calls /api/sunshelf_preview on every
+// input change so what's shown while typing is guaranteed to match what gets saved.
+let sunshelfEditingId = null;
+let sunshelfMarkup = {{ sunshelf_work_type.default_markup if sunshelf_work_type else 40 }};
+const SUNSHELF_MIN_MARKUP = {{ sunshelf_work_type.min_markup if sunshelf_work_type else 20 }};
+let sunshelfDebounce = null;
+
+function openSunshelfPanel() {
+  if (LOCKED) { lockedAlert(); return; }
+  sunshelfEditingId = null;
+  document.getElementById('ss-add-btn').textContent = 'Add';
+  document.getElementById('sunshelf-panel-row').style.display = 'table-row';
+  document.getElementById('ss-length').focus();
+}
+function closeSunshelfPanel() {
+  document.getElementById('sunshelf-panel-row').style.display = 'none';
+  sunshelfEditingId = null;
+}
+function sunshelfToggleLight() {
+  document.getElementById('ss-conduit-row').style.display = document.getElementById('ss-light').value === '1' ? 'grid' : 'none';
+}
+
+function openSunshelfEditor(itemId) {
+  if (LOCKED) { lockedAlert(); return; }
+  const dataEl = document.getElementById('ss-data-' + itemId);
+  if (!dataEl) return;
+  const d = JSON.parse(dataEl.textContent);
+  sunshelfEditingId = itemId;
+  document.getElementById('ss-length').value = d.inputs.shelf_length;
+  document.getElementById('ss-width').value = d.inputs.shelf_width;
+  document.getElementById('ss-thickness').value = d.inputs.shelf_thickness;
+  document.getElementById('ss-depth').value = Math.round(d.inputs.shelf_depth * 12);
+  document.getElementById('ss-risers').value = d.inputs.riser_count;
+  document.getElementById('ss-steps').value = d.inputs.step_count;
+  document.getElementById('ss-bubbler').value = d.inputs.include_bubbler ? '1' : '0';
+  document.getElementById('ss-light').value = d.inputs.include_light ? '1' : '0';
+  document.getElementById('ss-conduit').value = d.inputs.conduit_run;
+  sunshelfMarkup = d.markup_pct ?? sunshelfMarkup;
+  sunshelfToggleLight();
+  document.getElementById('ss-add-btn').textContent = 'Update';
+  document.getElementById('sunshelf-panel-row').style.display = 'table-row';
+  document.getElementById('sunshelf-panel-row').scrollIntoView({behavior:'smooth', block:'center'});
+  sunshelfRecalc();
+}
+
+function sunshelfPayload() {
+  return {
+    shelf_length: parseFloat(document.getElementById('ss-length').value) || 0,
+    shelf_width: parseFloat(document.getElementById('ss-width').value) || 0,
+    shelf_thickness: parseFloat(document.getElementById('ss-thickness').value) || 8,
+    shelf_depth: (parseFloat(document.getElementById('ss-depth').value) || 0) / 12,
+    riser_count: parseInt(document.getElementById('ss-risers').value) || 0,
+    step_count: parseInt(document.getElementById('ss-steps').value) || 0,
+    include_bubbler: document.getElementById('ss-bubbler').value === '1',
+    include_light: document.getElementById('ss-light').value === '1',
+    conduit_run: parseFloat(document.getElementById('ss-conduit').value) || 0,
+    markup_pct: sunshelfMarkup,
+  };
+}
+
+function sunshelfAdjMarkup(delta) {
+  sunshelfMarkup = Math.max(SUNSHELF_MIN_MARKUP, sunshelfMarkup + delta);
+  sunshelfRecalc();
+}
+
+function sunshelfRecalc() {
+  clearTimeout(sunshelfDebounce);
+  sunshelfDebounce = setTimeout(sunshelfRecalcNow, 200);
+}
+
+async function sunshelfRecalcNow() {
+  const payload = sunshelfPayload();
+  if (!payload.shelf_length || !payload.shelf_width) {
+    document.getElementById('ss-breakdown').style.display = 'none';
+    return;
+  }
+  const r = await fetch('/api/sunshelf_preview', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+  });
+  if (!r.ok) return;
+  const d = await r.json();
+  document.getElementById('ss-breakdown').style.display = 'block';
+  document.getElementById('ss-b-shotcrete').textContent = '$' + d.components.shotcrete.toFixed(2) + ' (' + d.cubic_yards + ' yd³)';
+  document.getElementById('ss-b-rebar').textContent = '$' + (d.components.rebar_material + d.components.rebar_labor).toFixed(2) + ' (' + d.total_rebar_lf + ' lf)';
+  document.getElementById('ss-b-bubbler').textContent = '$' + d.components.bubbler.toFixed(2);
+  document.getElementById('ss-b-steps').textContent = '$' + d.components.steps.toFixed(2);
+  document.getElementById('ss-b-light').textContent = '$' + d.components.light.toFixed(2);
+  document.getElementById('ss-b-fill').textContent = '$' + d.components.fill.toFixed(2);
+  document.getElementById('ss-b-cost').textContent = '$' + d.total_cost.toFixed(2);
+  document.getElementById('ss-b-price').textContent = '$' + d.total_price.toFixed(2);
+  document.getElementById('ss-markup-val').textContent = d.markup_pct.toFixed(0) + '%';
+  document.getElementById('ss-mdn').disabled = d.markup_pct <= SUNSHELF_MIN_MARKUP;
+  document.getElementById('ss-mstep').classList.toggle('floor', d.markup_pct <= SUNSHELF_MIN_MARKUP);
+}
+
+async function applySunshelfTileBand(waterlineItemId, riserLen) {
+  if (LOCKED) { lockedAlert(); return; }
+  const qtyEl = document.querySelector('#cell-qty-' + waterlineItemId + ' .ec-val');
+  const currentQty = qtyEl ? parseFloat(qtyEl.textContent) || 0 : 0;
+  const newQty = currentQty + riserLen;
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + waterlineItemId + '/update', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({field: 'labor_qty', value: newQty})
+  });
+  if (resp.ok) location.reload();
+}
+
+async function addSunshelfItem() {
+  if (LOCKED) { lockedAlert(); return; }
+  const payload = sunshelfPayload();
+  if (!payload.shelf_length || !payload.shelf_width) { alert('Enter shelf length and width.'); return; }
+  const url = sunshelfEditingId
+    ? '/quotes/' + QID + '/line_items/' + sunshelfEditingId + '/sunshelf/update'
+    : '/quotes/' + QID + '/line_items/sunshelf';
+  const resp = await fetch(url, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+  });
+  if (resp.ok) location.reload();
+  else { const d = await resp.json().catch(()=>({})); alert(d.error || 'Could not save.'); }
 }
 
 // ── Summary cards ─────────────────────────────────────────────────

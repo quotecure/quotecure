@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -443,6 +444,103 @@ def _is_coping_eligible(work_type_id, category, subcategory):
     if work_type_id == 7:
         return subcategory in STONE_PAVER_SUBCATEGORIES
     return False
+
+SUNSHELF_WORK_TYPE_NAME = 'Sunshelf Construction'
+SUNSHELF_DEFAULT_DEPTH_FT = 2 + 7/12  # 2'7" -- the typical shallow-end reference Jim gave
+
+def _sunshelf_component_rates(db):
+    """Live $/unit rates from sunshelf_components, keyed by their stable `key` column (not
+    the admin-editable display `name` -- see add_sunshelf_construction migration)."""
+    rows = db.execute("SELECT key, cost_per_unit FROM sunshelf_components WHERE active='Y'").fetchall()
+    return {r['key']: float(r['cost_per_unit']) for r in rows}
+
+def _compute_sunshelf_pricing(db, inputs):
+    """The sunshelf estimate formula, worked out with Jim over a long back-and-forth after
+    two wrong geometric guesses. Key decisions baked in here, not just picked by 'other
+    Claude':
+    - A sunshelf is NOT a solid block down to full depth -- most of that volume is native
+      soil the excavator never removed, not shotcrete. Only a THIN SHELL is actually shot:
+      the flat top slab (length x width x shelf_thickness) plus a riser wall on whichever
+      edge(s) are open to the pool (riser_count x shelf_width x shelf_depth). The other
+      edges just dowel/drill into the existing pool shell -- no new wall, no extra shotcrete.
+    - Shell area (slab + riser faces) is treated as one uniform-thickness surface (Jim's
+      own simplification) rather than separately volumed -- total_shell_area * thickness.
+    - Shotcrete is ordered in whole yards, never fractional -- ceil(), not round().
+    - Rebar: the slab gets a simple 1'-o.c. grid in both directions (+15% waste, matching
+      the same convention used elsewhere); the riser wall gets a much rougher vertical-bar
+      + 2 horizontal bands estimate at the same spacing -- flagged to Jim as a rough
+      placeholder, not a verified engineering spec.
+    - Cinder block/fill volume turned out to be a dead end (a "solid-packed void" estimate
+      came out ~20x too high, because most of that space is native soil too) -- replaced
+      with a flat, openly-approximate fill cost instead of a fake-precise formula.
+    Returns a full breakdown dict (not just a total) so the UI can show every component
+    live, and so quote_line_items.notes can store exactly what produced the number."""
+    rates = _sunshelf_component_rates(db)
+    length = float(inputs.get('shelf_length') or 0)
+    width = float(inputs.get('shelf_width') or 0)
+    thickness_in = float(inputs.get('shelf_thickness') or 8)
+    depth_ft = float(inputs.get('shelf_depth') or SUNSHELF_DEFAULT_DEPTH_FT)
+    riser_count = int(inputs.get('riser_count') if inputs.get('riser_count') not in (None, '') else 1)
+    include_bubbler = bool(inputs.get('include_bubbler', True))
+    step_count = int(inputs.get('step_count') if inputs.get('step_count') not in (None, '') else 3)
+    include_light = bool(inputs.get('include_light', True))
+    conduit_run = float(inputs.get('conduit_run') if inputs.get('conduit_run') not in (None, '') else 50)
+
+    thickness_ft = thickness_in / 12
+    sqft = round(length * width, 2)
+    riser_len = riser_count * width
+    wall_area = riser_len * depth_ft
+    total_shell_area = sqft + wall_area
+    raw_cubic_yards = (total_shell_area * thickness_ft) / 27
+    cubic_yards = math.ceil(raw_cubic_yards) if raw_cubic_yards > 0 else 0
+
+    slab_rebar_lf = ((math.ceil(width/1.0)+1)*length + (math.ceil(length/1.0)+1)*width) * 1.15 if length and width else 0
+    riser_rebar_lf = 0.0
+    if riser_count > 0 and width:
+        vertical_bars = math.ceil(width/1.0)+1
+        riser_rebar_lf = ((vertical_bars*depth_ft) + (2*riser_len)) * 1.15
+    total_rebar_lf = round(slab_rebar_lf + riser_rebar_lf, 1)
+
+    shotcrete_cost = cubic_yards * rates.get('shotcrete', 0)
+    rebar_material_cost = total_rebar_lf * rates.get('rebar_material', 0)
+    rebar_labor_cost = total_rebar_lf * rates.get('rebar_labor', 0)
+    bubbler_cost = rates.get('bubbler', 0) if include_bubbler else 0
+    steps_cost = step_count * rates.get('steps', 0)
+    light_cost = (rates.get('light', 0) + rates.get('light_pull', 0) + conduit_run*rates.get('conduit', 0)) if include_light else 0
+    fill_cost = rates.get('fill', 0)
+
+    total_cost = round(shotcrete_cost + rebar_material_cost + rebar_labor_cost
+                        + bubbler_cost + steps_cost + light_cost + fill_cost, 2)
+
+    return {
+        'inputs': {
+            'shelf_length': length, 'shelf_width': width, 'shelf_thickness': thickness_in,
+            'shelf_depth': depth_ft, 'riser_count': riser_count, 'include_bubbler': include_bubbler,
+            'step_count': step_count, 'include_light': include_light, 'conduit_run': conduit_run,
+        },
+        'sqft': sqft,
+        'riser_len': riser_len,
+        'raw_cubic_yards': round(raw_cubic_yards, 3),
+        'cubic_yards': cubic_yards,
+        'total_rebar_lf': total_rebar_lf,
+        'components': {
+            'shotcrete': round(shotcrete_cost, 2),
+            'rebar_material': round(rebar_material_cost, 2),
+            'rebar_labor': round(rebar_labor_cost, 2),
+            'bubbler': round(bubbler_cost, 2),
+            'steps': round(steps_cost, 2),
+            'light': round(light_cost, 2),
+            'fill': round(fill_cost, 2),
+        },
+        'total_cost': total_cost,
+    }
+
+def _sunshelf_markup_price(total_cost, markup_pct, min_markup, can_override):
+    if not can_override:
+        markup_pct = max(markup_pct, min_markup)
+    total_price = round(total_cost * (1 + markup_pct/100), 2)
+    margin_pct = round((markup_pct/(100+markup_pct))*100, 1) if markup_pct else 0
+    return total_price, margin_pct
 
 def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims, can_override):
     """Full pricing for one work-type item given a sub/material default and quote dimensions.
@@ -1695,9 +1793,12 @@ def edit_quote(quote_id):
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
     # Pass-through work types (Electrician, Deck Stabilization, ...) only ever get added
     # from their own section's picker -- excluded here so they can't accidentally end up
-    # as a normal marked-up main/optional line item.
-    addable_work_types = [wt for wt in work_types if wt['is_passthrough'] != 'Y']
+    # as a normal marked-up main/optional line item. Sunshelf Construction is excluded the
+    # same way -- it has its own dedicated calculator trigger (see sunshelf_work_type
+    # below), not the generic sub/qty/cost add-row, since its inputs don't fit that shape.
+    addable_work_types = [wt for wt in work_types if wt['is_passthrough'] != 'Y' and wt['is_calculated'] != 'Y']
     passthrough_work_types = [wt for wt in work_types if wt['is_passthrough'] == 'Y']
+    sunshelf_work_type = next((wt for wt in work_types if wt['is_calculated'] == 'Y'), None)
     subs = db.execute("SELECT * FROM subs WHERE active='Y' ORDER BY name").fetchall()
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
     settings = db.execute("SELECT financing_link_url FROM company_settings WHERE id=1").fetchone()
@@ -1724,6 +1825,7 @@ def edit_quote(quote_id):
                 item_dict['mfr_id'] = p['manufacturer_id']
                 item_dict['product_line_name'] = p['product_line']
         item_dict['applied_modifier_ids'] = {q['id'] for q in json.loads(item_dict.get('modifiers_json') or '[]')}
+        item_dict['sunshelf_breakdown'] = json.loads(item_dict['notes']) if item_dict.get('is_calculated') and item_dict.get('notes') else None
         line_items_enriched.append(item_dict)
     id_to_label = {i['id']: i['work_type_label'] for i in line_items_enriched}
     for item_dict in line_items_enriched:
@@ -1736,6 +1838,13 @@ def edit_quote(quote_id):
     passthrough_total = round(sum(float(i['total_price'] or 0) for i in passthrough_items), 2)
     already_replaced_ids = {i['replaces_item_id'] for i in optional_items + declined_items if i.get('replaces_item_id')}
     replaceable_items = [i for i in line_items if i['id'] not in already_replaced_ids]
+    # Sunshelf nudges (see qt_rows in edit_quote.html): a Sunshelf Construction item
+    # doesn't silently touch another line item's price -- it just points at one, if it
+    # already exists, so staff can one-click add the tile band footage or check the
+    # existing Sunshelf Surface Premium modifier chip themselves.
+    waterline_tile_item = next((i for i in line_items_enriched if i.get('work_type_id') == 4), None)
+    surface_app_item = next((i for i in line_items_enriched if i.get('work_type_id') == 1), None)
+    sunshelf_surface_modifier = db.execute("SELECT modifier_id FROM modifiers WHERE label='Sunshelf Surface Premium'").fetchone()
     estimated_days_total, estimated_days_margin, missing_estimate_labels = _estimated_timeline_days(db, line_items)
 
     materials = db.execute("""SELECT m.*, s.name as supplier_name FROM materials m
@@ -1794,7 +1903,10 @@ def edit_quote(quote_id):
                            passthrough_items=passthrough_items, passthrough_total=passthrough_total,
                            declined_items=declined_items, replaceable_items=replaceable_items,
                            work_types=work_types, addable_work_types=addable_work_types,
-                           passthrough_work_types=passthrough_work_types, subs=subs, commission_policy=commission_policy,
+                           passthrough_work_types=passthrough_work_types, sunshelf_work_type=sunshelf_work_type,
+                           waterline_tile_item=waterline_tile_item, surface_app_item=surface_app_item,
+                           sunshelf_surface_modifier_id=sunshelf_surface_modifier['modifier_id'] if sunshelf_surface_modifier else None,
+                           subs=subs, commission_policy=commission_policy,
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
                            contract_total=contract_total, change_orders=change_orders, versions=versions,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
@@ -2088,6 +2200,101 @@ def add_line_item(quote_id):
          item['product_id'], item['product_label'],
          item['total_cost'], item['total_price'], item['total_margin_pct'], sort_order, item['description'],
          1 if data.get('is_optional') else 0, item['is_passthrough']))
+    db.commit()
+    _recalc_quote(db, quote_id)
+    return jsonify({'success': True})
+
+@app.route('/api/sunshelf_preview', methods=['POST'])
+@login_required
+def sunshelf_preview():
+    """No-write preview for the live breakdown panel while typing dimensions -- calls the
+    exact same _compute_sunshelf_pricing() used by add/update, so what's shown while
+    editing can never drift from what actually gets saved."""
+    db = get_db()
+    data = request.json or {}
+    breakdown = _compute_sunshelf_pricing(db, data)
+    wt = db.execute("SELECT default_markup, min_markup FROM work_types WHERE work_type=?", (SUNSHELF_WORK_TYPE_NAME,)).fetchone()
+    markup = float(data.get('markup_pct') if data.get('markup_pct') not in (None, '') else (wt['default_markup'] if wt else 40))
+    can_override = bool(g.role and g.role['can_override_min_markup'])
+    total_price, margin_pct = _sunshelf_markup_price(breakdown['total_cost'], markup, float(wt['min_markup']) if wt else 20, can_override)
+    breakdown['markup_pct'] = markup
+    breakdown['total_price'] = total_price
+    breakdown['margin_pct'] = margin_pct
+    return jsonify(breakdown)
+
+@app.route('/quotes/<int:quote_id>/line_items/sunshelf', methods=['POST'])
+@login_required
+def add_sunshelf_line_item(quote_id):
+    db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
+    data = request.json or {}
+    wt = db.execute("SELECT * FROM work_types WHERE work_type=?", (SUNSHELF_WORK_TYPE_NAME,)).fetchone()
+    if not wt:
+        return jsonify({'error': 'Sunshelf Construction work type not found.'}), 500
+    breakdown = _compute_sunshelf_pricing(db, data)
+    if breakdown['sqft'] <= 0:
+        return jsonify({'error': 'Enter shelf length and width.'}), 400
+    can_override = bool(g.role and g.role['can_override_min_markup'])
+    markup = float(data.get('markup_pct') if data.get('markup_pct') not in (None, '') else wt['default_markup'])
+    total_price, margin_pct = _sunshelf_markup_price(breakdown['total_cost'], markup, float(wt['min_markup']), can_override)
+
+    length, width = breakdown['inputs']['shelf_length'], breakdown['inputs']['shelf_width']
+    label = f"{SUNSHELF_WORK_TYPE_NAME} — {length:g}×{width:g} ({breakdown['sqft']:g} sqft)"
+    sqft = breakdown['sqft']
+    labor_cpu = round(breakdown['total_cost']/sqft, 4) if sqft else 0
+    sort_order = db.execute("SELECT COUNT(*) FROM quote_line_items WHERE quote_id=?", (quote_id,)).fetchone()[0]
+
+    db.execute(
+        "INSERT INTO quote_line_items "
+        "(quote_id, work_type_id, work_type_label, cost_structure, "
+        "labor_quantity, labor_unit, labor_cost_per_unit, labor_total_cost, labor_markup_pct, "
+        "labor_margin_pct, labor_total_price, labor_min_markup, "
+        "total_cost, total_price, total_margin_pct, sort_order, is_calculated, notes) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (quote_id, wt['work_type_id'], label, 'calculated',
+         sqft, 'sqft', labor_cpu, breakdown['total_cost'], markup,
+         margin_pct, total_price, wt['min_markup'],
+         breakdown['total_cost'], total_price, margin_pct, sort_order, 1, json.dumps(breakdown))
+    )
+    db.commit()
+    _recalc_quote(db, quote_id)
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/sunshelf/update', methods=['POST'])
+@login_required
+def update_sunshelf_line_item(quote_id, item_id):
+    """Reopening the calculator on an existing Sunshelf Construction item -- the only way
+    to change one, since its Qty/Cost-per-unit cells are locked (see qt_rows in
+    edit_quote.html) rather than generically editable like a normal qty*rate line item."""
+    db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
+    row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=? AND is_calculated=1", (item_id, quote_id)).fetchone()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    data = request.json or {}
+    wt = db.execute("SELECT * FROM work_types WHERE work_type_id=?", (row['work_type_id'],)).fetchone()
+    breakdown = _compute_sunshelf_pricing(db, data)
+    if breakdown['sqft'] <= 0:
+        return jsonify({'error': 'Enter shelf length and width.'}), 400
+    can_override = bool(g.role and g.role['can_override_min_markup'])
+    markup = float(data.get('markup_pct') if data.get('markup_pct') not in (None, '') else row['labor_markup_pct'])
+    min_markup = float(wt['min_markup']) if wt else float(row['labor_min_markup'])
+    total_price, margin_pct = _sunshelf_markup_price(breakdown['total_cost'], markup, min_markup, can_override)
+
+    length, width = breakdown['inputs']['shelf_length'], breakdown['inputs']['shelf_width']
+    label = f"{SUNSHELF_WORK_TYPE_NAME} — {length:g}×{width:g} ({breakdown['sqft']:g} sqft)"
+    sqft = breakdown['sqft']
+    labor_cpu = round(breakdown['total_cost']/sqft, 4) if sqft else 0
+
+    db.execute(
+        "UPDATE quote_line_items SET work_type_label=?, labor_quantity=?, labor_cost_per_unit=?, "
+        "labor_total_cost=?, labor_markup_pct=?, labor_margin_pct=?, labor_total_price=?, "
+        "total_cost=?, total_price=?, total_margin_pct=?, notes=? WHERE id=?",
+        (label, sqft, labor_cpu, breakdown['total_cost'], markup, margin_pct, total_price,
+         breakdown['total_cost'], total_price, margin_pct, json.dumps(breakdown), item_id)
+    )
     db.commit()
     _recalc_quote(db, quote_id)
     return jsonify({'success': True})
@@ -2863,6 +3070,33 @@ def inject_user():
 # ══════════════════════════════════════════════════════════════════════════════
 # MATERIALS
 # ══════════════════════════════════════════════════════════════════════════════
+@app.route('/admin/sunshelf_components')
+@require_permission('can_access_admin')
+def admin_sunshelf_components():
+    db = get_db()
+    components = db.execute("SELECT * FROM sunshelf_components ORDER BY id").fetchall()
+    return render_template('admin_sunshelf_components.html', components=components)
+
+@app.route('/admin/sunshelf_components/update/<int:component_id>', methods=['POST'])
+@require_permission('can_edit_sub_rates')
+def update_sunshelf_component(component_id):
+    db = get_db()
+    cost_per_unit = float(request.form['cost_per_unit'])
+    db.execute("UPDATE sunshelf_components SET cost_per_unit=? WHERE id=?", (cost_per_unit, component_id))
+    db.commit()
+    return redirect(url_for('admin_sunshelf_components'))
+
+@app.route('/admin/sunshelf_components/toggle/<int:component_id>', methods=['POST'])
+@require_permission('can_edit_sub_rates')
+def toggle_sunshelf_component(component_id):
+    db = get_db()
+    cur = db.execute("SELECT active FROM sunshelf_components WHERE id=?", (component_id,)).fetchone()
+    if cur:
+        new_val = 'N' if cur['active'] == 'Y' else 'Y'
+        db.execute("UPDATE sunshelf_components SET active=? WHERE id=?", (new_val, component_id))
+        db.commit()
+    return redirect(url_for('admin_sunshelf_components'))
+
 @app.route('/admin/materials')
 @require_permission('can_access_admin')
 def admin_materials():
@@ -4078,6 +4312,16 @@ def update_line_item(quote_id, item_id):
     row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
     if not row:
         return jsonify({'error': 'Not found'}), 404
+    if row['is_calculated'] and field != 'description':
+        # Sunshelf Construction's total isn't qty*cost_per_unit -- it's a sum of 7 formula
+        # components from the dimensions calculator. The UI already hides these controls
+        # (see qt_rows, field='none' for is_calculated items); this is the server-side
+        # backstop so a direct call here can't silently overwrite a real formula result
+        # with a meaningless number (e.g. switching 'sub' would zero out labor_cost_per_unit
+        # since there's no sub_rates entry for this work type). The only legitimate way to
+        # change one is reopening the calculator (update_sunshelf_line_item), which
+        # recomputes the whole thing properly.
+        return jsonify({'error': 'This is a calculated line item -- reopen its calculator to change dimensions.'}), 409
 
     can_override = bool(g.role and g.role['can_override_min_markup'])
 
