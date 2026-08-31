@@ -2867,7 +2867,7 @@ def admin_work_types():
 def add_work_type():
     db = get_db()
     db.execute("""INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,
-                  show_on_quote,active,description,estimated_days,estimated_days_margin,timeline_exempt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  show_on_quote,active,description,estimated_days,estimated_days_margin,timeline_exempt,is_passthrough) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                (request.form['work_type'], request.form['unit'], request.form['cost_structure'],
                 float(request.form.get('default_markup',30) or 30),
                 float(request.form.get('min_markup',10) or 10),
@@ -2875,7 +2875,8 @@ def add_work_type():
                 request.form.get('show_on_quote','Y'), 'Y', request.form.get('description',''),
                 float(request.form.get('estimated_days',0) or 0),
                 float(request.form.get('estimated_days_margin',0) or 0),
-                request.form.get('timeline_exempt','N')))
+                request.form.get('timeline_exempt','N'),
+                request.form.get('is_passthrough','N')))
     db.commit()
     return redirect(url_for('admin_work_types'))
 
@@ -2883,7 +2884,7 @@ def add_work_type():
 @require_permission('can_edit_work_types')
 def edit_work_type(wt_id):
     db = get_db()
-    db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,estimated_days_margin=?,timeline_exempt=?,active=?,description=?
+    db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,estimated_days_margin=?,timeline_exempt=?,is_passthrough=?,active=?,description=?
                   WHERE work_type_id=?""",
                (request.form['work_type'],
                 request.form.get('unit','each'), request.form.get('cost_structure','labor_only'),
@@ -2894,6 +2895,7 @@ def edit_work_type(wt_id):
                 float(request.form.get('estimated_days',0) or 0),
                 float(request.form.get('estimated_days_margin',0) or 0),
                 request.form.get('timeline_exempt','N'),
+                request.form.get('is_passthrough','N'),
                 request.form.get('active','Y'), request.form.get('description',''), wt_id))
     db.commit()
     return redirect(url_for('admin_work_types'))

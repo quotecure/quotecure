@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-31 — Self-service Pass-Through toggle on Admin → Work Types
+
+Jim asked how to make a work type show up in the Estimated Pass-Through Costs section -- turned out there was no way, for him. `is_passthrough` (added when that feature shipped) only ever got set by a database migration I wrote for Electrician and Deck Stabilization; the admin Work Types form never had a field for it. Added a "Pass-Through?" Yes/No select to both the Add Work Type form and each row's edit form, plus a small badge in the listing (mirroring the existing "calculated" badge on Sunshelf Construction) so it's visible at a glance which work types are flagged. Default/Min Markup are still shown and editable in the same form, but forced to 0% for pass-through items regardless -- the tooltip on the new field says so, so it doesn't look like a live setting that just isn't being honored.
+
 ## 2026-08-31 — Added Sunshelf Construction (calculated estimate work type)
 
 Jim's own framing: sunshelves are the one thing on the whole cost engine he genuinely doesn't know the real price of. He does few of them, and avoids or under-prices them because of that. Other contractors' real jobs land $6,000-$10,000 depending on size. Came in as a full spec from another AI session; explicitly did NOT build it as handed over -- reviewed it against the actual pricing engine first (per Jim's own instruction not to just build blind), found the formula wasn't grounded in how a sunshelf is actually built, and spent a long back-and-forth with Jim correcting the geometry before writing any code:
