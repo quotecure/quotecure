@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-31 — Search + duplicate detection on Admin → Subs & Applicators
+
+Traced back from "I added a sub, go to Sub Rates, and it's not in the list" -- turned out the sub had landed in the right place, but Jim kept re-adding subs he already had because the list (sorted by insertion order, sub_id) was long enough that an existing one was easy to miss. Same fix shipped for Admin → Work Types earlier: sorted both Subs and Applicators alphabetically by name instead of by ID, added a search box to each column, and a live duplicate-name warning on both Add Sub and Add Applicator forms (exact match warns and links straight to the existing one; a partial match suggests it) -- catches the mistake at the moment of creation instead of after.
+
 ## 2026-08-31 — In-app help for Materials/Collections/Work Types/Sub Rates
 
 Grew out of a real back-and-forth with Jim about setting up equipment (Jandy pumps, filters, salt cells): how Materials, Collections, Categories, Work Types, and Sub Rates all relate to each other wasn't written down anywhere in the app, so every new case (equipment brands, a new work type needing both labor and a product) meant asking me instead of just doing it. Added a collapsible walkthrough at the top of Admin → Materials (open by default) explaining the actual model in plain terms -- a Material is one product tied to exactly one Work Type; a Collection is the brand, optional, mainly useful once a work type has enough materials that the picker needs narrowing; setting up labor + a specific product means one entry in Sub Rates (labor) and one in Materials (the product), nothing else to configure. Short cross-reference notes on Admin → Work Types and Admin → Sub Rates point back to the same explanation and flag that Cost Structure doesn't actually affect pricing (confirmed earlier this session -- it's a cosmetic label only).

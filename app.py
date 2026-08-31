@@ -2767,8 +2767,11 @@ def products_for_applicator():
 @require_permission('can_access_admin')
 def admin_subs():
     db = get_db()
-    subs = db.execute("SELECT * FROM subs ORDER BY sub_id").fetchall()
-    applicators = db.execute("SELECT * FROM surface_applicators ORDER BY sub_id").fetchall()
+    # Alphabetical, not insertion order -- with the list as long as it's gotten, sub_id
+    # order made an existing sub easy to miss (and re-add) since new ones just land at the
+    # bottom rather than near where you'd actually look for them.
+    subs = db.execute("SELECT * FROM subs ORDER BY name").fetchall()
+    applicators = db.execute("SELECT * FROM surface_applicators ORDER BY name").fetchall()
     all_sub_rates = db.execute("""SELECT sr.*, wt.work_type FROM sub_rates sr
                                   JOIN work_types wt ON sr.work_type_id=wt.work_type_id
                                   ORDER BY sr.sub_id, wt.work_type""").fetchall()

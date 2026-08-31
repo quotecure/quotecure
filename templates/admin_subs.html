@@ -21,8 +21,12 @@
     <div>
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header"><div class="card-title">General Subs</div></div>
+        <div style="padding:0 16px 12px;">
+          <input class="form-control" id="sub-search" type="text" placeholder="Search subs…" oninput="filterList('sub')" style="max-width:280px;">
+          <div id="sub-search-empty" style="display:none;color:var(--text3);font-size:12px;margin-top:8px;">No subs match "<span id="sub-search-empty-term"></span>".</div>
+        </div>
         {% for s in subs %}
-        <div style="border-bottom:1px solid var(--border2);">
+        <div style="border-bottom:1px solid var(--border2);" data-name="{{ s.name|lower }}" data-display-name="{{ s.name }}" id="subrow-{{ s.sub_id }}">
           <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
             <span class="mono" style="color:var(--text3);min-width:36px;">{{ s.sub_id }}</span>
             <span style="font-weight:500;flex:1;">{{ s.name }}
@@ -181,17 +185,18 @@
       <div class="card">
         <div class="card-header"><div class="card-title">Add Sub</div></div>
         <div class="card-body">
-          <form method="POST" action="/admin/subs/add" style="display:flex;gap:12px;align-items:flex-end;">
+          <form method="POST" action="/admin/subs/add" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
             <input type="hidden" name="table" value="subs">
             <div class="form-group" style="margin:0;flex:1;">
               <label class="form-label">Name</label>
-              <input class="form-control" name="name" required placeholder="Company name">
+              <input class="form-control" name="name" id="add-sub-name" required placeholder="Company name" oninput="checkDuplicateSub('sub')" autocomplete="off">
             </div>
             <div class="form-group" style="margin:0;">
               <label class="form-label">Phone</label>
               <input class="form-control" name="phone" placeholder="(555) 555-5555" style="width:150px;">
             </div>
             <button class="btn btn-primary" type="submit">Add Sub</button>
+            <div id="add-sub-dupe-warning" style="display:none;flex-basis:100%;margin-top:4px;padding:8px 10px;background:#78350f22;border:1px solid #78350f;border-radius:var(--radius-sm);font-size:12px;color:var(--text2);"></div>
           </form>
           <div style="font-size:11px;color:var(--text3);margin-top:8px;">ID assigned automatically (S{{ next_sub_id }})</div>
         </div>
@@ -202,8 +207,12 @@
     <div>
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header"><div class="card-title">Surface Applicators</div></div>
+        <div style="padding:0 16px 12px;">
+          <input class="form-control" id="app-search" type="text" placeholder="Search applicators…" oninput="filterList('app')" style="max-width:280px;">
+          <div id="app-search-empty" style="display:none;color:var(--text3);font-size:12px;margin-top:8px;">No applicators match "<span id="app-search-empty-term"></span>".</div>
+        </div>
         {% for a in applicators %}
-        <div style="border-bottom:1px solid var(--border2);">
+        <div style="border-bottom:1px solid var(--border2);" data-name="{{ a.name|lower }}" data-display-name="{{ a.name }}" id="approw-{{ a.sub_id }}">
           <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
             <span class="mono" style="color:var(--text3);min-width:36px;">{{ a.sub_id }}</span>
             <span style="font-weight:500;flex:1;">{{ a.name }}{% if a.phone %}<span style="font-weight:400;color:var(--text3);font-size:12px;margin-left:8px;">{{ a.phone }}</span>{% endif %}</span>
@@ -282,17 +291,18 @@
       <div class="card">
         <div class="card-header"><div class="card-title">Add Applicator</div></div>
         <div class="card-body">
-          <form method="POST" action="/admin/subs/add" style="display:flex;gap:12px;align-items:flex-end;">
+          <form method="POST" action="/admin/subs/add" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
             <input type="hidden" name="table" value="applicators">
             <div class="form-group" style="margin:0;flex:1;">
               <label class="form-label">Name</label>
-              <input class="form-control" name="name" required placeholder="Applicator name">
+              <input class="form-control" name="name" id="add-app-name" required placeholder="Applicator name" oninput="checkDuplicateSub('app')" autocomplete="off">
             </div>
             <div class="form-group" style="margin:0;">
               <label class="form-label">Phone</label>
               <input class="form-control" name="phone" placeholder="(555) 555-5555" style="width:150px;">
             </div>
             <button class="btn btn-primary" type="submit">Add Applicator</button>
+            <div id="add-app-dupe-warning" style="display:none;flex-basis:100%;margin-top:4px;padding:8px 10px;background:#78350f22;border:1px solid #78350f;border-radius:var(--radius-sm);font-size:12px;color:var(--text2);"></div>
           </form>
           <div style="font-size:11px;color:var(--text3);margin-top:8px;">ID assigned automatically (P{{ next_app_id }})</div>
         </div>
@@ -328,6 +338,62 @@ const WT_NAME_TO_ID = {
 };
 function setRateWorkTypeId(input) {
   input.nextElementSibling.value = WT_NAME_TO_ID[input.value] || '';
+}
+
+// ── Search + duplicate detection for Subs/Applicators ───────────────
+// kind is 'sub' or 'app' -- each column filters/checks only its own row prefix
+// (subrow-/approw-) so the two lists behave independently.
+function filterList(kind) {
+  const term = document.getElementById(kind + '-search').value.trim().toLowerCase();
+  const prefix = kind === 'sub' ? 'subrow-' : 'approw-';
+  const rows = document.querySelectorAll('[id^="' + prefix + '"]');
+  let visibleCount = 0;
+  rows.forEach(row => {
+    const match = !term || (row.dataset.name || '').includes(term);
+    row.style.display = match ? '' : 'none';
+    if (match) visibleCount++;
+    else row.querySelectorAll('.rates-panel.open').forEach(p => p.classList.remove('open'));
+  });
+  document.getElementById(kind + '-search-empty').style.display = (term && visibleCount === 0) ? 'block' : 'none';
+  document.getElementById(kind + '-search-empty-term').textContent = term;
+}
+
+function checkDuplicateSub(kind) {
+  const raw = document.getElementById('add-' + kind + '-name').value.trim();
+  const term = raw.toLowerCase();
+  const warning = document.getElementById('add-' + kind + '-dupe-warning');
+  if (term.length < 2) { warning.style.display = 'none'; return; }
+
+  const prefix = kind === 'sub' ? 'subrow-' : 'approw-';
+  const noun = kind === 'sub' ? 'sub' : 'applicator';
+  const rows = Array.from(document.querySelectorAll('[id^="' + prefix + '"]'));
+  const exact = rows.find(r => r.dataset.name === term);
+  const partial = rows.filter(r => r.dataset.name !== term &&
+    (r.dataset.name.includes(term) || term.includes(r.dataset.name)));
+
+  if (exact) {
+    warning.innerHTML = '⚠ You already have this exact ' + noun + '. ' +
+      '<a href="#" onclick="jumpToSubRow(\'' + exact.id + '\');return false;" style="color:#93c5fd;">Jump to it →</a>';
+    warning.style.display = 'block';
+  } else if (partial.length) {
+    const links = partial.map(r =>
+      '<a href="#" onclick="jumpToSubRow(\'' + r.id + '\');return false;" style="color:#93c5fd;">' + r.dataset.displayName + '</a>'
+    ).join(', ');
+    warning.innerHTML = '💡 Similar existing ' + noun + (partial.length > 1 ? 's' : '') + ': ' + links;
+    warning.style.display = 'block';
+  } else {
+    warning.style.display = 'none';
+  }
+}
+
+function jumpToSubRow(rowId) {
+  const kind = rowId.startsWith('approw-') ? 'app' : 'sub';
+  document.getElementById(kind + '-search').value = '';
+  filterList(kind);
+  const row = document.getElementById(rowId);
+  row.scrollIntoView({behavior: 'smooth', block: 'center'});
+  row.style.outline = '2px solid var(--blue-light)';
+  setTimeout(() => { row.style.outline = ''; }, 1500);
 }
 </script>
 {% endblock %}
