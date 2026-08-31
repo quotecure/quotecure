@@ -11,9 +11,19 @@
   <div class="page-header">
     <div>
       <div class="page-title">Materials</div>
-      <div class="page-subtitle">Tile, pavers, and other materials with cost-per-LF calculations</div>
+      <div class="page-subtitle">Tile, pavers, equipment, and other materials with cost-per-LF calculations</div>
     </div>
   </div>
+
+  <details class="card" open style="margin-bottom:20px;padding:16px 20px;">
+    <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text);">How Materials, Collections, and Work Types fit together</summary>
+    <div style="margin-top:12px;font-size:12px;color:var(--text2);line-height:1.7;max-width:760px;">
+      <p style="margin-bottom:10px;"><strong>A Material</strong> is one specific product (a SKU, model, or color) with its own cost. Every material belongs to exactly one Work Type — that's what makes it show up in that work type's picker on a quote. A "Jandy 1.65HP" pump is a material; its Work Type is Pump Installation.</p>
+      <p style="margin-bottom:10px;"><strong>A Collection</strong> is the brand or manufacturer (Jandy, Pentair, Keystone Tile). It's optional, but once a work type has more than a handful of materials, grouping them under a Collection narrows the picker on the quote screen instead of dumping everything into one long list. Category / Sub Category do the same job at a finer level within a work type or collection.</p>
+      <p style="margin-bottom:10px;"><strong>Setting up a new work type that needs both labor and a material</strong> (e.g. a new piece of equipment): add the sub's install rate in <a href="/admin/sub_rates" style="color:#93c5fd;">Sub Rates</a> — that's the labor. Add the product(s) here, scoped to that Work Type — that's the material. A line item automatically becomes a labor + material split the moment both are picked on a quote; there's nothing else to configure.</p>
+      <p><strong>Cost Structure</strong> on a work type (in <a href="/admin/work_types" style="color:#93c5fd;">Work Types</a>) doesn't change how anything prices — it's just a label, purely cosmetic.</p>
+    </div>
+  </details>
 
   <div style="display:grid; grid-template-columns:1fr 340px; gap:24px; align-items:start;">
 
