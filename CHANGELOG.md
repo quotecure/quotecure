@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-31 — Fixed: manually-added Paver Installation always used pool sqft, never deck sqft
+
+Jim reported paver quantity was still auto-filling from the pool's own interior surface sqft instead of the deck/paver area, even on quotes with Deck Sqft set on Edit Details. Root cause: `WORK_TYPES[id].deck` renders server-side as a bare JS number (`deck: 1` or `deck: 0`), but the manual add-item picker's `onNrWorkType`/`onNrSub` checked it with `wt.deck === '1'` -- strict equality between a number and a string, which JS never coerces, so that comparison was `false` unconditionally regardless of the real value. The deck-sqft branch never fired, full stop -- every deck-sqft work type (Paver Installation, Paver Sealing, both Textured Decking variants) silently fell through to the pool's own sqft on every quote, whether or not Deck Sqft had ever been entered. The automatic template/package pricing path (`_compute_line_item_pricing` in `app.py`) was unaffected -- it compares the real Python set by name, not this broken JS string check, so packages/templates were pricing pavers correctly the whole time. Only the manual "+ Add line item" flow had the bug.
+
+Fixed both occurrences to a plain truthy check (`!!wt.deck`). Verified live: a quote with pool sqft 450 / deck sqft 800 now auto-fills 800 when Paver Installation is picked from the manual add-row, not 450.
+
 ## 2026-08-31 — Self-service Pass-Through toggle on Admin → Work Types
 
 Jim asked how to make a work type show up in the Estimated Pass-Through Costs section -- turned out there was no way, for him. `is_passthrough` (added when that feature shipped) only ever got set by a database migration I wrote for Electrician and Deck Stabilization; the admin Work Types form never had a field for it. Added a "Pass-Through?" Yes/No select to both the Add Work Type form and each row's edit form, plus a small badge in the listing (mirroring the existing "calculated" badge on Sunshelf Construction) so it's visible at a glance which work types are flagged. Default/Min Markup are still shown and editable in the same form, but forced to 0% for pass-through items regardless -- the tooltip on the new field says so, so it doesn't look like a live setting that just isn't being honored.

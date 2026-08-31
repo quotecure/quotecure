@@ -1638,8 +1638,11 @@ async function onNrWorkType(section) {
   // Set qty -- deck-sqft work types (pavers, textured decking) use the deck/paver area,
   // not the pool's own interior surface sqft, same distinction _compute_line_item_pricing
   // already makes for the automatic pricing path (DECK_SQFT_WORK_TYPES, matched via
-  // WORK_TYPES[wtId].deck, set from that same Python set).
-  const isDeck = wt?.deck === '1';
+  // WORK_TYPES[wtId].deck, set from that same Python set). `wt.deck` renders as a bare JS
+  // number (1 or 0), not the string '1' -- a strict `=== '1'` comparison against it is
+  // always false regardless of the actual value, which silently defeated this check
+  // entirely and made every deck-sqft work type fall through to the pool's own sqft.
+  const isDeck = !!wt?.deck;
   let qty = '';
   if (unit === 'sqft' && isDeck && DECK_SQFT) qty = DECK_SQFT;
   else if (unit === 'sqft' && POOL_SQFT) qty = POOL_SQFT;
@@ -1688,7 +1691,7 @@ async function onNrSub(section) {
   const wtId = nrWorkTypeId(section);
   const subId = document.getElementById('nr-sub-' + section).value;
   if (!subId || !wtId) return;
-  const isDeck = WORK_TYPES[wtId]?.deck === '1';
+  const isDeck = !!WORK_TYPES[wtId]?.deck;
   const r = await fetch('/api/rate?sub_id=' + subId + '&work_type_id=' + wtId);
   const d = await r.json();
   nrMarkupOverride[section] = null;
