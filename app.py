@@ -1866,7 +1866,17 @@ def edit_quote(quote_id):
         "WHERE mc.active='Y' AND m.active='Y' ORDER BY mc.name"
     ).fetchall()
     collections_by_wt = {}
+    seen_wt_collection = set()
     for r in collection_rows:
+        # collection_rows carries one row per (collection, work_type, category,
+        # subcategory) combination -- a collection with several subcategories under the
+        # same work type (e.g. Keystone Tile's Marble/Travertine/Porcelain/... pavers)
+        # would otherwise get appended to this work type's dropdown once per subcategory
+        # instead of once, total.
+        key = (r['work_type_id'], r['collection_id'])
+        if key in seen_wt_collection:
+            continue
+        seen_wt_collection.add(key)
         collections_by_wt.setdefault(r['work_type_id'], []).append({'collection_id': r['collection_id'], 'name': r['name']})
     # Coping Installation's collection list isn't just "collections with a wt=6 material"
     # -- same eligibility rule as the flat picker below (see _is_coping_eligible): a
