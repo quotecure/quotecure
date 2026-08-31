@@ -41,7 +41,7 @@
                 {% if wt.estimated_days %}{{ '%g'|format(wt.estimated_days) }}{% if wt.estimated_days_margin %} ±{{ '%g'|format(wt.estimated_days_margin) }}{% endif %}d{% else %}—{% endif %}
                 {% if wt.timeline_exempt == 'Y' %}<span class="badge badge-amber" style="font-size:9px;" title="Has a real duration but doesn't count toward a quote's summed timeline">exempt</span>{% endif %}
               </td>
-              <td><span class="badge badge-{{ 'green' if wt.active == 'Y' else 'red' }}">{{ 'Active' if wt.active == 'Y' else 'Off' }}</span>{% if wt.is_passthrough == 'Y' %}<span class="badge badge-amber" style="font-size:9px;" title="Billed at cost, no markup -- shows in the Estimated Pass-Through Costs section, not the main quote total">pass-through</span>{% endif %}{% if wt.is_calculated == 'Y' %}<span class="badge badge-amber" style="font-size:9px;" title="Priced by a dedicated calculator, not qty x cost/unit">calculated</span>{% endif %}</td>
+              <td><span class="badge badge-{{ 'green' if wt.active == 'Y' else 'red' }}">{{ 'Active' if wt.active == 'Y' else 'Off' }}</span>{% if wt.is_passthrough == 'Y' %}<span class="badge badge-amber" style="font-size:9px;" title="Billed at cost, no markup -- shows in the Estimated Pass-Through Costs section, not the main quote total">pass-through</span>{% endif %}{% if wt.is_calculated == 'Y' %}<span class="badge badge-amber" style="font-size:9px;" title="Priced by a dedicated calculator, not qty x cost/unit">calculated</span>{% endif %}{% if wt.uses_pool_perimeter == 'Y' %}<span class="badge badge-blue" style="font-size:9px;" title="Adding this on a quote auto-fills the pool's own perimeter as the starting Qty">pool perimeter</span>{% endif %}</td>
               <td><button class="btn btn-secondary btn-sm" onclick="toggleEdit({{ wt.work_type_id }})">Edit</button></td>
             </tr>
             <tr class="edit-form" id="edit-{{ wt.work_type_id }}">
@@ -104,6 +104,15 @@
                       <option value="Y" {{ 'selected' if wt.is_passthrough == 'Y' }}>Yes</option>
                     </select>
                   </div>
+                  {% if wt.unit == 'lf' %}
+                  <div>
+                    <label class="form-label" title="Only for work types priced per linear foot that genuinely install around the pool's own edge (Coping, Waterline Tile, Cap Tile). When Yes, adding this on a quote auto-fills the pool's perimeter as the starting quantity. Anything else (screen rails, fencing, retaining walls) has no relation to that measurement and should stay No -- the Qty field is left blank for staff to fill in instead of showing a plausible-looking wrong number.">Uses Pool Perimeter?</label>
+                    <select class="form-control" name="uses_pool_perimeter" style="width:90px;">
+                      <option value="N" {{ 'selected' if wt.uses_pool_perimeter != 'Y' }}>No</option>
+                      <option value="Y" {{ 'selected' if wt.uses_pool_perimeter == 'Y' }}>Yes</option>
+                    </select>
+                  </div>
+                  {% endif %}
                   <div>
                     <label class="form-label">Status</label>
                     <select class="form-control" name="active" style="width:100px;">
@@ -191,6 +200,12 @@
             <div class="form-group" style="margin:0">
               <label class="form-label" title="Billed at exactly the sub's cost -- Default/Min Markup above are ignored and forced to 0% for pass-through items. Shows in its own Estimated Pass-Through Costs section, excluded from the quote's binding total and payment schedule.">Pass-Through?</label>
               <select class="form-control" name="is_passthrough">
+                <option value="N">No</option><option value="Y">Yes</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label" title="Only relevant for lf (linear foot) work types that genuinely install around the pool's own edge (Coping, Waterline Tile, Cap Tile). Yes auto-fills the pool's perimeter as the starting quantity on a quote. Leave No for anything else priced per linear foot (screen rails, fencing, retaining walls) -- the Qty field is left blank for staff to fill in instead of a plausible-looking wrong number. Defaults to No; you can only sensibly say Yes here if the Unit above is lf.">Uses Pool Perimeter?</label>
+              <select class="form-control" name="uses_pool_perimeter">
                 <option value="N">No</option><option value="Y">Yes</option>
               </select>
             </div>

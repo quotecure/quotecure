@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-31 — New lf work types no longer auto-fill the pool's own perimeter
+
+Jim added a new work type (Screen Rails, priced per lf) and found its quantity silently defaulted to the pool's own perimeter on the quote screen -- no relation, since a screen enclosure's rail length has nothing to do with the pool's edge. Root cause: the manual add-item picker's JS auto-filled the pool's perimeter for *every* lf-unit work type unconditionally, with no opt-out -- correct for the handful that genuinely install around the pool's own edge (Coping, Waterline Tile, Cap Tile), silently wrong for anything else priced per linear foot.
+
+Jim's own framing: fix it so it doesn't just apply to this one case, but to whatever gets added next. Added `work_types.uses_pool_perimeter` (new "Uses Pool Perimeter?" toggle on Admin → Work Types, only shown for lf-unit types) -- defaults to **No** for every new work type, so Qty is left blank for staff to fill in rather than showing a plausible-looking wrong number. Backfilled to Yes for every *currently* active lf work type to preserve today's live behavior with zero regression risk -- only Screen Rails itself was set to No, since that's the one confirmed-wrong case. The other lf work types added earlier this session (deck drains, retaining block, facing steps, etc.) kept the default Yes from that backfill and haven't been individually reviewed -- worth a look via the new toggle when there's time, not guessed at here.
+
 ## 2026-08-31 — Search + duplicate detection on Admin → Subs & Applicators
 
 Traced back from "I added a sub, go to Sub Rates, and it's not in the list" -- turned out the sub had landed in the right place, but Jim kept re-adding subs he already had because the list (sorted by insertion order, sub_id) was long enough that an existing one was easy to miss. Same fix shipped for Admin → Work Types earlier: sorted both Subs and Applicators alphabetically by name instead of by ID, added a search box to each column, and a live duplicate-name warning on both Add Sub and Add Applicator forms (exact match warns and links straight to the existing one; a partial match suggests it) -- catches the mistake at the moment of creation instead of after.

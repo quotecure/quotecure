@@ -3409,6 +3409,33 @@ def add_sunshelf_construction(conn):
         )
 
 
+@migration
+def add_uses_pool_perimeter(conn):
+    """Jim added a new lf-unit work type (Screen Rails) and found it silently defaulted
+    its quantity to the pool's own perimeter -- wrong, since a screen enclosure's rail
+    length has no relation to the pool's edge. Root cause: the manual add-item picker's
+    JS (onNrWorkType/onNrSub in edit_quote.html) auto-fills POOL_LF for every single
+    lf-unit work type unconditionally, no opt-out -- fine for the handful that genuinely
+    install around the pool's own edge (Coping, Waterline Tile, Cap Tile), silently wrong
+    for anything else priced per linear foot that isn't pool-edge-related (screen rails,
+    fencing, whatever gets added next).
+
+    work_types.uses_pool_perimeter (default 'N', mirrors is_passthrough's pattern) is the
+    real opt-in flag now gating that autofill; blank/unset means the Qty field is left for
+    staff to fill in explicitly rather than silently showing a plausible-looking wrong
+    number. Backfilled to 'Y' for every CURRENTLY active lf-unit work type to preserve
+    today's live behavior with zero risk of regressing something Jim already relies on --
+    only the one confirmed-wrong case (Screen Rails) is explicitly set to 'N' here. The
+    other lf work types added this session for deck drains/retaining block/etc. also kept
+    'Y' by this same blanket backfill and haven't been individually reviewed -- worth a
+    look via the new Admin -> Work Types toggle, not guessed at in a migration."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(work_types)").fetchall()}
+    if 'uses_pool_perimeter' not in cols:
+        conn.execute("ALTER TABLE work_types ADD COLUMN uses_pool_perimeter TEXT DEFAULT 'N'")
+        conn.execute("UPDATE work_types SET uses_pool_perimeter='Y' WHERE unit='lf'")
+    conn.execute("UPDATE work_types SET uses_pool_perimeter='N' WHERE work_type='Screen Rails'")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

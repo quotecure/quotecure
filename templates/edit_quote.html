@@ -991,7 +991,7 @@ const DRAWS = {{ schedule_json | default("[]") | safe }};
 // per-<option> data- attributes used to carry directly.
 const WORK_TYPES = {
   {% for wt in work_types %}
-  {{ wt.work_type_id }}: {name: {{ wt.work_type|tojson }}, unit: {{ wt.unit|tojson }}, markup: {{ wt.default_markup }}, min: {{ wt.min_markup }}, sub: {{ (wt.default_sub_id or '')|tojson }}, deck: {{ '1' if wt.work_type in DECK_SQFT_WORK_TYPES else '0' }}},
+  {{ wt.work_type_id }}: {name: {{ wt.work_type|tojson }}, unit: {{ wt.unit|tojson }}, markup: {{ wt.default_markup }}, min: {{ wt.min_markup }}, sub: {{ (wt.default_sub_id or '')|tojson }}, deck: {{ '1' if wt.work_type in DECK_SQFT_WORK_TYPES else '0' }}, poolLf: {{ '1' if wt.uses_pool_perimeter == 'Y' else '0' }}},
   {% endfor %}
 };
 const WORK_TYPE_NAME_TO_ID = {};
@@ -1643,11 +1643,18 @@ async function onNrWorkType(section) {
   // always false regardless of the actual value, which silently defeated this check
   // entirely and made every deck-sqft work type fall through to the pool's own sqft.
   const isDeck = !!wt?.deck;
+  // Same idea for lf work types: only ones explicitly flagged uses_pool_perimeter='Y' in
+  // Admin -> Work Types (Coping/Waterline/Cap Tile install around the pool's own edge)
+  // default to the pool's perimeter. Anything else priced per linear foot (screen rails,
+  // fencing, whatever gets added next) has no relation to that measurement, so it's left
+  // blank for staff to fill in rather than silently showing a plausible-looking wrong
+  // number -- new work types default to this flag off (see add_work_type).
+  const usesPoolLf = !!wt?.poolLf;
   let qty = '';
   if (unit === 'sqft' && isDeck && DECK_SQFT) qty = DECK_SQFT;
   else if (unit === 'sqft' && POOL_SQFT) qty = POOL_SQFT;
-  else if (unit === 'lf' && POOL_LF) qty = POOL_LF;
-  else qty = 1;
+  else if (unit === 'lf' && usesPoolLf && POOL_LF) qty = POOL_LF;
+  else if (unit !== 'lf') qty = 1;
   document.getElementById('nr-qty-' + section).value = qty;
   document.getElementById('nr-cpu-' + section).value = '';
 
@@ -1680,7 +1687,7 @@ async function onNrWorkType(section) {
         [...unitSel.options].forEach(o => o.selected = o.value === rd.unit);
         if (rd.unit === 'each') document.getElementById('nr-qty-' + section).value = 1;
         else if (rd.unit === 'sqft') document.getElementById('nr-qty-' + section).value = (isDeck && DECK_SQFT) ? DECK_SQFT : POOL_SQFT;
-        else if (rd.unit === 'lf') document.getElementById('nr-qty-' + section).value = POOL_LF;
+        else if (rd.unit === 'lf') document.getElementById('nr-qty-' + section).value = usesPoolLf ? POOL_LF : '';
       }
     }
   }
@@ -1692,6 +1699,7 @@ async function onNrSub(section) {
   const subId = document.getElementById('nr-sub-' + section).value;
   if (!subId || !wtId) return;
   const isDeck = !!WORK_TYPES[wtId]?.deck;
+  const usesPoolLf = !!WORK_TYPES[wtId]?.poolLf;
   const r = await fetch('/api/rate?sub_id=' + subId + '&work_type_id=' + wtId);
   const d = await r.json();
   nrMarkupOverride[section] = null;
@@ -1703,7 +1711,7 @@ async function onNrSub(section) {
       [...unitSel.options].forEach(o => o.selected = o.value === d.unit);
       if (d.unit === 'each') document.getElementById('nr-qty-' + section).value = 1;
       else if (d.unit === 'sqft') document.getElementById('nr-qty-' + section).value = (isDeck && DECK_SQFT) ? DECK_SQFT : POOL_SQFT;
-      else if (d.unit === 'lf') document.getElementById('nr-qty-' + section).value = POOL_LF;
+      else if (d.unit === 'lf') document.getElementById('nr-qty-' + section).value = usesPoolLf ? POOL_LF : '';
     }
   }
   calcNrPreview(section);
