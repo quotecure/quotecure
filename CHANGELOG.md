@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-31 — Self-service Default Material picker on Admin → Work Types
+
+Jim asked how to change what material Skimmer Installation auto-fills (it was showing "SCP Pool Supply — Skimmer" and he uses an AquaStar Flowstar). `work_types.default_material_id` already drives this everywhere -- the manual add-item flow's autofill and the automatic template/package pricing path both read it -- but had no admin form field at all, only settable by editing the database directly. Added a "Default Material" dropdown to each work type's edit form on Admin → Work Types, scoped to materials already tagged for that work type (add the product under Admin → Materials first, then it shows up here to pick as the default). No schema change needed -- the column already existed and was just never exposed.
+
 ## 2026-08-31 — New lf work types no longer auto-fill the pool's own perimeter
 
 Jim added a new work type (Screen Rails, priced per lf) and found its quantity silently defaulted to the pool's own perimeter on the quote screen -- no relation, since a screen enclosure's rail length has nothing to do with the pool's edge. Root cause: the manual add-item picker's JS auto-filled the pool's perimeter for *every* lf-unit work type unconditionally, with no opt-out -- correct for the handful that genuinely install around the pool's own edge (Coping, Waterline Tile, Cap Tile), silently wrong for anything else priced per linear foot.

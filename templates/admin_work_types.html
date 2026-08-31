@@ -114,6 +114,15 @@
                   </div>
                   {% endif %}
                   <div>
+                    <label class="form-label" title="Auto-fills when this work type is added on a quote (manually, or via a template/package) -- add the product first under Admin → Materials, scoped to this work type, then it'll show up here.">Default Material</label>
+                    <select class="form-control" name="default_material_id" style="width:220px;">
+                      <option value="">— None —</option>
+                      {% for m in materials_by_wt.get(wt.work_type_id, []) %}
+                      <option value="{{ m.material_id }}" {{ 'selected' if wt.default_material_id == m.material_id }}>{{ m.label }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
                     <label class="form-label">Status</label>
                     <select class="form-control" name="active" style="width:100px;">
                       <option value="Y" {{ 'selected' if wt.active == 'Y' }}>Active</option>

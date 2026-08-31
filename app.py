@@ -2873,7 +2873,20 @@ def edit_sub():
 def admin_work_types():
     db = get_db()
     wts = db.execute("SELECT * FROM work_types ORDER BY work_type_id").fetchall()
-    return render_template('admin_work_types.html', work_types=wts)
+    # For the "Default Material" picker on each work type's edit form -- default_material_id
+    # drives what auto-fills both the manual add-item flow and the automatic
+    # template/package pricing path (_compute_line_item_pricing), but had no admin UI at
+    # all before this; only settable via a direct migration.
+    material_rows = db.execute(
+        "SELECT m.material_id, m.work_type_id, m.series, s.name as supplier_name FROM materials m "
+        "JOIN suppliers s ON m.supplier_id=s.supplier_id WHERE m.active='Y' ORDER BY m.series"
+    ).fetchall()
+    materials_by_wt = {}
+    for m in material_rows:
+        materials_by_wt.setdefault(m['work_type_id'], []).append(
+            {'material_id': m['material_id'], 'label': f"{m['supplier_name']} — {m['series']}"}
+        )
+    return render_template('admin_work_types.html', work_types=wts, materials_by_wt=materials_by_wt)
 
 @app.route('/admin/work_types/add', methods=['POST'])
 @require_permission('can_edit_work_types')
@@ -2901,7 +2914,7 @@ def add_work_type():
 @require_permission('can_edit_work_types')
 def edit_work_type(wt_id):
     db = get_db()
-    db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,estimated_days_margin=?,timeline_exempt=?,is_passthrough=?,uses_pool_perimeter=?,active=?,description=?
+    db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,estimated_days_margin=?,timeline_exempt=?,is_passthrough=?,uses_pool_perimeter=?,default_material_id=?,active=?,description=?
                   WHERE work_type_id=?""",
                (request.form['work_type'],
                 request.form.get('unit','each'), request.form.get('cost_structure','labor_only'),
@@ -2914,6 +2927,7 @@ def edit_work_type(wt_id):
                 request.form.get('timeline_exempt','N'),
                 request.form.get('is_passthrough','N'),
                 request.form.get('uses_pool_perimeter','N'),
+                request.form.get('default_material_id') or None,
                 request.form.get('active','Y'), request.form.get('description',''), wt_id))
     db.commit()
     return redirect(url_for('admin_work_types'))
