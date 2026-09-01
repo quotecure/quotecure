@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-01 — Fixed: pass-through work types with a min_job_price showed a phantom margin
+
+Jim added a new pass-through work type (Concrete Deck Leveling Foam) with a sub rate and a min job price, then found the line item's Markup correctly showed "at cost" but its Margin showed 23% anyway. Root cause: `_apply_min_job_price` (the flat-dollar job-price floor, e.g. "$250 minimum regardless of markup") applied to every work type unconditionally, pass-through included -- if the raw cost came in under the floor, it bumped `total_price` up to the floor while `total_cost` stayed put, injecting a margin on an item that `build_line_item` had already correctly locked to 0% markup. Two different guarantees ("markup can't exceed 0%" and "price can't go below the floor") collided, and the floor silently won.
+
+Fixed by having `_apply_min_job_price` skip the floor entirely when the work type is pass-through -- a min-job-price floor exists to protect margin on thin-margin *marked-up* work; it has no meaning for something billed at exactly what the sub charges. Non-pass-through work types with a floor are unaffected.
+
+Verified: new test reproduces Jim's exact setup (pass-through work type, $250 min_job_price, a $100 raw-cost job) and confirms price now stays at $100/0% margin instead of being floored to $250; a matching non-pass-through control with the same floor still gets floored correctly, confirming the fix didn't disable the feature outright. Full suite (31 files) passes. Live-verified in browser: added a pass-through line item under the floor through the real add-item flow, confirmed the rendered row shows Markup "at cost", Margin 0%, Price $100.00 -- no phantom margin.
+
 ## 2026-09-01 — Modifiers can be dollar or percentage; folded the hardcoded "Tax" chip into a real modifier
 
 Jim: "if we can have the Modifiers be dollar or percentage of the thing, that'd be amazing." Turned out "Tax" already was exactly that -- it was just built as its own special case before the real Modifiers system existed: a chip unconditionally wired to `work_type_id in (6, 7)` (Coping/Paver Installation) in the template, its own `tax_included` column and `/tax/toggle` route, and a rate pulled from `company_settings.tax_rate_pct` (labeled "Material Tax Rate") instead of a normal modifier's own amount.

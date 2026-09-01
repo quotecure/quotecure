@@ -400,9 +400,12 @@ def _apply_min_job_price(db, work_type_id, total_cost, total_price):
     below what it costs to run, regardless of markup. Returns (total_cost, total_price, total_margin).
     Skipped for a negative total_price -- a floor is meaningless for a credit/offset line
     (see 'replacement items' in Optional Add-Ons) and would otherwise clamp it back up to a
-    positive number, silently destroying the credit."""
-    wt = db.execute("SELECT min_job_price FROM work_types WHERE work_type_id=?", (work_type_id,)).fetchone()
-    floor = float(wt['min_job_price']) if wt and wt['min_job_price'] else 0
+    positive number, silently destroying the credit. Also skipped for pass-through work
+    types -- a min_job_price floor bumping price above cost injects a margin, which
+    contradicts the whole point of pass-through: billed at exactly what the sub charges,
+    zero margin, no exceptions (build_line_item already locks markup at 0% the same way)."""
+    wt = db.execute("SELECT min_job_price, is_passthrough FROM work_types WHERE work_type_id=?", (work_type_id,)).fetchone()
+    floor = float(wt['min_job_price']) if wt and wt['min_job_price'] and wt['is_passthrough'] != 'Y' else 0
     if floor and total_price >= 0 and total_price < floor:
         total_price = floor
     total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
