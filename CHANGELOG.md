@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-31 — Fixed: new work types couldn't pick a material on the quote screen; materials now fully editable
+
+Jim added the Jandy pump as a material and set it as Pump Installation's default, but on an actual quote the line item only showed labor -- no material picker at all. Root cause: the "+ Select material" trigger on a quote line item was hardcoded to only show for the tile/paver family (`work_type_id in [4,5,6,7]`) -- a leftover from before the general materials system existed. Any material added for a different work type (a pump, a filter, anything else set up the way this session has been walking through) had no way to be picked on a quote at all, even though the `<select>` underneath already populated correctly once opened. Fixed generically: the trigger now shows for any work type with at least one material assigned to it, so this never needs another one-off fix for the next equipment category.
+
+Also fixed the other half of "I can't edit materials, which I hate" -- the only edit path was a quick inline raw-price update; fixing a typo'd series name, moving a material to the right work type, or assigning it to a collection after the fact meant deactivating and re-adding from scratch. Added a full edit form per material (same fields as Add Single Material), toggled open the same way Work Types' and Subs' edit rows already work.
+
+Verified live: added a Jandy pump material under Pump Installation, confirmed the material picker now appears and lists it on a real quote line item, picked it and confirmed the line item split into labor + material correctly, then edited the material's name/price/work type through the new full edit form and confirmed all fields saved together.
+
 ## 2026-08-31 — Tooltip on Cost Structure, since it kept coming up
 
 Jim asked a second time whether Pump Installation needed to be "bundled" to price with both labor and material -- confirmed again that Cost Structure is purely cosmetic, doesn't affect pricing either way. Rather than rely on him remembering an answer from earlier in a long conversation, added a tooltip directly on the Cost Structure field itself (both the Add and per-row Edit forms) saying so at the point where the doubt actually comes up, instead of only in the collapsible help block further up the page.

@@ -371,7 +371,7 @@
                onclick="toggleProductPicker({{ item.id }})">
             {{ item.product_label or '+ Select surface product' }}
           </div>
-          {% elif item.work_type_id in [4,5,6,7] or item.material_id %}
+          {% elif item.work_type_id in [4,5,6,7] or item.work_type_id in material_work_type_ids or item.material_id %}
           <div class="svc-bc {% if not item.material_label %}empty{% endif %}"
                id="bc-{{ item.id }}"
                onclick="toggleProductPicker({{ item.id }})">

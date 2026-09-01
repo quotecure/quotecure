@@ -1851,6 +1851,13 @@ def edit_quote(quote_id):
                               JOIN suppliers s ON m.supplier_id=s.supplier_id
                               WHERE m.active='Y'
                               ORDER BY m.category, COALESCE(m.subcategory, ''), m.series""").fetchall()
+    # The "+ Select material" trigger used to only show for the tile/paver family
+    # (work_type_id in [4,5,6,7], hardcoded) -- meant materials added for any OTHER work
+    # type (e.g. a Jandy pump under Pump Installation) had no way to be picked on a quote
+    # at all, even though the underlying <select> population logic already handles any
+    # work_type_id generically. Any work type with at least one material assigned to it
+    # now gets the trigger too, so this never needs another one-off addition here.
+    material_work_type_ids = {m['work_type_id'] for m in materials if m['work_type_id']}
     # Work types that have at least one collection-grouped material (e.g. Paver
     # Installation once Keystone Tile's stone pavers are loaded in) get the extra
     # Collection narrowing selector in the material picker; everything else keeps the
@@ -1922,6 +1929,7 @@ def edit_quote(quote_id):
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            collection_work_type_ids=collection_work_type_ids, collections_by_wt=collections_by_wt,
                            coping_eligible_material_ids=coping_eligible_material_ids,
+                           material_work_type_ids=material_work_type_ids,
                            modifiers_by_wt=modifiers_by_wt, additives=additives,
                            estimated_days_total=estimated_days_total, estimated_days_margin=estimated_days_margin,
                            missing_estimate_labels=missing_estimate_labels, terms_docs=terms_docs,
@@ -3365,6 +3373,29 @@ def update_material_price(mat_id):
     cost_per_qu = round(raw_price * mat['conversion_factor'], 4)
     db.execute("UPDATE materials SET raw_price=?,cost_per_quote_unit=? WHERE material_id=?",
                (raw_price, cost_per_qu, mat_id))
+    db.commit()
+    return redirect(url_for('admin_materials'))
+
+@app.route('/admin/materials/edit/<int:mat_id>', methods=['POST'])
+@require_permission('can_edit_sub_rates')
+def update_material_full(mat_id):
+    """The quick raw-price edit inline in the table only ever covered one field --
+    everything else (a typo'd series name, the wrong work type, moving it into a
+    collection after the fact) had no edit path at all, only deactivate-and-re-add. This
+    is the full edit, same fields as Add Single Material, opened via a toggled row."""
+    db = get_db()
+    raw_price = float(request.form['raw_price'])
+    conv = float(request.form['conversion_factor'])
+    cost_per_qu = round(raw_price * conv, 4)
+    db.execute("""UPDATE materials SET supplier_id=?,category=?,subcategory=?,series=?,item_code=?,
+                  raw_price=?,price_unit=?,conversion_factor=?,quote_unit=?,cost_per_quote_unit=?,
+                  work_type_id=?,collection_id=? WHERE material_id=?""",
+               (request.form['supplier_id'], request.form['category'],
+                request.form.get('subcategory') or None, request.form['series'],
+                request.form.get('item_code',''), raw_price, request.form['price_unit'],
+                conv, request.form['quote_unit'], cost_per_qu,
+                request.form.get('work_type_id') or None,
+                request.form.get('collection_id') or None, mat_id))
     db.commit()
     return redirect(url_for('admin_materials'))
 
