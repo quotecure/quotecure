@@ -411,6 +411,17 @@ def _apply_min_job_price(db, work_type_id, total_cost, total_price):
     total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
     return total_cost, total_price, total_margin
 
+def _apply_sub_cost_floor(min_total_cost, cost, price, markup_pct):
+    """A sub's real minimum charge for a work type (sub_rates.min_total_cost, e.g. Pro
+    Hydroblasters' $2,600 Surface Removal minimum) -- floors cost up and re-prices at the
+    same markup%, so margin doesn't erode just because a small job got floored up to the
+    sub's minimum. Deliberately pure (no DB query) -- callers that already have
+    min_total_cost in scope from a query they ran anyway shouldn't have to re-query it."""
+    if min_total_cost and cost < float(min_total_cost):
+        cost = float(min_total_cost)
+        price = round(cost * (1 + markup_pct / 100), 2)
+    return cost, price
+
 DECK_SQFT_WORK_TYPES = {
     'Paver Installation', 'Paver Sealing', 'Flagstone Pavers',
     'Textured Decking – Knockdown', 'Textured Decking – Variegated',
@@ -2421,32 +2432,24 @@ def update_markup(quote_id, item_id):
     # not even an override-capable role can bump this, since it's billed at exactly the
     # sub's cost by design, not a markup floor that can be waived. The UI already hides the
     # +/- stepper for these rows (see qt_rows in edit_quote.html); this is the server-side
-    # backstop in case this endpoint is ever hit directly. min_m below has to be forced to 0
-    # too, not just new_markup -- can_override=False ACTIVATES the "not can_override: floor
-    # to min_m" branch rather than preventing it, so a nonzero stored min_markup (this
-    # work type's own, or one contaminated before this fix) would silently re-inflate the
-    # just-zeroed markup right back up.
+    # backstop in case this endpoint is ever hit directly. price_component (not
+    # calc_component directly) handles zeroing both markup and its floor for passthrough --
+    # can_override=False alone would ACTIVATE the floor rather than prevent it.
     is_passthrough = bool(row['is_passthrough'])
-    if is_passthrough:
-        new_markup = 0
-        can_override = False
+    effective_can_override = False if is_passthrough else can_override
 
     if component == 'labor':
-        min_m = 0 if is_passthrough else row['labor_min_markup']
-        if not can_override:
-            new_markup = max(new_markup, min_m)
         qty = row['labor_quantity']
         cpu = row['labor_cost_per_unit']
-        total_cost, total_price, margin = calc_component(cpu, qty, new_markup, min_m, can_override)
+        total_cost, total_price, margin, new_markup, min_m = price_component(
+            cpu, qty, new_markup, row['labor_min_markup'], can_override, is_passthrough)
         db.execute("UPDATE quote_line_items SET labor_markup_pct=?,labor_margin_pct=?,labor_total_price=? WHERE id=?",
                    (new_markup, margin, total_price, item_id))
     else:
-        min_m = 0 if is_passthrough else row['material_min_markup']
-        if not can_override:
-            new_markup = max(new_markup, min_m)
         qty = row['material_quantity']
         cpu = row['material_cost_per_unit']
-        total_cost, total_price, margin = calc_component(cpu, qty, new_markup, min_m, can_override)
+        total_cost, total_price, margin, new_markup, min_m = price_component(
+            cpu, qty, new_markup, row['material_min_markup'], can_override, is_passthrough)
         db.execute("UPDATE quote_line_items SET material_markup_pct=?,material_margin_pct=?,material_total_price=? WHERE id=?",
                    (new_markup, margin, total_price, item_id))
 
@@ -2476,7 +2479,7 @@ def update_markup(quote_id, item_id):
         'quote_net_profit': round(gross_profit - commission, 2),
         'optional_total': _optional_total(db, quote_id),
         'passthrough_total': _passthrough_total(db, quote_id),
-        'at_floor': new_markup <= min_m and not can_override
+        'at_floor': new_markup <= min_m and not effective_can_override
     })
 
 @app.route('/quotes/<int:quote_id>/line_items/<int:item_id>', methods=['DELETE'])
@@ -4585,42 +4588,37 @@ def update_line_item(quote_id, item_id):
             # Clearing the sub entirely (back to "— None —") -- leave whatever cost/unit was
             # already there for manual entry, don't zero out a number staff may have typed in.
             new_cpu = float(row['labor_cost_per_unit'])
-        from line_item_logic import calc_component
         qty = float(row['labor_quantity'])
-        markup = float(row['labor_markup_pct'])
-        min_m = 0.0 if is_passthrough else float(row['labor_min_markup'])
-        l_cost, l_price, l_margin = calc_component(new_cpu, qty, markup, min_m, can_override)
+        l_cost, l_price, l_margin, markup, min_m = price_component(
+            new_cpu, qty, float(row['labor_markup_pct']), float(row['labor_min_markup']), can_override, is_passthrough)
         # Re-apply the sub's own minimum-charge floor, same as the qty/cost-per-unit edit
         # path already does -- a sub switch shouldn't be the one edit path that can undercut
-        # what the newly-selected sub actually charges as a minimum.
-        if rate_row and rate_row['min_total_cost'] and l_cost < float(rate_row['min_total_cost']):
-            l_cost = float(rate_row['min_total_cost'])
-            l_price = round(l_cost * (1 + markup / 100), 2)
-            l_margin = round((markup / (100 + markup)) * 100, 1) if markup else 0
-        total_cost = round(l_cost + float(row['material_total_cost'] or 0), 2)
-        total_price = round(l_price + float(row['material_total_price'] or 0), 2)
-        total_cost, total_price, total_margin = _apply_min_job_price(db, row['work_type_id'], total_cost, total_price)
+        # what the newly-selected sub actually charges as a minimum. l_margin doesn't need
+        # recomputing after this -- it's a pure function of markup_pct, which this floor
+        # doesn't change, only cost/price.
+        l_cost, l_price = _apply_sub_cost_floor(rate_row['min_total_cost'] if rate_row else None, l_cost, l_price, markup)
+        # total_cost/total_price/total_margin_pct deliberately not written here -- the
+        # shared _rollup_item_totals() call at the end of this route recomputes them from
+        # these labor_* columns (plus material_* and modifiers) right after, so writing them
+        # here too would just be immediately overwritten.
         db.execute("""UPDATE quote_line_items SET sub_id=?,sub_name=?,labor_cost_per_unit=?,
-                      labor_total_cost=?,labor_total_price=?,labor_margin_pct=?,
-                      total_cost=?,total_price=?,total_margin_pct=? WHERE id=?""",
-                   (value, sub_name, new_cpu, l_cost, l_price, l_margin,
-                    total_cost, total_price, total_margin, item_id))
+                      labor_total_cost=?,labor_total_price=?,labor_margin_pct=? WHERE id=?""",
+                   (value, sub_name, new_cpu, l_cost, l_price, l_margin, item_id))
 
     elif field in ('labor_qty', 'labor_cpu', 'mat_qty', 'mat_cpu'):
-        from line_item_logic import calc_component
         l_qty = float(value) if field == 'labor_qty' else float(row['labor_quantity'])
         l_cpu = float(value) if field == 'labor_cpu' else float(row['labor_cost_per_unit'])
         m_qty = float(value) if field == 'mat_qty' else float(row['material_quantity'] or 0)
         m_cpu = float(value) if field == 'mat_cpu' else float(row['material_cost_per_unit'] or 0)
         l_markup = float(row['labor_markup_pct'])
-        l_min = 0.0 if is_passthrough else float(row['labor_min_markup'])
-        # `or 30`/`or 10` would be wrong here -- an item whose real material markup/min is
+        l_min = float(row['labor_min_markup'])
+        # `is not None` not `or 30`/`or 10` -- an item whose real material markup/min is
         # legitimately 0 (pass-through, or any work type priced with a 0% material margin)
         # needs that 0 to stick, not get silently bumped back up because 0 is falsy.
         m_markup = float(row['material_markup_pct']) if row['material_markup_pct'] is not None else 30.0
-        m_min = 0.0 if is_passthrough else (float(row['material_min_markup']) if row['material_min_markup'] is not None else 10.0)
-        l_cost, l_price, l_margin = calc_component(l_cpu, l_qty, l_markup, l_min, can_override)
-        m_cost, m_price, m_margin = calc_component(m_cpu, m_qty, m_markup, m_min, can_override)
+        m_min = float(row['material_min_markup']) if row['material_min_markup'] is not None else 10.0
+        l_cost, l_price, l_margin, l_markup, l_min = price_component(l_cpu, l_qty, l_markup, l_min, can_override, is_passthrough)
+        m_cost, m_price, m_margin, m_markup, m_min = price_component(m_cpu, m_qty, m_markup, m_min, can_override, is_passthrough)
 
         # Re-apply the sub's own minimum-charge floor (sub_rates.min_total_cost, e.g.
         # Finishing & Flooring Pros' $1,500 Paver Installation minimum) -- _price_catalog_item
@@ -4632,25 +4630,19 @@ def update_line_item(quote_id, item_id):
                 "SELECT min_total_cost FROM sub_rates WHERE sub_id=? AND work_type_id=?",
                 (row['sub_id'], row['work_type_id'])
             ).fetchone()
-            if rate_row and rate_row['min_total_cost'] and l_cost < float(rate_row['min_total_cost']):
-                l_cost = float(rate_row['min_total_cost'])
-                l_price = round(l_cost * (1 + l_markup / 100), 2)
-                l_margin = round((l_markup / (100 + l_markup)) * 100, 1) if l_markup else 0
+            l_cost, l_price = _apply_sub_cost_floor(rate_row['min_total_cost'] if rate_row else None, l_cost, l_price, l_markup)
 
-        total_cost = round(l_cost + m_cost, 2)
-        total_price = round(l_price + m_price, 2)
-        # And the work type's own flat min_job_price floor, same as every other pricing path.
-        total_cost, total_price, total_margin = _apply_min_job_price(db, row['work_type_id'], total_cost, total_price)
+        # total_cost/total_price/total_margin_pct deliberately not written here -- the
+        # shared _rollup_item_totals() call at the end of this route recomputes them right
+        # after, so writing them here too would just be immediately overwritten.
         col_map = {'labor_qty':'labor_quantity','labor_cpu':'labor_cost_per_unit',
                    'mat_qty':'material_quantity','mat_cpu':'material_cost_per_unit'}
         update_col = col_map[field]
         db.execute(f"""UPDATE quote_line_items SET {update_col}=?,
                        labor_total_cost=?,labor_total_price=?,labor_margin_pct=?,
-                       material_total_cost=?,material_total_price=?,material_margin_pct=?,
-                       total_cost=?,total_price=?,total_margin_pct=? WHERE id=?""",
+                       material_total_cost=?,material_total_price=?,material_margin_pct=? WHERE id=?""",
                    (float(value), l_cost, l_price, l_margin,
-                    m_cost, m_price, m_margin,
-                    total_cost, total_price, total_margin, item_id))
+                    m_cost, m_price, m_margin, item_id))
 
     elif field == 'material':
         material_id = int(value) if value else None
@@ -4663,29 +4655,23 @@ def update_line_item(quote_id, item_id):
             if m:
                 material_label = f"{m['supplier_name']} — {m['series']}"
                 mat_cpu = float(m['cost_per_quote_unit'])
-        from line_item_logic import calc_component
         # Defaults material_quantity to match labor_quantity at the moment a material is
         # picked -- matches build_line_item's same fallback at creation time. Previously
         # this only used labor_quantity to compute the one-time cost/price and never
         # actually wrote material_quantity itself, so it silently stayed at 0/stale and
         # never tracked a later labor-quantity edit again.
         qty = float(row['labor_quantity'])
-        markup = 0.0 if is_passthrough else float(row['labor_markup_pct'])
-        # `or 10` would be wrong if material_min_markup is legitimately 0 (pass-through, or
-        # any item priced at a real 0% material floor).
-        min_m = 0.0 if is_passthrough else (float(row['material_min_markup']) if row['material_min_markup'] is not None else 10.0)
-        m_cost, m_price, m_margin = calc_component(mat_cpu, qty, markup, min_m, can_override and not is_passthrough)
-        l_cost = float(row['labor_total_cost'])
-        l_price = float(row['labor_total_price'])
-        total_cost = round(l_cost + m_cost, 2)
-        total_price = round(l_price + m_price, 2)
-        total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
+        markup = float(row['labor_markup_pct'])
+        min_m = float(row['material_min_markup']) if row['material_min_markup'] is not None else 10.0
+        m_cost, m_price, m_margin, markup, min_m = price_component(mat_cpu, qty, markup, min_m, can_override, is_passthrough)
+        # material_total_cost/price only here -- total_cost/total_price/total_margin_pct
+        # come from the shared _rollup_item_totals() call at the end of this route, which
+        # also (unlike the old inline computation here) correctly accounts for the work
+        # type's min_job_price floor and any active modifier.
         db.execute("""UPDATE quote_line_items SET
                       material_id=?, material_label=?, material_quantity=?, material_cost_per_unit=?,
-                      material_total_cost=?, material_total_price=?, material_margin_pct=?,
-                      total_cost=?, total_price=?, total_margin_pct=? WHERE id=?""",
-                   (material_id, material_label, qty, mat_cpu, m_cost, m_price, m_margin,
-                    total_cost, total_price, total_margin, item_id))
+                      material_total_cost=?, material_total_price=?, material_margin_pct=? WHERE id=?""",
+                   (material_id, material_label, qty, mat_cpu, m_cost, m_price, m_margin, item_id))
 
     elif field == 'description':
         db.execute("UPDATE quote_line_items SET description=? WHERE id=?", (value or '', item_id))
@@ -4700,8 +4686,6 @@ def update_line_item(quote_id, item_id):
                           WHERE sar.product_id=? AND sar.sub_id=?""", (product_id, sub_id)).fetchone()
         applicator = db.execute("SELECT * FROM surface_applicators WHERE sub_id=?", (sub_id,)).fetchone()
         if p:
-            from line_item_logic import calc_component
-
             # Most applicators price off the wetted/expanded area already stored on the line
             # item (labor_quantity). A few (e.g. Southwest Pool Finishers) price off the flat
             # water surface area instead, entered separately on the quote.
@@ -4725,18 +4709,20 @@ def update_line_item(quote_id, item_id):
             combined_cost = base_cost + depth_surcharge_cost
             cpu = round(combined_cost / actual_qty, 4) if actual_qty else float(p['rate'])
 
+            # Surface Application is never pass-through in practice, but nothing in the
+            # schema prevents that combination -- price_component (not calc_component
+            # directly) closes the same gap every other branch in this route already has.
             markup = float(row['labor_markup_pct'])
             min_m = float(row['labor_min_markup'])
-            l_cost, l_price, l_margin = calc_component(cpu, actual_qty, markup, min_m, can_override)
+            l_cost, l_price, l_margin, markup, min_m = price_component(cpu, actual_qty, markup, min_m, can_override, is_passthrough)
             label = f"{p['manufacturer_name']} {p['product_line']} – {p['finish']}"
             additive_label = data.get('additive_label', '')
             if additive_label:
                 label += f" with {additive_label}"
             db.execute("""UPDATE quote_line_items SET product_id=?,product_label=?,
                           labor_quantity=?,labor_cost_per_unit=?,labor_total_cost=?,labor_total_price=?,
-                          labor_margin_pct=?,total_cost=?,total_price=?,total_margin_pct=? WHERE id=?""",
-                       (product_id, label, actual_qty, cpu, l_cost, l_price, l_margin,
-                        l_cost, l_price, l_margin, item_id))
+                          labor_margin_pct=? WHERE id=?""",
+                       (product_id, label, actual_qty, cpu, l_cost, l_price, l_margin, item_id))
 
     if field != 'description':
         _rollup_item_totals(db, item_id)
