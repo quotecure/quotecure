@@ -2940,6 +2940,112 @@ def edit_work_type(wt_id):
     db.commit()
     return redirect(url_for('admin_work_types'))
 
+def _find_or_create_sub(db, name):
+    """Exact case-insensitive name match against an existing sub; otherwise create one,
+    same auto-increment S-prefix logic as add_sub(). Used by the Quick Add wizard so typing
+    an existing sub's name reuses it (no duplicate) and typing a new one creates it inline,
+    without a separate trip to Admin -> Subs & Applicators."""
+    existing = db.execute("SELECT sub_id FROM subs WHERE LOWER(name)=LOWER(?)", (name,)).fetchone()
+    if existing:
+        return existing['sub_id']
+    rows = db.execute("SELECT sub_id FROM subs").fetchall()
+    nums = []
+    for r in rows:
+        try: nums.append(int(r['sub_id'].replace('S','').replace('s','')))
+        except: pass
+    next_id = 'S' + str(max(nums) + 1 if nums else 1)
+    db.execute("INSERT INTO subs (sub_id,name,active,phone,poc_name,email) VALUES (?,?,'Y','','','')", (next_id, name))
+    return next_id
+
+@app.route('/api/work_type_name_check')
+@login_required
+def work_type_name_check():
+    """Backs the Quick Add wizard's duplicate-name warning -- that page has no full work
+    types table client-side to check against like /admin/work_types does, so it asks here
+    instead. Same exact/partial distinction as checkDuplicateWorkType() on that page."""
+    db = get_db()
+    term = (request.args.get('name') or '').strip().lower()
+    if len(term) < 2:
+        return jsonify({'exact': False, 'similar': []})
+    rows = db.execute("SELECT work_type FROM work_types").fetchall()
+    names = [r['work_type'] for r in rows]
+    exact = any(n.lower() == term for n in names)
+    similar = [n for n in names if n.lower() != term and (term in n.lower() or n.lower() in term)]
+    return jsonify({'exact': exact, 'similar': similar[:5]})
+
+@app.route('/admin/work_types/quick_add')
+@require_permission('can_access_admin')
+def quick_add_work_type():
+    db = get_db()
+    subs = db.execute("SELECT sub_id, name FROM subs WHERE active='Y' ORDER BY name").fetchall()
+    collections = db.execute(
+        "SELECT mc.collection_id, mc.name, s.name as supplier_name FROM material_collections mc "
+        "JOIN suppliers s ON mc.supplier_id=s.supplier_id WHERE mc.active='Y' ORDER BY mc.name"
+    ).fetchall()
+    suppliers = db.execute("SELECT supplier_id, name FROM suppliers WHERE active='Y' ORDER BY name").fetchall()
+    return render_template('admin_quick_add_work_type.html', subs=subs, collections=collections, suppliers=suppliers)
+
+@app.route('/admin/work_types/quick_add', methods=['POST'])
+@require_permission('can_edit_work_types')
+def quick_add_work_type_submit():
+    """One submit instead of three separate admin pages (Work Types, Sub Rates,
+    Materials) for the common case: a new work type that needs a labor rate and,
+    usually, one specific product. Deliberately narrower than the full forms -- no
+    min job price/estimated days/pass-through/pool-perimeter/collection-creation here,
+    those stay one-off tweaks on the regular pages afterward (see 'Fine-tune further')."""
+    db = get_db()
+    name = request.form['work_type'].strip()
+    unit = request.form.get('unit', 'each')
+    markup = float(request.form.get('markup', 30) or 30)
+    # A single markup number for both the default and the floor -- the full Work Types
+    # edit page still exposes them separately for anyone who wants that later. Margin is
+    # derived from markup with the same formula calc_component uses, not asked for
+    # separately (asking for both invites them going out of sync).
+    margin = round((markup / (100 + markup)) * 100, 1) if markup else 0
+
+    cur = db.execute(
+        "INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,"
+        "show_on_quote,active,description) VALUES (?,?,?,?,?,?,?,?,?) RETURNING work_type_id",
+        (name, unit, 'labor_only', markup, markup, margin, 'Y', 'Y', '')
+    )
+    wt_id = cur.fetchone()[0]
+
+    sub_name = request.form.get('sub_name', '').strip()
+    rate = request.form.get('rate', '').strip()
+    if sub_name and rate:
+        sub_id = _find_or_create_sub(db, sub_name)
+        db.execute("INSERT INTO sub_rates (sub_id,work_type_id,rate,unit,notes) VALUES (?,?,?,?,?)",
+                   (sub_id, wt_id, float(rate), unit, ''))
+
+    product_name = request.form.get('product_name', '').strip()
+    product_price = request.form.get('product_price', '').strip()
+    if product_name and product_price:
+        supplier_id = request.form.get('supplier_id') or None
+        if not supplier_id:
+            # A material needs a supplier -- fall back to whichever supplier the chosen
+            # Collection belongs to, since picking a collection already implies one.
+            collection_id = request.form.get('collection_id') or None
+            if collection_id:
+                col = db.execute("SELECT supplier_id FROM material_collections WHERE collection_id=?", (collection_id,)).fetchone()
+                supplier_id = col['supplier_id'] if col else None
+            if not supplier_id:
+                first_supplier = db.execute("SELECT supplier_id FROM suppliers WHERE active='Y' ORDER BY name LIMIT 1").fetchone()
+                supplier_id = first_supplier['supplier_id'] if first_supplier else None
+        price = float(product_price)
+        mat_cur = db.execute(
+            "INSERT INTO materials (supplier_id,category,series,item_code,raw_price,price_unit,"
+            "conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,collection_id,active) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING material_id",
+            (supplier_id, request.form.get('category','').strip() or 'Equipment', product_name, '',
+             price, 'per_piece', 1.0, 'each' if unit == 'each' else unit, price, wt_id,
+             request.form.get('collection_id') or None, 'Y')
+        )
+        material_id = mat_cur.fetchone()[0]
+        db.execute("UPDATE work_types SET default_material_id=? WHERE work_type_id=?", (material_id, wt_id))
+
+    db.commit()
+    return redirect(url_for('admin_work_types', highlight=wt_id))
+
 @app.route('/admin/sub_rates')
 @require_permission('can_access_admin')
 def admin_sub_rates():

@@ -7,9 +7,10 @@
       <div class="page-title">Work Types</div>
       <div class="page-subtitle">Services, modifiers, markup defaults and floors</div>
     </div>
+    <a href="/admin/work_types/quick_add" class="btn btn-primary">+ Quick Add Work Type</a>
   </div>
   <div style="font-size:11px;color:var(--text3);margin-bottom:16px;max-width:640px;">
-    A work type is just the labor side + defaults. To price a specific product under one (e.g. a Jandy pump under Pump Installation), add the sub's rate in <a href="/admin/sub_rates" style="color:#93c5fd;">Sub Rates</a>, then add the product as a Material scoped to this work type -- see <a href="/admin/materials" style="color:#93c5fd;">Materials</a> for the full walkthrough. Cost Structure below doesn't affect pricing; it's just a label.
+    Setting up something brand new that needs a labor rate and a product (a new piece of equipment, e.g.)? <a href="/admin/work_types/quick_add" style="color:#93c5fd;">Quick Add Work Type</a> does the work type + Sub Rates + Materials entry in one page. For everything else -- editing an existing one, min job price, estimated days, pass-through/pool-perimeter flags, adding a second product to something that already exists -- use the forms below, <a href="/admin/sub_rates" style="color:#93c5fd;">Sub Rates</a>, and <a href="/admin/materials" style="color:#93c5fd;">Materials</a> directly. Cost Structure below doesn't affect pricing; it's just a label.
   </div>
   <div style="display:flex; flex-direction:column; gap:24px;">
     <div class="card">
@@ -273,6 +274,11 @@ function jumpToWorkType(id) {
   row.style.outline = '2px solid var(--blue-light)';
   setTimeout(() => { row.style.outline = ''; }, 1500);
 }
+
+// After the Quick Add wizard redirects back here, jump straight to the new row so it's
+// obvious the whole thing (work type + labor rate + material) actually landed.
+const highlightId = new URLSearchParams(window.location.search).get('highlight');
+if (highlightId) jumpToWorkType(highlightId);
 
 function filterWorkTypes() {
   const term = document.getElementById('wt-search').value.trim().toLowerCase();

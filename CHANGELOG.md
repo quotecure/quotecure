@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-31 — Added Quick Add Work Type (one page instead of three)
+
+The equipment setup walkthrough this session (Pump Installation, a new sub, a Jandy pump) took three separate admin pages -- Work Types, Sub Rates, Materials -- each its own form, each its own submit. Jim's reaction: "this seems pretty convoluted." Added a single-page wizard (`/admin/work_types/quick_add`, "+ Quick Add Work Type" button on Work Types) that does the common case in one submit: work type name/unit/markup, a labor rate for a sub (typing an existing sub's name reuses them, a new name creates them inline, no separate trip to Subs & Applicators), and an optional product that becomes the new work type's Default Material automatically. A single Markup % sets both the default and the floor -- margin is derived the same way `calc_component` computes it everywhere else, not asked for as a second number that could drift out of sync.
+
+Deliberately narrower than the full forms -- no min job price, estimated days, pass-through/pool-perimeter flags, or collection creation here, since those are real but occasional needs that don't belong cluttering the fast path. The full Work Types/Sub Rates/Materials pages (and their fuller edit forms, both from earlier today) are still there for that and for editing anything after the fact -- the wizard redirects straight back to the new row on Work Types, highlighted, so it's obvious everything landed.
+
 ## 2026-08-31 — Fixed: new work types couldn't pick a material on the quote screen; materials now fully editable
 
 Jim added the Jandy pump as a material and set it as Pump Installation's default, but on an actual quote the line item only showed labor -- no material picker at all. Root cause: the "+ Select material" trigger on a quote line item was hardcoded to only show for the tile/paver family (`work_type_id in [4,5,6,7]`) -- a leftover from before the general materials system existed. Any material added for a different work type (a pump, a filter, anything else set up the way this session has been walking through) had no way to be picked on a quote at all, even though the `<select>` underneath already populated correctly once opened. Fixed generically: the trigger now shows for any work type with at least one material assigned to it, so this never needs another one-off fix for the next equipment category.

@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+{% block title %}Quick Add Work Type — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Quick Add Work Type</div>
+      <div class="page-subtitle">One page for the common case -- a new work type, its labor rate, and (usually) one product</div>
+    </div>
+    <a href="/admin/work_types" class="btn btn-secondary">← Work Types</a>
+  </div>
+
+  <div style="max-width:640px;">
+    <form method="POST" action="/admin/work_types/quick_add">
+
+      <!-- Work type -->
+      <div class="card" style="padding:20px;margin-bottom:16px;">
+        <div class="card-title" style="margin-bottom:14px;">1. Work Type</div>
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input class="form-control" name="work_type" id="qa-wt-name" required placeholder="e.g. Pump Installation" autocomplete="off" oninput="checkDuplicateQaWorkType()">
+          <div id="qa-wt-dupe-warning" style="display:none;margin-top:8px;padding:8px 10px;background:#78350f22;border:1px solid #78350f;border-radius:var(--radius-sm);font-size:12px;color:var(--text2);"></div>
+        </div>
+        <div class="form-row form-row-2">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Unit</label>
+            <select class="form-control" name="unit" id="qa-unit">
+              <option value="each">each</option>
+              <option value="lf">lf</option>
+              <option value="sqft">sqft</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" title="Used as both the default and the floor -- can't be undercut without an override permission. The full Work Types edit page lets you set these separately later if you ever need that.">Markup %</label>
+            <input class="form-control" name="markup" type="number" value="30" step="1">
+          </div>
+        </div>
+      </div>
+
+      <!-- Labor -->
+      <div class="card" style="padding:20px;margin-bottom:16px;">
+        <div class="card-title" style="margin-bottom:14px;">2. Labor (optional)</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">Type an existing sub's name to use their rate, or a new name to add them on the spot.</div>
+        <div class="form-row form-row-2">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Sub</label>
+            <input class="form-control" name="sub_name" list="qa-sub-list" autocomplete="off" placeholder="Existing or new sub name">
+            <datalist id="qa-sub-list">
+              {% for s in subs %}
+              <option value="{{ s.name }}">
+              {% endfor %}
+            </datalist>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" id="qa-rate-label">Rate ($/each)</label>
+            <input class="form-control" name="rate" type="number" step="0.01" placeholder="0.00">
+          </div>
+        </div>
+      </div>
+
+      <!-- Material -->
+      <div class="card" style="padding:20px;margin-bottom:16px;">
+        <div class="card-title" style="margin-bottom:14px;">3. Product (optional)</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">Only if this work type installs a specific product (a pump, a filter, ...) -- becomes this work type's Default Material. Skip for a pure-labor work type.</div>
+        <div class="form-row form-row-2">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Product Name</label>
+            <input class="form-control" name="product_name" placeholder="e.g. Jandy 1.65HP">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Price ($)</label>
+            <input class="form-control" name="product_price" type="number" step="0.01" placeholder="0.00">
+          </div>
+        </div>
+        <div class="form-row form-row-2" style="margin-top:12px;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Category <span style="font-weight:400;color:var(--text3);">(optional)</span></label>
+            <input class="form-control" name="category" placeholder="Equipment">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Collection <span style="font-weight:400;color:var(--text3);">(optional)</span></label>
+            <select class="form-control" name="collection_id" id="qa-collection">
+              <option value="">— Ungrouped —</option>
+              {% for c in collections %}
+              <option value="{{ c.collection_id }}">{{ c.name }} ({{ c.supplier_name }})</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label class="form-label">Supplier <span style="font-weight:400;color:var(--text3);">(only if no Collection picked above)</span></label>
+          <select class="form-control" name="supplier_id" id="qa-supplier">
+            <option value="">— Use Collection's supplier, or first active supplier —</option>
+            {% for s in suppliers %}
+            <option value="{{ s.supplier_id }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" type="submit" style="width:100%;padding:12px;font-size:14px;">Create Work Type</button>
+    </form>
+  </div>
+</div>
+<script>
+document.getElementById('qa-unit').addEventListener('change', function() {
+  document.getElementById('qa-rate-label').textContent = 'Rate ($/' + this.value + ')';
+});
+
+// Same duplicate-name pattern as the full Add Work Type form on /admin/work_types --
+// this page has no table of existing rows to check against directly, so it asks the
+// server via a lightweight lookup instead.
+let qaDupeCheckTimer = null;
+function checkDuplicateQaWorkType() {
+  clearTimeout(qaDupeCheckTimer);
+  const term = document.getElementById('qa-wt-name').value.trim();
+  const warning = document.getElementById('qa-wt-dupe-warning');
+  if (term.length < 2) { warning.style.display = 'none'; return; }
+  qaDupeCheckTimer = setTimeout(async () => {
+    const r = await fetch('/api/work_type_name_check?name=' + encodeURIComponent(term));
+    const d = await r.json();
+    if (d.exact) {
+      warning.innerHTML = '⚠ You already have a work type with this exact name.';
+      warning.style.display = 'block';
+    } else if (d.similar && d.similar.length) {
+      warning.innerHTML = '💡 Similar existing: ' + d.similar.join(', ');
+      warning.style.display = 'block';
+    } else {
+      warning.style.display = 'none';
+    }
+  }, 250);
+}
+</script>
+{% endblock %}
