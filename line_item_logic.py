@@ -11,6 +11,24 @@ def calc_component(cost_per_unit, quantity, markup_pct, min_markup, can_override
     margin_pct = round((markup_pct / (100 + markup_pct)) * 100, 1) if markup_pct else 0
     return total_cost, total_price, margin_pct
 
+def price_component(cost_per_unit, quantity, markup_pct, min_markup, can_override, is_passthrough):
+    """The one place that knows how pass-through affects a component's markup and floor --
+    every call site that prices a line item's labor or material component should call this
+    instead of calc_component directly. Pass-through items are billed at exactly cost, zero
+    margin: markup and its floor both get zeroed here, and can_override is forced True so
+    calc_component's "not can_override -> floor to min_markup" branch can't reactivate --
+    setting can_override=False alone (without also zeroing min_markup) ACTIVATES that floor
+    rather than preventing it, which caused three real pricing bugs before this existed.
+
+    Returns (total_cost, total_price, margin_pct, markup_pct, min_markup) -- the resolved
+    markup_pct/min_markup are included so a caller storing them on the line item doesn't
+    need its own parallel "0.0 if is_passthrough else ..." branch to figure out what to
+    persist; it's the same values price_component actually priced with."""
+    if is_passthrough:
+        markup_pct, min_markup, can_override = 0.0, 0.0, True
+    total_cost, total_price, margin_pct = calc_component(cost_per_unit, quantity, markup_pct, min_markup, can_override)
+    return total_cost, total_price, margin_pct, markup_pct, min_markup
+
 def build_line_item(data, wt, sub_name, product_label, material_label, can_override, quote):
     """Build a complete line item dict from form/json data."""
     work_type_id = data.get('work_type_id')

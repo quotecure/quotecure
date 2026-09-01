@@ -8,7 +8,7 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from database import init_db, init_auth, init_materials, init_company_settings, generate_payment_schedule, run_migrations, init_pebble_pros_surfaces, init_skimmer_material, init_cap_tile_trim_materials, init_finishing_flooring_pros_sub, get_db
-from line_item_logic import build_line_item, calc_component
+from line_item_logic import build_line_item, calc_component, price_component
 import hashlib
 import secrets
 
@@ -1734,22 +1734,18 @@ def select_material_tile(quote_id):
         mat_cpu = float(mat_row['cost_per_quote_unit']) if mat_row else 0.0
         qty = float(row['labor_quantity'])
         is_passthrough = bool(row['is_passthrough'])
-        markup = 0.0 if is_passthrough else float(row['labor_markup_pct'])
-        # `or 10` would be wrong if material_min_markup is legitimately 0 (pass-through, or
-        # any item priced at a real 0% material floor) -- see update_line_item for the same fix.
-        min_m = 0.0 if is_passthrough else (float(row['material_min_markup']) if row['material_min_markup'] is not None else 10.0)
-        m_cost, m_price, m_margin = calc_component(mat_cpu, qty, markup, min_m, can_override and not is_passthrough)
-        l_cost = float(row['labor_total_cost'])
-        l_price = float(row['labor_total_price'])
-        total_cost = round(l_cost + m_cost, 2)
-        total_price = round(l_price + m_price, 2)
-        total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
+        markup = float(row['labor_markup_pct'])
+        min_m = float(row['material_min_markup']) if row['material_min_markup'] is not None else 10.0
+        m_cost, m_price, m_margin, _, _ = price_component(mat_cpu, qty, markup, min_m, can_override, is_passthrough)
         db.execute("""UPDATE quote_line_items SET
                       material_id=?, material_label=?, material_cost_per_unit=?,
-                      material_total_cost=?, material_total_price=?, material_margin_pct=?,
-                      total_cost=?, total_price=?, total_margin_pct=? WHERE id=?""",
-                   (material_id, label, mat_cpu, m_cost, m_price, m_margin,
-                    total_cost, total_price, total_margin, item_id))
+                      material_total_cost=?, material_total_price=?, material_margin_pct=? WHERE id=?""",
+                   (material_id, label, mat_cpu, m_cost, m_price, m_margin, item_id))
+        # _rollup_item_totals (not inline summing) so this doesn't silently drop the work
+        # type's min_job_price floor or an already-applied modifier's dollar contribution
+        # from total_price -- both were happening here before, since the old inline sum
+        # only ever added labor_total_price + material_total_price.
+        _rollup_item_totals(db, item_id)
         db.commit()
         _recalc_quote(db, quote_id)
     package_id = request.form.get('package_id', '')
@@ -1783,23 +1779,17 @@ def select_material_surface(quote_id):
         can_override = bool(g.role and g.role['can_override_min_markup'])
         qty = float(row['labor_quantity'])
         is_passthrough = bool(row['is_passthrough'])
-        markup = 0.0 if is_passthrough else float(row['labor_markup_pct'])
-        # `or 15` would be wrong if labor_min_markup is legitimately 0 (pass-through, or any
-        # item priced at a real 0% labor floor) -- see update_line_item for the same fix.
-        min_m = 0.0 if is_passthrough else (float(row['labor_min_markup']) if row['labor_min_markup'] is not None else 15.0)
-        l_cost, l_price, l_margin = calc_component(float(sar['rate']), qty, markup, min_m, can_override and not is_passthrough)
-        m_cost = float(row['material_total_cost'] or 0)
-        m_price = float(row['material_total_price'] or 0)
-        total_cost = round(l_cost + m_cost, 2)
-        total_price = round(l_price + m_price, 2)
-        total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
+        markup = float(row['labor_markup_pct'])
+        min_m = float(row['labor_min_markup']) if row['labor_min_markup'] is not None else 15.0
+        l_cost, l_price, l_margin, _, _ = price_component(float(sar['rate']), qty, markup, min_m, can_override, is_passthrough)
         db.execute("""UPDATE quote_line_items SET
                       product_id=?, product_label=?, labor_cost_per_unit=?,
-                      labor_total_cost=?, labor_total_price=?, labor_margin_pct=?,
-                      total_cost=?, total_price=?, total_margin_pct=? WHERE id=?""",
+                      labor_total_cost=?, labor_total_price=?, labor_margin_pct=? WHERE id=?""",
                    (product_id, label, float(sar['rate']),
-                    l_cost, l_price, l_margin,
-                    total_cost, total_price, total_margin, item_id))
+                    l_cost, l_price, l_margin, item_id))
+        # _rollup_item_totals -- see select_material_tile for why (was silently dropping
+        # the min_job_price floor / any active modifier from total_price before).
+        _rollup_item_totals(db, item_id)
         db.commit()
         _recalc_quote(db, quote_id)
     package_id = request.form.get('package_id', '')
