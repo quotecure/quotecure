@@ -4,6 +4,20 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-01 — Money-calculation audit: fixed 4 falsy-zero/missing-guard bugs, deleted 2 dead JS values
+
+Jim asked for a deep-dive audit of the pricing code before building more features, given how many bugs today traced back to the same two shapes: a legitimate `0` treated as "unset" (`or 30` instead of checking `is not None`), and a code path that forgot to check `is_passthrough`/`is_calculated`. Systematically re-checked every `calc_component` call site and every markup-related form save in app.py for both shapes. Full findings (including what was checked and confirmed NOT a bug -- `_recalc_change_order`'s different item-exclusion rules, the JS `=== '1'` comparisons elsewhere) were reported to Jim; these are the ones fixed:
+
+- **Quick Add Work Type** (`quick_add_work_type_submit`): typing `0` into Markup % silently became 30% -- same `or 30` shape as everything fixed earlier today, just missed in this one form.
+- **Admin → Commission**: all 5 tier fields (thresholds and rates) had the same bug -- typing `0` into any of them (e.g. "no commission below X% margin") silently snapped back to the old default. Pulled the fix into a small shared `_form_float_or()` helper since the same pattern repeated 5 times in one route.
+- **`update_markup`** had no `is_calculated` guard -- a direct call against a Sunshelf Construction item (whose total is a sum of 7 formula components, not qty×cost) would have silently corrupted it. `update_line_item` already had this exact guard for its own fields; this brings the markup-adjust route in line with it.
+- **`select_material_tile`/`select_material_surface`** had the same gap. Not reachable from the normal UI (Sunshelf isn't material-picker-eligible), but closes the same class of hole as a server-side backstop.
+- Deleted two dead JS values in `edit_quote.html`: `defMarkup` (computed with the old buggy `||` pattern, but never actually read -- the real markup calc two functions over already uses the fixed `??` pattern) and `WORK_TYPES[id].min` (embedded into every page load, never consumed anywhere).
+
+Deliberately did NOT touch the actual structural issue behind all of this: the same "cost × qty → floor markup → compute price" logic is independently reimplemented across 8+ call sites (`build_line_item`, `_compute_line_item_pricing`, `update_markup`, `update_line_item`'s four branches, both material-select routes), which is why this exact bug shape keeps reappearing in a new spot each time. That's a real consolidation, planned as its own session rather than folded into this cleanup pass.
+
+Verified: new test (`test_audit_falsy_zero_and_calculated_guards.py`) covers all 4 fixes, including a save/restore of the real `commission_policy` row so the test doesn't leave live settings zeroed out for later tests or for Jim. Full suite (33 files) passes. Live-verified both form fixes in browser: Quick Add with Markup=0 saved `default_markup=0` (not 30), and Admin Commission with Tier 1 Rate=0 saved `tier1_rate=0` (not 8) -- both restored to their real values afterward.
+
 ## 2026-09-01 — Fixed the real root cause of pass-through phantom margin: Min Markup was never actually zeroed
 
 The min_job_price fix from earlier today wasn't the whole story -- Jim removed and re-added the line item and the phantom margin was still there. Real root cause, two parts:

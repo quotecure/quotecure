@@ -1721,7 +1721,10 @@ def select_material_tile(quote_id):
     item_id = request.form.get('item_id')
     material_id = request.form.get('material_id')
     row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
-    if not row:
+    if not row or row['is_calculated']:
+        # is_calculated (Sunshelf Construction): its total is a formula sum, not
+        # qty*cost_per_unit -- picking a material here would silently corrupt it. Not
+        # reachable from the UI (Sunshelf isn't material-picker-eligible), server backstop.
         return redirect(url_for('select_materials', quote_id=quote_id))
     m = db.execute("SELECT series, category FROM materials WHERE material_id=?", (material_id,)).fetchone()
     if m:
@@ -1765,7 +1768,7 @@ def select_material_surface(quote_id):
     item_id = request.form.get('item_id')
     product_id = request.form.get('product_id')
     row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
-    if not row:
+    if not row or row['is_calculated']:
         return redirect(url_for('select_materials', quote_id=quote_id))
     sar = db.execute(
         "SELECT sar.rate, sp.finish, sp.product_line, sm.manufacturer_name "
@@ -2416,6 +2419,12 @@ def update_markup(quote_id, item_id):
     row = db.execute("SELECT * FROM quote_line_items WHERE id=?", (item_id,)).fetchone()
     if not row:
         return jsonify({'error': 'Not found'}), 404
+    if row['is_calculated']:
+        # Sunshelf Construction's total is a sum of 7 formula components, not
+        # qty*cost_per_unit -- adjusting markup here would silently corrupt it. The UI
+        # already has no markup stepper for these rows; this is the server-side backstop,
+        # same one update_line_item already has for its own fields.
+        return jsonify({'error': 'This is a calculated line item -- reopen its calculator to change dimensions.'}), 409
 
     can_override = bool(g.role and g.role['can_override_min_markup'])
     # Pass-through items (Electrician, Deck Stabilization, ...) are locked at 0% markup --
@@ -3046,7 +3055,10 @@ def quick_add_work_type_submit():
     db = get_db()
     name = request.form['work_type'].strip()
     unit = request.form.get('unit', 'each')
-    markup = float(request.form.get('markup', 30) or 30)
+    # `or 30` would be wrong -- typing a genuine 0% markup should stick, not silently
+    # snap back to 30 because 0 is falsy.
+    markup_raw = request.form.get('markup')
+    markup = float(markup_raw) if markup_raw not in (None, '') else 30.0
     # A single markup number for both the default and the floor -- the full Work Types
     # edit page still exposes them separately for anyone who wants that later. Margin is
     # derived from markup with the same formula calc_component uses, not asked for
@@ -3203,6 +3215,13 @@ def admin_commission():
     policies = db.execute("SELECT * FROM commission_policy ORDER BY id").fetchall()
     return render_template('admin_commission.html', policies=policies)
 
+def _form_float_or(field, default):
+    """`request.form.get(field, default) or default` would be wrong -- a genuine 0 in the
+    field (a 0% commission tier, a 0% markup, ...) is falsy in Python and would silently
+    snap back to `default` instead of sticking. Only missing/blank actually falls back."""
+    raw = request.form.get(field)
+    return float(raw) if raw not in (None, '') else default
+
 @app.route('/admin/commission/update/<int:policy_id>', methods=['POST'])
 @require_permission('can_edit_commission_policy')
 def update_commission(policy_id):
@@ -3210,13 +3229,13 @@ def update_commission(policy_id):
     db.execute("""UPDATE commission_policy SET method=?,rate=?,active=?,
                   tier1_threshold=?,tier2_threshold=?,tier1_rate=?,tier2_rate=?,tier3_rate=?
                   WHERE id=?""",
-               (request.form['method'], float(request.form.get('rate',0) or 0),
+               (request.form['method'], _form_float_or('rate', 0.0),
                 request.form.get('active','Y'),
-                float(request.form.get('tier1_threshold',20) or 20),
-                float(request.form.get('tier2_threshold',30) or 30),
-                float(request.form.get('tier1_rate',8) or 8),
-                float(request.form.get('tier2_rate',10) or 10),
-                float(request.form.get('tier3_rate',12) or 12),
+                _form_float_or('tier1_threshold', 20.0),
+                _form_float_or('tier2_threshold', 30.0),
+                _form_float_or('tier1_rate', 8.0),
+                _form_float_or('tier2_rate', 10.0),
+                _form_float_or('tier3_rate', 12.0),
                 policy_id))
     db.commit()
     return redirect(url_for('admin_commission'))

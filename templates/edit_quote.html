@@ -984,7 +984,7 @@ const DRAWS = {{ schedule_json | default("[]") | safe }};
 // per-<option> data- attributes used to carry directly.
 const WORK_TYPES = {
   {% for wt in work_types %}
-  {{ wt.work_type_id }}: {name: {{ wt.work_type|tojson }}, unit: {{ wt.unit|tojson }}, markup: {{ wt.default_markup }}, min: {{ wt.min_markup }}, sub: {{ (wt.default_sub_id or '')|tojson }}, deck: {{ '1' if wt.work_type in DECK_SQFT_WORK_TYPES else '0' }}, poolLf: {{ '1' if wt.uses_pool_perimeter == 'Y' else '0' }}},
+  {{ wt.work_type_id }}: {name: {{ wt.work_type|tojson }}, unit: {{ wt.unit|tojson }}, markup: {{ wt.default_markup }}, sub: {{ (wt.default_sub_id or '')|tojson }}, deck: {{ '1' if wt.work_type in DECK_SQFT_WORK_TYPES else '0' }}, poolLf: {{ '1' if wt.uses_pool_perimeter == 'Y' else '0' }}},
   {% endfor %}
 };
 const WORK_TYPE_NAME_TO_ID = {};
@@ -1603,7 +1603,6 @@ async function onNrWorkType(section) {
   const wt = WORK_TYPES[wtId];
   const unit = wt?.unit || 'each';
   const defSub = wt?.sub || '';
-  const defMarkup = wt?.markup || 30;
   nrMaterialDefault[section] = null;
   nrMarkupOverride[section] = null;
 
