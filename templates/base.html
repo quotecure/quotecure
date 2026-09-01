@@ -86,6 +86,7 @@
         <a href="/admin/settings" class="nav-dropdown-item {% if '/admin/settings' in request.path %}active{% endif %}">Company Settings</a>
         <div class="nav-dropdown-divider"></div>
         <a href="/admin/commission" class="nav-dropdown-item {% if '/admin/commission' in request.path %}active{% endif %}">Commission Policy</a>
+        <a href="/admin/salespeople" class="nav-dropdown-item {% if '/admin/salespeople' in request.path %}active{% endif %}">Salespeople</a>
         {% if current_role and current_role.can_edit_commission_policy %}
         <a href="/admin/permissions" class="nav-dropdown-item {% if '/admin/permissions' in request.path %}active{% endif %}">Roles &amp; Permissions</a>
         {% endif %}

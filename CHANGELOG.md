@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-01 — New Admin → Salespeople page: merge duplicate names (e.g. "Doug" / "Doug Walker")
+
+Jim: "Doug" and "Doug Walker" are the same person but showed as two separate entries in the new Quotes list stats. `quotes.salesperson` is free text, auto-filled from whatever a user's `display_name` happened to be at the moment each quote was created -- if that changes (or someone just types it slightly differently on a manual quote), the same real person ends up split across multiple labels forever.
+
+This isn't just cosmetic on the stats panel. `is_assigned_salesperson` (edit_quote) and the commission-giveup route both match a quote's stored `salesperson` against the *current* user's `display_name`, exactly. A stale or differently-spelled label can quietly lock someone out of commission actions on their own older quotes -- not just a display mismatch.
+
+New self-service page, `Admin → Salespeople`, rather than a one-off migration -- this is the kind of thing that'll recur as staff names change or get typed inconsistently, so a durable tool beats fixing it once. Lists every distinct name currently on `quotes.salesperson` with a count, and a "merge this name into this name" form that relabels every matching quote at once.
+
+Verified: new test (`test_merge_salespeople.py`) covers listing distinct names, merging relabels every matching quote with none left behind, the Quotes list stats panel correctly combines them afterward, and merging a name into itself is a safe no-op. Full suite (40 files) passes. Live-verified in browser: seeded 5 quotes split across "Doug" and "Doug Walker", merged them through the real form, confirmed the admin page and the Quotes list stats panel both immediately show one combined "Doug Walker" entry.
+
 ## 2026-09-01 — Comma-formatted dollar amounts everywhere + business stats on the Quotes list
 
 Two asks: "put some commas on these numbers" (every dollar figure in the app rendered as `$12345.67`, no thousands grouping), and some kind of summary stats at the top of the Quotes list (quote count, cost/revenue totals, average deal size, conversion rate, salesperson breakdown -- "Doug v Jim, I don't know, something").

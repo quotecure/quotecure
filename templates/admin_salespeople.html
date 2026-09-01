@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Salespeople — QuoteCure{% endblock %}
+{% block content %}
+<div class="page" style="max-width:720px">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Salespeople</div>
+      <div class="page-subtitle">Every distinct name currently on file across all quotes — merge duplicates here (e.g. "Doug" and "Doug Walker") so they show as one person everywhere, including commission attribution</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name (as stored on quotes)</th><th class="right">Quotes</th></tr></thead>
+        <tbody>
+          {% for s in salespeople %}
+          <tr>
+            <td style="font-weight:500">{{ s.name }}</td>
+            <td class="right mono">{{ s.c }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">Merge Names</div></div>
+    <div class="card-body">
+      <p style="font-size:12px;color:var(--text3);margin-top:0;margin-bottom:14px;">
+        Every quote currently labeled with the first name gets relabeled to the second, permanently. Pick whichever spelling should win.
+      </p>
+      <form method="POST" action="/admin/salespeople/merge" style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;">
+        <div>
+          <label class="form-label">Merge this name</label>
+          <select class="form-control" name="from_name" style="width:220px;" required>
+            {% for s in salespeople if s.name != '— Unassigned —' %}
+            <option value="{{ s.name }}">{{ s.name }} ({{ s.c }} quote{{ 's' if s.c != 1 }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="padding-bottom:10px;color:var(--text3);">into</div>
+        <div>
+          <label class="form-label">This name</label>
+          <input class="form-control" name="to_name" list="sp-list" style="width:220px;" required placeholder="e.g. Doug Walker">
+          <datalist id="sp-list">
+            {% for s in salespeople if s.name != '— Unassigned —' %}
+            <option value="{{ s.name }}">
+            {% endfor %}
+          </datalist>
+        </div>
+        <button class="btn btn-primary" type="submit" onclick="return confirm('Merge these two names? This changes every quote currently labeled with the first name — it can\'t be undone automatically.')">Merge</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

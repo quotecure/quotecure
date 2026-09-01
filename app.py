@@ -3294,6 +3294,36 @@ def update_commission(policy_id):
     db.commit()
     return redirect(url_for('admin_commission'))
 
+@app.route('/admin/salespeople')
+@require_permission('can_edit_commission_policy')
+def admin_salespeople():
+    """quotes.salesperson is free text, auto-filled from whatever a user's display_name
+    happened to be at the moment each quote was created -- if that name changes (or someone
+    types it slightly differently), the same real person ends up split across multiple
+    labels (e.g. 'Doug' and 'Doug Walker'). This isn't just cosmetic on the Quotes list
+    stats: is_assigned_salesperson (edit_quote) and the commission-giveup route both match
+    a quote's stored salesperson against the CURRENT user's display_name exactly, so a
+    mismatched label can quietly lock someone out of their own quote's commission actions.
+    Self-service merge here instead of a one-off migration, since this is the kind of thing
+    that'll happen again as staff turnover/renaming happens."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT COALESCE(NULLIF(TRIM(salesperson), ''), '— Unassigned —') as name, COUNT(*) as c "
+        "FROM quotes GROUP BY name ORDER BY c DESC"
+    ).fetchall()
+    return render_template('admin_salespeople.html', salespeople=rows)
+
+@app.route('/admin/salespeople/merge', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def merge_salespeople():
+    db = get_db()
+    from_name = request.form.get('from_name', '').strip()
+    to_name = request.form.get('to_name', '').strip()
+    if from_name and to_name and from_name != to_name:
+        db.execute("UPDATE quotes SET salesperson=? WHERE TRIM(salesperson)=?", (to_name, from_name))
+        db.commit()
+    return redirect(url_for('admin_salespeople'))
+
 # ── ADMIN PERMISSIONS ─────────────────────────────────────────────────────────
 @app.route('/admin/permissions')
 @require_permission('can_edit_commission_policy')
