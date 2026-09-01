@@ -154,7 +154,7 @@
           {% if item.product_label %}<div class="item-desc">{{ item.product_label }}</div>{% endif %}
           {% if item.material_label %}<div class="item-desc">Material: {{ item.material_label }}</div>{% endif %}
         </td>
-        <td class="right">${{ '%.2f'|format(item.total_price) }}</td>
+        <td class="right">{{ item.total_price|usd }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -165,17 +165,17 @@
     <div class="totals-box">
       <div class="total-row">
         <span class="total-label">Subtotal</span>
-        <span class="total-amount">${{ '%.2f'|format(quote.subtotal_price if quote.discount_amount else quote.total_price) }}</span>
+        <span class="total-amount">{{ (quote.subtotal_price if quote.discount_amount else quote.total_price)|usd }}</span>
       </div>
       {% if quote.discount_amount %}
       <div class="total-row">
         <span class="total-label">Discount</span>
-        <span class="total-amount">−${{ '%.2f'|format(quote.discount_amount) }}</span>
+        <span class="total-amount">{{ (-quote.discount_amount)|usd }}</span>
       </div>
       {% endif %}
       <div class="total-row">
         <span class="total-label"><strong>Total</strong></span>
-        <span class="total-amount">${{ '%.2f'|format(quote.total_price) }}</span>
+        <span class="total-amount">{{ quote.total_price|usd }}</span>
       </div>
     </div>
   </div>
@@ -197,7 +197,7 @@
           <div class="item-name">{{ item.work_type_label }}</div>
           {% if item.description %}<div class="item-desc">{{ item.description }}</div>{% endif %}
         </td>
-        <td class="right">${{ '%.2f'|format(item.total_price) }}</td>
+        <td class="right">{{ item.total_price|usd }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -206,7 +206,7 @@
     <div class="totals-box">
       <div class="total-row">
         <span class="total-label">Estimated Pass-Through Total</span>
-        <span class="total-amount">${{ '%.2f'|format(passthrough_total) }}</span>
+        <span class="total-amount">{{ passthrough_total|usd }}</span>
       </div>
     </div>
   </div>
@@ -258,7 +258,7 @@
       {% for item in declined_items %}
       <tr>
         <td style="color:#94a3b8;text-decoration:line-through;">{{ item.work_type_label }}</td>
-        <td class="right" style="color:#94a3b8;text-decoration:line-through;">${{ '%.2f'|format(item.total_price) }}</td>
+        <td class="right" style="color:#94a3b8;text-decoration:line-through;">{{ item.total_price|usd }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -275,7 +275,7 @@
         <span class="payment-label">{{ draw.label }}</span>
         <span class="payment-pct">({{ '%.0f'|format(draw.pct) }}%)</span>
       </div>
-      <div class="payment-amount">${{ '%.2f'|format(draw.amount) }}</div>
+      <div class="payment-amount">{{ draw.amount|usd }}</div>
     </div>
     {% endfor %}
   </div>

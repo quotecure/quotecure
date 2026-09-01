@@ -14,6 +14,13 @@ import secrets
 
 app = Flask(__name__)
 
+@app.template_filter('usd')
+def _usd(value):
+    """Comma-grouped currency: $12,345.67 / -$1,200.00. The one place every template should
+    format a dollar amount through, instead of each screen rolling its own '%.2f'|format."""
+    v = float(value or 0)
+    return f"-${-v:,.2f}" if v < 0 else f"${v:,.2f}"
+
 # Local secrets folder (used only for local-dev file fallbacks — production sets SECRET_KEY via env var)
 _secrets_dir = Path.home() / 'Documents' / 'quotecure_data'
 
@@ -227,6 +234,41 @@ def index():
 # ══════════════════════════════════════════════════════════════════════════════
 # QUOTES
 # ══════════════════════════════════════════════════════════════════════════════
+def _quotes_stats(db):
+    """Business-wide stats for the top of the Quotes list -- deliberately across every
+    quote ever created (not just the current tab), since "% converted" only means anything
+    measured against the whole population. 'Converted' mirrors the Contracts tab's own
+    filter (status in contract/in_progress/complete) -- a quote that's been signed, at any
+    point in its life since, not just ones currently mid-job."""
+    rows = db.execute("SELECT status, salesperson, total_cost, total_price FROM quotes").fetchall()
+    total_count = len(rows)
+    total_cost = sum(float(r['total_cost'] or 0) for r in rows)
+    total_price = sum(float(r['total_price'] or 0) for r in rows)
+    converted = [r for r in rows if r['status'] in ('contract', 'in_progress', 'complete')]
+    converted_count = len(converted)
+
+    by_rep = {}
+    for r in rows:
+        name = (r['salesperson'] or '').strip() or 'Unassigned'
+        rep = by_rep.setdefault(name, {'count': 0, 'total_price': 0.0, 'converted_count': 0})
+        rep['count'] += 1
+        rep['total_price'] += float(r['total_price'] or 0)
+        if r['status'] in ('contract', 'in_progress', 'complete'):
+            rep['converted_count'] += 1
+    for rep in by_rep.values():
+        rep['converted_pct'] = round(rep['converted_count'] / rep['count'] * 100, 1) if rep['count'] else 0
+    by_salesperson = sorted(by_rep.items(), key=lambda kv: kv[1]['total_price'], reverse=True)
+
+    return {
+        'total_count': total_count,
+        'total_cost': round(total_cost, 2),
+        'total_price': round(total_price, 2),
+        'avg_price': round(total_price / total_count, 2) if total_count else 0,
+        'converted_count': converted_count,
+        'converted_pct': round(converted_count / total_count * 100, 1) if total_count else 0,
+        'by_salesperson': by_salesperson,
+    }
+
 @app.route('/quotes')
 @login_required
 def quotes_list():
@@ -241,6 +283,7 @@ def quotes_list():
         quotes = db.execute(
             "SELECT * FROM quotes WHERE status='draft' OR status='sent' ORDER BY created_at DESC"
         ).fetchall()
+    stats = _quotes_stats(db)
     commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
     # Total quote count per customer, across every status/tab -- not just the ones showing
     # on this tab -- so a badge here can point out "this customer has other quotes" even
@@ -257,7 +300,7 @@ def quotes_list():
     net_commissions = {q['quote_id']: _net_commission(q) for q in quotes}
     return render_template('quotes.html', quotes=quotes, commission_policy=commission_policy,
                            active_tab=tab, quote_counts=quote_counts, current_role=g.role,
-                           net_commissions=net_commissions)
+                           net_commissions=net_commissions, stats=stats)
 
 @app.route('/customers')
 @login_required

@@ -42,7 +42,7 @@
             <tr>
               <td><span class="chip">{{ r.applicator_name }}</span></td>
               <td style="font-size:12px">{{ r.manufacturer_name }} {{ r.product_line }} – {{ r.finish }}</td>
-              <td class="right mono">${{ '%.2f'|format(r.rate) }}/sqft</td>
+              <td class="right mono">{{ r.rate|usd }}/sqft</td>
             </tr>
             {% endfor %}
             {% if not rates %}

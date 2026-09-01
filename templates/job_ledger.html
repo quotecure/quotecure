@@ -39,35 +39,35 @@
 
     <div class="ledger-box">
       <div class="ledger-box-title">Quoted (at signing)</div>
-      <div class="ledger-row"><span class="lbl">Cost</span><span class="val">${{ '%.2f'|format(totals.total_quoted_cost) }}</span></div>
-      <div class="ledger-row"><span class="lbl">Price</span><span class="val">${{ '%.2f'|format(totals.total_price) }}</span></div>
+      <div class="ledger-row"><span class="lbl">Cost</span><span class="val">{{ totals.total_quoted_cost|usd }}</span></div>
+      <div class="ledger-row"><span class="lbl">Price</span><span class="val">{{ totals.total_price|usd }}</span></div>
       <div class="ledger-row"><span class="lbl">Margin</span><span class="val">{{ totals.quoted_margin_pct }}%</span></div>
       {% if totals.quoted_tier %}
       <div class="ledger-row"><span class="lbl">Tier</span><span class="badge badge-blue">Tier {{ totals.quoted_tier }}</span></div>
       {% endif %}
-      <div class="ledger-row ledger-box-divider"><span class="lbl">Commission</span><span class="val">${{ '%.2f'|format(totals.expected_commission) }}</span></div>
+      <div class="ledger-row ledger-box-divider"><span class="lbl">Commission</span><span class="val">{{ totals.expected_commission|usd }}</span></div>
     </div>
 
     <div class="ledger-box">
       <div class="ledger-box-title">Actual (running)</div>
-      <div class="ledger-row"><span class="lbl">Cost so far</span><span class="val" style="color:#93c5fd;">${{ '%.2f'|format(totals.total_actual_cost) }}</span></div>
+      <div class="ledger-row"><span class="lbl">Cost so far</span><span class="val" style="color:#93c5fd;">{{ totals.total_actual_cost|usd }}</span></div>
       <div class="ledger-box-note">entered + remaining-quoted</div>
       <div class="ledger-row ledger-box-divider">
         <span class="lbl">{{ 'Under by' if totals.cost_diff < 0 else 'Over by' }}</span>
         <span class="val" style="{% if totals.cost_diff > 0 %}color:#fca5a5;{% elif totals.cost_diff < 0 %}color:#86efac;{% endif %}">
-          {% if totals.cost_diff > 0 %}+${{ '%.2f'|format(totals.cost_diff) }}{% elif totals.cost_diff < 0 %}-${{ '%.2f'|format(-totals.cost_diff) }}{% else %}$0.00{% endif %}
+          {% if totals.cost_diff > 0 %}+{{ totals.cost_diff|usd }}{% elif totals.cost_diff < 0 %}-{{ (-totals.cost_diff)|usd }}{% else %}$0.00{% endif %}
         </span>
       </div>
-      <div class="ledger-row"><span class="lbl">Price (fixed)</span><span class="val">${{ '%.2f'|format(totals.total_price) }}</span></div>
+      <div class="ledger-row"><span class="lbl">Price (fixed)</span><span class="val">{{ totals.total_price|usd }}</span></div>
     </div>
 
     <div class="ledger-box">
       <div class="ledger-box-title">Payoff (right now)</div>
       <div class="ledger-row">
         <span class="lbl">Gross profit</span>
-        <span class="val">${{ '%.2f'|format(totals.actual_gross_profit) }}
-          {% if totals.gross_profit_diff > 0 %}<span class="delta-down">+${{ '%.2f'|format(totals.gross_profit_diff) }}</span>
-          {% elif totals.gross_profit_diff < 0 %}<span class="delta-up">-${{ '%.2f'|format(-totals.gross_profit_diff) }}</span>{% endif %}
+        <span class="val">{{ totals.actual_gross_profit|usd }}
+          {% if totals.gross_profit_diff > 0 %}<span class="delta-down">+{{ totals.gross_profit_diff|usd }}</span>
+          {% elif totals.gross_profit_diff < 0 %}<span class="delta-up">-{{ (-totals.gross_profit_diff)|usd }}</span>{% endif %}
         </span>
       </div>
       <div class="ledger-row"><span class="lbl">Margin</span><span class="val">{{ totals.actual_margin_pct }}%</span></div>
@@ -76,9 +76,9 @@
       {% endif %}
       <div class="ledger-row ledger-box-divider">
         <span class="lbl">Commission</span>
-        <span class="val">${{ '%.2f'|format(totals.actual_commission) }}
-          {% if totals.commission_diff > 0 %}<span class="delta-down">+${{ '%.2f'|format(totals.commission_diff) }}</span>
-          {% elif totals.commission_diff < 0 %}<span class="delta-up">-${{ '%.2f'|format(-totals.commission_diff) }}</span>{% endif %}
+        <span class="val">{{ totals.actual_commission|usd }}
+          {% if totals.commission_diff > 0 %}<span class="delta-down">+{{ totals.commission_diff|usd }}</span>
+          {% elif totals.commission_diff < 0 %}<span class="delta-up">-{{ (-totals.commission_diff)|usd }}</span>{% endif %}
         </span>
       </div>
     </div>
@@ -104,14 +104,14 @@
             {{ item.work_type_label or item.label }}
             {% if item.has_material %}<div style="font-size:11px;color:var(--text3);">labor + material</div>{% endif %}
           </td>
-          <td class="right mono">${{ '%.2f'|format(item.total_cost) }}</td>
+          <td class="right mono">{{ item.total_cost|usd }}</td>
           <td class="right mono">
-            {% if item.fully_entered %}${{ '%.2f'|format(item.actual_total) }}
+            {% if item.fully_entered %}{{ item.actual_total|usd }}
             {% else %}<span class="ledger-not-entered">not entered</span>{% endif %}
           </td>
           <td class="right mono" style="{% if diff > 0 %}color:#f87171;{% elif diff < 0 %}color:#4ade80;{% endif %}">
             {% if item.fully_entered %}
-              {% if diff > 0 %}+${{ '%.2f'|format(diff) }}{% elif diff < 0 %}-${{ '%.2f'|format(-diff) }}{% else %}$0.00{% endif %}
+              {% if diff > 0 %}+{{ diff|usd }}{% elif diff < 0 %}-{{ (-diff)|usd }}{% else %}$0.00{% endif %}
             {% else %}—{% endif %}
           </td>
           {% if can_edit %}
@@ -127,14 +127,14 @@
                 <label class="form-label">Actual Labor Cost</label>
                 <input class="form-control ledger-actual-input" type="number" step="0.01" name="actual_labor_cost"
                        value="{{ item.actual_labor_cost if item.actual_labor_cost is not none else '' }}"
-                       placeholder="${{ '%.2f'|format(item.labor_total_cost or 0) }} quoted">
+                       placeholder="{{ (item.labor_total_cost or 0)|usd }} quoted">
               </div>
               {% if item.has_material %}
               <div>
                 <label class="form-label">Actual Material Cost</label>
                 <input class="form-control ledger-actual-input" type="number" step="0.01" name="actual_material_cost"
                        value="{{ item.actual_material_cost if item.actual_material_cost is not none else '' }}"
-                       placeholder="${{ '%.2f'|format(item.material_total_cost or 0) }} quoted">
+                       placeholder="{{ (item.material_total_cost or 0)|usd }} quoted">
               </div>
               {% endif %}
               <button class="btn btn-primary btn-sm" type="submit">Save</button>

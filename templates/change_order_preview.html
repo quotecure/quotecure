@@ -151,7 +151,7 @@
       <div class="total-row spacer"></div>
       <div class="total-row">
         <span class="total-label">Original Contract Total</span>
-        <span class="total-amount">${{ '%.2f'|format(money.original_total) }}</span>
+        <span class="total-amount">{{ money.original_total|usd }}</span>
       </div>
       {% if money.show_prior %}
       <div class="total-row">
@@ -163,15 +163,15 @@
       {% endif %}
       <div class="total-row">
         <span class="total-label">Total Paid on Original Contract</span>
-        <span class="total-amount neg">(${{ '%.2f'|format(money.total_paid) }})</span>
+        <span class="total-amount neg">({{ money.total_paid|usd }})</span>
       </div>
       <div class="total-row">
         <span class="total-label"><strong>Remaining Balance on Original Contract</strong></span>
-        <span class="total-amount bold">${{ '%.2f'|format(money.remaining_on_original) }}</span>
+        <span class="total-amount bold">{{ money.remaining_on_original|usd }}</span>
       </div>
       <div class="total-row grand">
         <span class="total-label"><strong>New Remaining Balance Including Change Order</strong></span>
-        <span class="total-amount bold">${{ '%.2f'|format(money.new_remaining) }}</span>
+        <span class="total-amount bold">{{ money.new_remaining|usd }}</span>
       </div>
     </div>
   </div>

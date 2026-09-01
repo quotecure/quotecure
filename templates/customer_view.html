@@ -101,7 +101,7 @@
         {% endif %}
       </div>
     </div>
-    <div class="cv-item-price" id="cv-price-{{ item.id }}">${{ '%.2f'|format(item.total_price) }}</div>
+    <div class="cv-item-price" id="cv-price-{{ item.id }}">{{ item.total_price|usd }}</div>
   </div>
   {% endfor %}
 
@@ -121,21 +121,21 @@
   {% if quote.discount_amount %}
   <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);padding:4px 0;">
     <div>Subtotal</div>
-    <div class="mono">${{ '%.2f'|format(quote.subtotal_price) }}</div>
+    <div class="mono">{{ quote.subtotal_price|usd }}</div>
   </div>
   <div style="display:flex;justify-content:space-between;font-size:13px;color:#4ade80;padding:4px 0;">
     <div>Discount</div>
-    <div class="mono">−${{ '%.2f'|format(quote.discount_amount) }}</div>
+    <div class="mono">{{ (-quote.discount_amount)|usd }}</div>
   </div>
   {% endif %}
   <div class="cv-total">
     <div class="cv-total-label">Total</div>
-    <div class="cv-total-value" id="cv-total">${{ '%.2f'|format(quote.total_price) }}</div>
+    <div class="cv-total-value" id="cv-total">{{ quote.total_price|usd }}</div>
   </div>
 
   {% if schedule %}
   <div class="cv-schedule">
-    {% for s in schedule %}{{ s.label }}: ${{ '%.0f'|format(s.amount) }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+    {% for s in schedule %}{{ s.label }}: {{ s.amount|usd }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
   </div>
   {% endif %}
 
@@ -153,6 +153,7 @@
 
 <script>
 const QID = {{ quote.quote_id }};
+function fmtMoney(v) { v = parseFloat(v) || 0; const abs = Math.abs(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); return (v < 0 ? '-$' : '$') + abs; }
 
 function cvTogglePicker(id) {
   document.getElementById('cv-picker-' + id).classList.toggle('open');
@@ -208,8 +209,8 @@ async function cvSaveMaterial(id) {
 function cvApplyResult(id, d) {
   const label = d.product_label || d.material_label;
   if (label) document.getElementById('cv-material-' + id).textContent = label;
-  if (d.total_price !== undefined) document.getElementById('cv-price-' + id).textContent = '$' + d.total_price.toFixed(2);
-  if (d.quote_total_price !== undefined) document.getElementById('cv-total').textContent = '$' + d.quote_total_price.toFixed(2);
+  if (d.total_price !== undefined) document.getElementById('cv-price-' + id).textContent = fmtMoney(d.total_price);
+  if (d.quote_total_price !== undefined) document.getElementById('cv-total').textContent = fmtMoney(d.quote_total_price);
 }
 
 async function cvRemoveItem(id) {
@@ -218,7 +219,7 @@ async function cvRemoveItem(id) {
   if (resp.ok) {
     const d = await resp.json();
     document.getElementById('cv-item-' + id).remove();
-    if (d.quote_total_price !== undefined) document.getElementById('cv-total').textContent = '$' + d.quote_total_price.toFixed(2);
+    if (d.quote_total_price !== undefined) document.getElementById('cv-total').textContent = fmtMoney(d.quote_total_price);
   }
 }
 

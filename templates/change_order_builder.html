@@ -41,7 +41,7 @@
     <div>
       <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;">Change Order #{{ co.co_number }} &middot; <span style="color:#fbbf24;">{{ co.status }}</span></div>
       <div style="font-size:18px;font-weight:700;margin-top:2px;">{{ quote.customer_name }} — QT-{{ '%04d'|format(quote.quote_id) }}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px;">Original contract signed {{ quote.signed_at }} &middot; ${{ '%.2f'|format(quote.total_price) }}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px;">Original contract signed {{ quote.signed_at }} &middot; {{ quote.total_price|usd }}</div>
     </div>
     <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary btn-sm">← Back to Contract</a>
   </div>
@@ -111,7 +111,7 @@
         <select id="remove-wt">
           <option value="">— Select —</option>
           {% for r in removable %}
-          <option value="{{ r.work_type_id }}">{{ r.work_type_label or r.label }} — ${{ '%.2f'|format(r.total_price) }}</option>
+          <option value="{{ r.work_type_id }}">{{ r.work_type_label or r.label }} — {{ r.total_price|usd }}</option>
           {% endfor %}
         </select>
       </div>
@@ -129,7 +129,7 @@
         <select id="amend-wt" onchange="onCoWtChange('amend')">
           <option value="">— Select —</option>
           {% for r in removable %}
-          <option value="{{ r.work_type_id }}">{{ r.work_type_label or r.label }} — ${{ '%.2f'|format(r.total_price) }}</option>
+          <option value="{{ r.work_type_id }}">{{ r.work_type_label or r.label }} — {{ r.total_price|usd }}</option>
           {% endfor %}
         </select>
       </div>
@@ -192,6 +192,7 @@
 
 <script>
 const QID = {{ quote.quote_id }};
+function fmtMoney(v) { v = parseFloat(v) || 0; const abs = Math.abs(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); return (v < 0 ? '-$' : '$') + abs; }
 const COID = {{ co.id }};
 const WORK_TYPES = {{ work_types | tojson }};
 
@@ -253,7 +254,7 @@ function calcCoPreview(section) {
   const qty = parseFloat(document.getElementById(section + '-qty').value) || 0;
   const cpu = parseFloat(document.getElementById(section + '-cpu').value) || 0;
   const el = document.getElementById(section + '-preview');
-  if (qty && cpu) el.textContent = 'Est. labor: $' + (qty * cpu).toFixed(2) + ' before markup';
+  if (qty && cpu) el.textContent = 'Est. labor: ' + fmtMoney(qty * cpu) + ' before markup';
   else el.textContent = '';
 }
 

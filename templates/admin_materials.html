@@ -84,7 +84,7 @@
                 </td>
                 <td style="font-size:11px;color:var(--text3);">{{ m.price_unit }}</td>
                 <td class="right mono" style="font-size:11px;color:var(--text3);">×{{ m.conversion_factor }}</td>
-                <td class="right"><span class="mono" style="color:#93c5fd;font-weight:600;">${{ '%.2f'|format(m.cost_per_quote_unit) }}/{{ m.quote_unit }}</span></td>
+                <td class="right"><span class="mono" style="color:#93c5fd;font-weight:600;">{{ m.cost_per_quote_unit|usd }}/{{ m.quote_unit }}</span></td>
                 <td><span class="badge badge-{{ 'green' if m.active == 'Y' else 'red' }}">{{ 'Active' if m.active == 'Y' else 'Off' }}</span></td>
                 <td style="white-space:nowrap;">
                   <button class="btn btn-secondary btn-sm" type="button" onclick="toggleMaterialEdit({{ m.material_id }})">Edit</button>

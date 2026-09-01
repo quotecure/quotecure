@@ -22,7 +22,7 @@
             <tr id="row-{{ q.modifier_id }}" class="{% if q.active != 'Y' %}edit-row{% endif %}">
               <td style="font-weight:500">{{ q.label }}</td>
               <td style="color:var(--text2);font-size:12px;">{{ q.work_types|map(attribute='work_type')|join(', ') if q.work_types else '— none selected —' }}</td>
-              <td class="right mono">{% if q.unit_type == 'percent' %}{{ '%.2f'|format(q.amount) }}%{% else %}${{ '%.2f'|format(q.amount) }}{% endif %}</td>
+              <td class="right mono">{% if q.unit_type == 'percent' %}{{ '%.2f'|format(q.amount) }}%{% else %}{{ q.amount|usd }}{% endif %}</td>
               <td>{{ {'flat': 'flat', 'per_unit': 'per unit', 'percent': '% of material cost'}[q.unit_type] }}</td>
               <td><span class="badge badge-{{ 'green' if q.active == 'Y' else 'red' }}">{{ 'Active' if q.active == 'Y' else 'Off' }}</span></td>
               <td><button class="btn btn-secondary btn-sm" onclick="toggleEdit({{ q.modifier_id }})">Edit</button></td>

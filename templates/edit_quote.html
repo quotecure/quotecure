@@ -176,7 +176,7 @@
         <span style="font-size:13px;color:var(--text);">Version {{ v.version_number }}</span>
         <span style="font-size:11px;color:var(--text3);">sent {{ v.sent_at[:10] if v.sent_at else '' }}{% if v.sent_by %} by {{ v.sent_by }}{% endif %}</span>
       </div>
-      <span class="mono" style="font-size:13px;color:var(--text2);">${{ '%.2f'|format(v.total_price or 0) }}</span>
+      <span class="mono" style="font-size:13px;color:var(--text2);">{{ (v.total_price or 0)|usd }}</span>
     </a>
     {% endfor %}
   </div>
@@ -234,12 +234,12 @@
 
   <!-- Summary -->
   <div class="sum-grid">
-    <div class="sum-card"><div class="sum-lbl">Total Cost</div><div class="sum-val" id="sum-cost">${{ '%.2f'|format(quote.total_cost) }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Total Cost</div><div class="sum-val" id="sum-cost">{{ quote.total_cost|usd }}</div></div>
     <div class="sum-card">
       <div class="sum-lbl">Total Price</div>
-      <div class="sum-val blue" id="sum-price">${{ '%.2f'|format(quote.total_price) }}</div>
+      <div class="sum-val blue" id="sum-price">{{ quote.total_price|usd }}</div>
       {% if quote.discount_amount %}
-      <div style="font-size:10px;color:#fbbf24;margin-top:3px;" id="sum-discount-note">of ${{ '%.2f'|format(quote.subtotal_price) }} — ${{ '%.2f'|format(quote.discount_amount) }} discount</div>
+      <div style="font-size:10px;color:#fbbf24;margin-top:3px;" id="sum-discount-note">of {{ quote.subtotal_price|usd }} — {{ quote.discount_amount|usd }} discount</div>
       {% endif %}
       {% if not is_locked_contract %}
       <button class="btn btn-secondary btn-sm" type="button" style="margin-top:6px;font-size:10px;padding:3px 8px;" onclick="toggleDiscount()">{{ 'Edit discount' if quote.discount_amount else 'Apply discount' }}</button>
@@ -262,20 +262,20 @@
     </div>
     {% endif %}
     {% if current_role and current_role.show_gross_profit %}
-    <div class="sum-card"><div class="sum-lbl">Gross Profit</div><div class="sum-val green" id="sum-gross">${{ '%.2f'|format(quote.total_price - quote.total_cost) }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Gross Profit</div><div class="sum-val green" id="sum-gross">{{ (quote.total_price - quote.total_cost)|usd }}</div></div>
     {% endif %}
     {% if current_role and current_role.show_commission %}
     <div class="sum-card">
       <div class="sum-lbl">Commission</div>
-      <div class="sum-val amber" id="sum-commission">${{ '%.2f'|format(net_commission) }}</div>
+      <div class="sum-val amber" id="sum-commission">{{ net_commission|usd }}</div>
       {% if quote.commission_giveup %}
-      <div style="font-size:10px;color:#fbbf24;margin-top:3px;" title="Given up by {{ quote.commission_giveup_by }}">of ${{ '%.2f'|format(quote.commission) }} — ${{ '%.2f'|format(quote.commission_giveup) }} given up</div>
+      <div style="font-size:10px;color:#fbbf24;margin-top:3px;" title="Given up by {{ quote.commission_giveup_by }}">of {{ quote.commission|usd }} — {{ quote.commission_giveup|usd }} given up</div>
       {% endif %}
       {% if is_assigned_salesperson and not is_locked_contract %}
       <button class="btn btn-secondary btn-sm" type="button" style="margin-top:6px;font-size:10px;padding:3px 8px;" onclick="toggleCommissionGiveup()">Give up commission</button>
       {% endif %}
     </div>
-    <div class="sum-card"><div class="sum-lbl">Net</div><div class="sum-val" id="sum-net" style="color:#94a3b8;">${{ '%.2f'|format(quote.total_price - quote.total_cost - net_commission) }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Net</div><div class="sum-val" id="sum-net" style="color:#94a3b8;">{{ (quote.total_price - quote.total_cost - net_commission)|usd }}</div></div>
     {% endif %}
   </div>
 
@@ -332,7 +332,7 @@
   </div>
   {% endif %}
 
-  {% macro money(v) %}{{ '$%.2f'|format(v) if v >= 0 else '-$%.2f'|format(-v) }}{% endmacro %}
+  {% macro money(v) %}{{ v|usd }}{% endmacro %}
 
   {% macro qt_head() %}
       <thead>
@@ -397,7 +397,7 @@
             <span class="mod-chip {% if applied %}on{% endif %}"
                   id="mod-{{ item.id }}-{{ ql.modifier_id }}"
                   onclick="toggleModifier({{ item.id }}, {{ ql.modifier_id }}, {{ (not applied)|tojson }})">
-              {% if ql.unit_type == 'per_unit' %}{{ ql.label }} (+${{ '%.2f'|format(ql.amount) }}/{{ item.labor_unit }}){% elif ql.unit_type == 'percent' %}{{ ql.label }} (+{{ '%.2f'|format(ql.amount) }}%){% else %}{{ ql.label }} (+${{ '%.0f'|format(ql.amount) }}){% endif %}
+              {% if ql.unit_type == 'per_unit' %}{{ ql.label }} (+{{ ql.amount|usd }}/{{ item.labor_unit }}){% elif ql.unit_type == 'percent' %}{{ ql.label }} (+{{ '%.2f'|format(ql.amount) }}%){% else %}{{ ql.label }} (+{{ ql.amount|usd }}){% endif %}
             </span>
             {% endfor %}
           </div>
@@ -421,7 +421,7 @@
 
         <!-- Cost/Unit -->
         <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if is_split or item.is_calculated %}'none'{% else %}'labor_cpu'{% endif %})" id="cell-cpu-{{ item.id }}">
-          <span class="ec-val mono" style="color:var(--text3);">{% if is_split or item.is_calculated %}—{% else %}${{ '%.2f'|format(item.labor_cost_per_unit) }}{% endif %}</span>
+          <span class="ec-val mono" style="color:var(--text3);">{% if is_split or item.is_calculated %}—{% else %}{{ item.labor_cost_per_unit|usd }}{% endif %}</span>
         </td>
 
         <!-- Total Cost -->
@@ -571,7 +571,7 @@
                     {% set ns.cat = group_label %}
                     {% endif %}
                     <option value="{{ mat.material_id }}" data-cost="{{ mat.cost_per_quote_unit }}" {{ 'selected' if item.material_id == mat.material_id }}>
-                      {{ mat.series }} — ${{ '%.2f'|format(mat.cost_per_quote_unit) }}/{{ mat.quote_unit }}
+                      {{ mat.series }} — {{ mat.cost_per_quote_unit|usd }}/{{ mat.quote_unit }}
                     </option>
                     {% endif %}
                     {% endfor %}
@@ -611,7 +611,7 @@
         <td class="r mono" style="font-size:12px;color:var(--text2);" id="split-labor-qty-{{ item.id }}">{{ item.labor_quantity }}</td>
         <td class="r" style="font-size:11px;color:var(--text3);">{{ item.labor_unit }}</td>
         <td class="ec r" onclick="editCell(this, {{ item.id }}, 'labor_cpu')" id="cell-labor-cpu-{{ item.id }}">
-          <span class="ec-val mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.labor_cost_per_unit) }}</span>
+          <span class="ec-val mono" style="font-size:12px;color:var(--text2);">{{ item.labor_cost_per_unit|usd }}</span>
         </td>
         <td class="r mono" style="font-size:12px;" id="labor-tcost-{{ item.id }}">{{ money(item.labor_total_cost) }}</td>
         <td class="r">
@@ -636,7 +636,7 @@
         </td>
         <td class="r" style="font-size:11px;color:var(--text3);">{{ item.material_unit }}</td>
         <td class="ec r" onclick="editCell(this, {{ item.id }}, 'mat_cpu')" id="cell-mat-cpu-{{ item.id }}">
-          <span class="ec-val mono" style="font-size:12px;color:var(--text2);" id="mat-cpu-{{ item.id }}">${{ '%.2f'|format(item.material_cost_per_unit) }}</span>
+          <span class="ec-val mono" style="font-size:12px;color:var(--text2);" id="mat-cpu-{{ item.id }}">{{ item.material_cost_per_unit|usd }}</span>
         </td>
         <td class="r mono" style="font-size:12px;" id="mat-tcost-{{ item.id }}">{{ money(item.material_total_cost) }}</td>
         <td class="r">
@@ -723,7 +723,7 @@
               <select class="nr-input" id="nr-repl-src">
                 <option value="">— Select item above —</option>
                 {% for li in line_items %}
-                <option value="{{ li.id }}">{{ li.work_type_label }} — ${{ '%.2f'|format(li.total_price) }}</option>
+                <option value="{{ li.id }}">{{ li.work_type_label }} — {{ li.total_price|usd }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -896,7 +896,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border2);">
         <span style="font-size:12px;color:var(--text3);text-decoration:line-through;">{{ item.work_type_label }}</span>
         <span style="display:flex;gap:10px;align-items:center;">
-          <span class="mono" style="font-size:12px;color:var(--text3);">${{ '%.2f'|format(item.total_price) }}</span>
+          <span class="mono" style="font-size:12px;color:var(--text3);">{{ item.total_price|usd }}</span>
           {% if current_role and current_role.can_override_min_markup %}
           <button class="btn btn-secondary btn-sm" onclick="restoreDeclined({{ item.id }})">Restore</button>
           {% endif %}
@@ -913,7 +913,7 @@
       <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);">Payment Schedule</span>
       {% if schedule %}
       <span style="font-size:11px;color:var(--text2);">
-        {% for draw in schedule %}<span class="mono" style="color:#93c5fd;">${{ '%.0f'|format(draw.amount) }}</span> {{ draw.label }}{% if not loop.last %} · {% endif %}{% endfor %}
+        {% for draw in schedule %}<span class="mono" style="color:#93c5fd;">{{ draw.amount|usd }}</span> {{ draw.label }}{% if not loop.last %} · {% endif %}{% endfor %}
       </span>
       {% else %}<span style="font-size:11px;color:var(--text3);">Add line items to generate</span>{% endif %}
     </div>
@@ -936,7 +936,7 @@
     {% endfor %}
     <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:4px;">
       <span style="font-size:10px;color:var(--text3);">Must equal quote total</span>
-      <span class="mono" style="font-size:11px;font-weight:600;color:#93c5fd;" id="sched-total">${{ '%.2f'|format(schedule|sum(attribute='amount')) }}</span>
+      <span class="mono" style="font-size:11px;font-weight:600;color:#93c5fd;" id="sched-total">{{ schedule|sum(attribute='amount')|usd }}</span>
     </div>
     {% endif %}
   </div>
@@ -953,7 +953,7 @@
     {% for draw in schedule %}
     <div class="paid-row">
       <span style="font-size:12px;color:var(--text2);">{{ draw.label }}</span>
-      <span class="mono" style="font-size:11px;color:var(--text3);text-align:right;">${{ '%.2f'|format(draw.amount) }} sched.</span>
+      <span class="mono" style="font-size:11px;color:var(--text3);text-align:right;">{{ draw.amount|usd }} sched.</span>
       <input type="number" step="0.01" class="paid-date" style="text-align:right;font-family:'Chivo Mono',monospace;"
              id="paid-amt-{{ draw.id }}" value="{{ '%.2f'|format(draw.collected_amount if draw.collected_amount is not none else draw.amount) }}"
              {{ 'disabled' if not draw.collected }} onchange="onPaidFieldChange({{ draw.id }})">
@@ -963,9 +963,9 @@
     </div>
     {% endfor %}
     <div class="paid-summary">
-      <div class="paid-summary-row"><span>{{ 'Contract Total' if quote.status in ('contract', 'in_progress', 'complete') else 'Quote Total' }}</span><span class="val">${{ '%.2f'|format(contract_total or 0) }}</span></div>
-      <div class="paid-summary-row total"><span>Total Paid</span><span class="val" id="paid-total">${{ '%.2f'|format(schedule|selectattr('collected')|sum(attribute='collected_amount')|default(0)) }}</span></div>
-      <div class="paid-summary-row remaining"><span>Remaining Balance</span><span class="val" id="paid-remaining">${{ '%.2f'|format((contract_total or 0) - (schedule|selectattr('collected')|sum(attribute='collected_amount')|default(0))) }}</span></div>
+      <div class="paid-summary-row"><span>{{ 'Contract Total' if quote.status in ('contract', 'in_progress', 'complete') else 'Quote Total' }}</span><span class="val">{{ (contract_total or 0)|usd }}</span></div>
+      <div class="paid-summary-row total"><span>Total Paid</span><span class="val" id="paid-total">{{ schedule|selectattr('collected')|sum(attribute='collected_amount')|default(0)|usd }}</span></div>
+      <div class="paid-summary-row remaining"><span>Remaining Balance</span><span class="val" id="paid-remaining">{{ ((contract_total or 0) - (schedule|selectattr('collected')|sum(attribute='collected_amount')|default(0)))|usd }}</span></div>
     </div>
   </div>
   {% endif %}
@@ -991,6 +991,13 @@ const WORK_TYPE_NAME_TO_ID = {};
 Object.entries(WORK_TYPES).forEach(([id, wt]) => { WORK_TYPE_NAME_TO_ID[wt.name] = id; });
 function nrWorkTypeId(section) {
   return WORK_TYPE_NAME_TO_ID[document.getElementById('nr-wt-' + section).value] || '';
+}
+// Comma-grouped currency for live JS updates -- mirrors the server-side `usd` Jinja filter
+// so a number doesn't render with commas on page load and without them after an edit.
+function fmtMoney(v) {
+  v = parseFloat(v) || 0;
+  const abs = Math.abs(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  return (v < 0 ? '-$' : '$') + abs;
 }
 const LOCKED = {{ 'true' if quote.status in ('contract', 'in_progress', 'complete') else 'false' }};
 const TIER_POLICY = {{ ({
@@ -1150,33 +1157,33 @@ function updateRowDOM(id, d) {
     // field='none') -- only patch it for a non-split item, or we'd stomp that placeholder.
     const laborCpuEl = document.querySelector('#cell-labor-cpu-' + id + ' .ec-val');
     if (laborCpuEl) {
-      laborCpuEl.textContent = '$' + parseFloat(d.labor_cost_per_unit).toFixed(2);
+      laborCpuEl.textContent = fmtMoney(d.labor_cost_per_unit);
     } else {
       const cpuEl = document.querySelector('#cell-cpu-' + id + ' .ec-val');
-      if (cpuEl) cpuEl.textContent = '$' + parseFloat(d.labor_cost_per_unit).toFixed(2);
+      if (cpuEl) cpuEl.textContent = fmtMoney(d.labor_cost_per_unit);
     }
   }
   if (d.total_cost !== undefined && document.getElementById('tcost-' + id))
-    document.getElementById('tcost-' + id).textContent = '$' + d.total_cost.toFixed(2);
+    document.getElementById('tcost-' + id).textContent = fmtMoney(d.total_cost);
   if (d.total_price !== undefined && document.getElementById('price-' + id))
-    document.getElementById('price-' + id).textContent = '$' + d.total_price.toFixed(2);
+    document.getElementById('price-' + id).textContent = fmtMoney(d.total_price);
   if (d.total_margin_pct !== undefined && document.getElementById('margin-' + id))
     document.getElementById('margin-' + id).textContent = d.total_margin_pct.toFixed(0) + '%';
   // Split (labor+material) sub-rows
   if (d.labor_total_cost !== undefined && document.getElementById('labor-tcost-' + id))
-    document.getElementById('labor-tcost-' + id).textContent = '$' + d.labor_total_cost.toFixed(2);
+    document.getElementById('labor-tcost-' + id).textContent = fmtMoney(d.labor_total_cost);
   if (d.labor_total_price !== undefined && document.getElementById('price-labor-' + id))
-    document.getElementById('price-labor-' + id).textContent = '$' + d.labor_total_price.toFixed(2);
+    document.getElementById('price-labor-' + id).textContent = fmtMoney(d.labor_total_price);
   if (d.labor_margin_pct !== undefined && document.getElementById('margin-labor-' + id))
     document.getElementById('margin-labor-' + id).textContent = d.labor_margin_pct.toFixed(0) + '%';
   if (d.material_cost_per_unit !== undefined) {
     const matCpuEl = document.querySelector('#cell-mat-cpu-' + id + ' .ec-val');
-    if (matCpuEl) matCpuEl.textContent = '$' + parseFloat(d.material_cost_per_unit).toFixed(2);
+    if (matCpuEl) matCpuEl.textContent = fmtMoney(d.material_cost_per_unit);
   }
   if (d.material_total_cost !== undefined && document.getElementById('mat-tcost-' + id))
-    document.getElementById('mat-tcost-' + id).textContent = '$' + d.material_total_cost.toFixed(2);
+    document.getElementById('mat-tcost-' + id).textContent = fmtMoney(d.material_total_cost);
   if (d.material_total_price !== undefined && document.getElementById('price-mat-' + id))
-    document.getElementById('price-mat-' + id).textContent = '$' + d.material_total_price.toFixed(2);
+    document.getElementById('price-mat-' + id).textContent = fmtMoney(d.material_total_price);
   if (d.material_margin_pct !== undefined && document.getElementById('margin-mat-' + id))
     document.getElementById('margin-mat-' + id).textContent = d.material_margin_pct.toFixed(0) + '%';
 }
@@ -1245,7 +1252,7 @@ async function saveCommissionGiveup() {
     });
     const d = await resp.json();
     if (resp.ok) {
-      document.getElementById('sum-commission').textContent = '$' + d.net_commission.toFixed(2);
+      document.getElementById('sum-commission').textContent = fmtMoney(d.net_commission);
       toggleCommissionGiveup();
       location.reload();
     } else {
@@ -1343,8 +1350,8 @@ async function toggleModifier(itemId, modifierId, checked) {
   const chip = document.getElementById('mod-' + itemId + '-' + modifierId);
   chip.classList.toggle('on', checked);
   chip.setAttribute('onclick', 'toggleModifier(' + itemId + ',' + modifierId + ',' + (!checked) + ')');
-  if (document.getElementById('tcost-' + itemId)) document.getElementById('tcost-' + itemId).textContent = '$' + d.total_cost.toFixed(2);
-  if (document.getElementById('price-' + itemId)) document.getElementById('price-' + itemId).textContent = '$' + d.total_price.toFixed(2);
+  if (document.getElementById('tcost-' + itemId)) document.getElementById('tcost-' + itemId).textContent = fmtMoney(d.total_cost);
+  if (document.getElementById('price-' + itemId)) document.getElementById('price-' + itemId).textContent = fmtMoney(d.total_price);
   if (document.getElementById('margin-' + itemId)) document.getElementById('margin-' + itemId).textContent = d.total_margin_pct.toFixed(0) + '%';
   updateSummaryCards(d);
 }
@@ -1386,7 +1393,7 @@ async function ppLoadFinishes(id) {
   const fins = await r.json();
   const sel = document.getElementById('pp-fin-' + id);
   sel.innerHTML = '<option value="">— Select —</option>';
-  fins.forEach(f => sel.innerHTML += '<option value="' + f.product_id + '" data-rate="' + f.rate + '">' + f.finish + ' — $' + parseFloat(f.rate).toFixed(2) + '/sqft</option>');
+  fins.forEach(f => sel.innerHTML += '<option value="' + f.product_id + '" data-rate="' + f.rate + '">' + f.finish + ' — ' + fmtMoney(f.rate) + '/sqft</option>');
 }
 
 // Collection -> Material cascading picker (see add_material_collections). Caches the
@@ -1413,7 +1420,7 @@ async function ppLoadCollectionMaterials(id, workTypeId) {
       html += '<optgroup label="' + m.group_label + '">';
       lastCat = m.group_label;
     }
-    html += '<option value="' + m.material_id + '" data-cost="' + m.cost + '">' + m.series + ' — $' + parseFloat(m.cost).toFixed(2) + '/' + m.quote_unit + '</option>';
+    html += '<option value="' + m.material_id + '" data-cost="' + m.cost + '">' + m.series + ' — ' + fmtMoney(m.cost) + '/' + m.quote_unit + '</option>';
   });
   if (lastCat !== null) html += '</optgroup>';
   matSel.innerHTML = html;
@@ -1431,11 +1438,11 @@ async function ppSaveSurface(id) {
     const d = await resp.json();
     if (d.product_label) document.getElementById('bc-' + id).textContent = d.product_label;
     document.getElementById('bc-' + id).classList.remove('empty');
-    if (d.total_price !== undefined) document.getElementById('price-' + id).textContent = '$' + d.total_price.toFixed(2);
-    if (d.total_cost !== undefined) document.getElementById('tcost-' + id).textContent = '$' + d.total_cost.toFixed(2);
+    if (d.total_price !== undefined) document.getElementById('price-' + id).textContent = fmtMoney(d.total_price);
+    if (d.total_cost !== undefined) document.getElementById('tcost-' + id).textContent = fmtMoney(d.total_cost);
     if (d.total_margin_pct !== undefined) document.getElementById('margin-' + id).textContent = d.total_margin_pct.toFixed(0) + '%';
     const cpuEl = document.querySelector('#cell-cpu-' + id + ' .ec-val');
-    if (cpuEl && d.labor_cost_per_unit) cpuEl.textContent = '$' + parseFloat(d.labor_cost_per_unit).toFixed(2);
+    if (cpuEl && d.labor_cost_per_unit) cpuEl.textContent = fmtMoney(d.labor_cost_per_unit);
     const qtyEl = document.querySelector('#cell-qty-' + id + ' .ec-val');
     if (qtyEl && d.labor_quantity !== undefined) qtyEl.textContent = d.labor_quantity;
     updateSummaryCards(d);
@@ -1481,10 +1488,10 @@ async function adjMarkup(id, component, delta) {
   const marginEl = document.getElementById('margin' + suffix + '-' + id) || document.getElementById('margin-' + id);
   if (marginEl) marginEl.textContent = d.margin_pct.toFixed(0) + '%';
   const priceEl = document.getElementById('price' + suffix + '-' + id) || document.getElementById('price-' + id);
-  if (priceEl) priceEl.textContent = '$' + d.component_price.toFixed(2);
-  if (document.getElementById('price-' + id)) document.getElementById('price-' + id).textContent = '$' + d.item_total_price.toFixed(2);
+  if (priceEl) priceEl.textContent = fmtMoney(d.component_price);
+  if (document.getElementById('price-' + id)) document.getElementById('price-' + id).textContent = fmtMoney(d.item_total_price);
   if (document.getElementById('margin-' + id)) document.getElementById('margin-' + id).textContent = d.item_total_margin.toFixed(0) + '%';
-  if (document.getElementById('tcost-' + id)) document.getElementById('tcost-' + id).textContent = '$' + d.item_total_cost.toFixed(2);
+  if (document.getElementById('tcost-' + id)) document.getElementById('tcost-' + id).textContent = fmtMoney(d.item_total_cost);
   updateSummaryCards(d);
 }
 
@@ -1703,7 +1710,7 @@ function calcNrPreview(section) {
   const total = qty * cpu * (1 + markup/100);
   const margin = markup / (100 + markup) * 100;
   const el = document.getElementById('nr-preview-' + section);
-  if (qty && cpu) el.textContent = '$' + total.toFixed(2) + ' | ' + margin.toFixed(0) + '%';
+  if (qty && cpu) el.textContent = fmtMoney(total) + ' | ' + margin.toFixed(0) + '%';
   else el.textContent = '';
 }
 
@@ -1818,14 +1825,14 @@ async function sunshelfRecalcNow() {
   if (!r.ok) return;
   const d = await r.json();
   document.getElementById('ss-breakdown').style.display = 'block';
-  document.getElementById('ss-b-shotcrete').textContent = '$' + d.components.shotcrete.toFixed(2) + ' (' + d.cubic_yards + ' yd³)';
-  document.getElementById('ss-b-rebar').textContent = '$' + (d.components.rebar_material + d.components.rebar_labor).toFixed(2) + ' (' + d.total_rebar_lf + ' lf)';
-  document.getElementById('ss-b-bubbler').textContent = '$' + d.components.bubbler.toFixed(2);
-  document.getElementById('ss-b-steps').textContent = '$' + d.components.steps.toFixed(2);
-  document.getElementById('ss-b-light').textContent = '$' + d.components.light.toFixed(2);
-  document.getElementById('ss-b-fill').textContent = '$' + d.components.fill.toFixed(2);
-  document.getElementById('ss-b-cost').textContent = '$' + d.total_cost.toFixed(2);
-  document.getElementById('ss-b-price').textContent = '$' + d.total_price.toFixed(2);
+  document.getElementById('ss-b-shotcrete').textContent = fmtMoney(d.components.shotcrete) + ' (' + d.cubic_yards + ' yd³)';
+  document.getElementById('ss-b-rebar').textContent = fmtMoney(d.components.rebar_material + d.components.rebar_labor) + ' (' + d.total_rebar_lf + ' lf)';
+  document.getElementById('ss-b-bubbler').textContent = fmtMoney(d.components.bubbler);
+  document.getElementById('ss-b-steps').textContent = fmtMoney(d.components.steps);
+  document.getElementById('ss-b-light').textContent = fmtMoney(d.components.light);
+  document.getElementById('ss-b-fill').textContent = fmtMoney(d.components.fill);
+  document.getElementById('ss-b-cost').textContent = fmtMoney(d.total_cost);
+  document.getElementById('ss-b-price').textContent = fmtMoney(d.total_price);
   document.getElementById('ss-markup-val').textContent = d.markup_pct.toFixed(0) + '%';
   document.getElementById('ss-mdn').disabled = d.markup_pct <= SUNSHELF_MIN_MARKUP;
   document.getElementById('ss-mstep').classList.toggle('floor', d.markup_pct <= SUNSHELF_MIN_MARKUP);
@@ -1859,21 +1866,21 @@ async function addSunshelfItem() {
 
 // ── Summary cards ─────────────────────────────────────────────────
 function updateSummaryCards(d) {
-  if (d.quote_total_cost !== undefined) document.getElementById('sum-cost').textContent = '$' + d.quote_total_cost.toFixed(2);
-  if (d.quote_total_price !== undefined) document.getElementById('sum-price').textContent = '$' + d.quote_total_price.toFixed(2);
+  if (d.quote_total_cost !== undefined) document.getElementById('sum-cost').textContent = fmtMoney(d.quote_total_cost);
+  if (d.quote_total_price !== undefined) document.getElementById('sum-price').textContent = fmtMoney(d.quote_total_price);
   if (d.quote_total_margin !== undefined) document.getElementById('sum-margin').textContent = d.quote_total_margin.toFixed(0) + '%';
-  if (d.quote_gross_profit !== undefined && document.getElementById('sum-gross')) document.getElementById('sum-gross').textContent = '$' + d.quote_gross_profit.toFixed(2);
-  if (d.quote_commission !== undefined && document.getElementById('sum-commission')) document.getElementById('sum-commission').textContent = '$' + d.quote_commission.toFixed(2);
-  if (d.quote_net_profit !== undefined && document.getElementById('sum-net')) document.getElementById('sum-net').textContent = '$' + d.quote_net_profit.toFixed(2);
+  if (d.quote_gross_profit !== undefined && document.getElementById('sum-gross')) document.getElementById('sum-gross').textContent = fmtMoney(d.quote_gross_profit);
+  if (d.quote_commission !== undefined && document.getElementById('sum-commission')) document.getElementById('sum-commission').textContent = fmtMoney(d.quote_commission);
+  if (d.quote_net_profit !== undefined && document.getElementById('sum-net')) document.getElementById('sum-net').textContent = fmtMoney(d.quote_net_profit);
   if (d.optional_total !== undefined && document.getElementById('optional-total')) {
     // Match the money() Jinja macro's formatting -- optional items can include a negative
     // replacement/credit line, so this can legitimately go negative.
     const ot = d.optional_total;
-    document.getElementById('optional-total').textContent = (ot >= 0 ? '$' : '-$') + Math.abs(ot).toFixed(2);
+    document.getElementById('optional-total').textContent = fmtMoney(ot);
   }
   if (d.passthrough_total !== undefined && document.getElementById('passthrough-total')) {
     const pt = d.passthrough_total;
-    document.getElementById('passthrough-total').textContent = (pt >= 0 ? '$' : '-$') + Math.abs(pt).toFixed(2);
+    document.getElementById('passthrough-total').textContent = fmtMoney(pt);
   }
   updateTierNudge(d.quote_total_margin, d.quote_gross_profit);
 }
@@ -1897,7 +1904,7 @@ function updateDraw(id, field, value) {
     if (pctEl && total > 0) pctEl.textContent = (parseFloat(value)/total*100).toFixed(0) + '%';
     const totalAmt = DRAWS.reduce((s,d) => s + parseFloat(d.amount||0), 0);
     const totEl = document.getElementById('sched-total');
-    if (totEl) totEl.textContent = '$' + totalAmt.toFixed(2);
+    if (totEl) totEl.textContent = fmtMoney(totalAmt);
   }
   fetch('/quotes/' + QID + '/payment_schedule/update', {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({items: DRAWS})
@@ -1962,8 +1969,8 @@ function recalcPaidSummary(totalPaidOverride) {
     });
   }
   const contractTotal = {{ contract_total or 0 }};
-  document.getElementById('paid-total').textContent = '$' + totalPaid.toFixed(2);
-  document.getElementById('paid-remaining').textContent = '$' + (contractTotal - totalPaid).toFixed(2);
+  document.getElementById('paid-total').textContent = fmtMoney(totalPaid);
+  document.getElementById('paid-remaining').textContent = fmtMoney(contractTotal - totalPaid);
 }
 
 updateTierNudge({{ quote.total_margin or 0 }}, {{ (quote.total_price - quote.total_cost) or 0 }});
@@ -1990,7 +1997,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const fins = await r2.json();
     const finSel = document.getElementById('pp-fin-' + s.id);
     finSel.innerHTML = '<option value="">— Select —</option>';
-    fins.forEach(f => finSel.innerHTML += '<option value="' + f.product_id + '" data-rate="' + f.rate + '" ' + (f.product_id===s.pid?'selected':'') + '>' + f.finish + ' — $' + parseFloat(f.rate).toFixed(2) + '/sqft</option>');
+    fins.forEach(f => finSel.innerHTML += '<option value="' + f.product_id + '" data-rate="' + f.rate + '" ' + (f.product_id===s.pid?'selected':'') + '>' + f.finish + ' — ' + fmtMoney(f.rate) + '/sqft</option>');
   }
 });
 </script>

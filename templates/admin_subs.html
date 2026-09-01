@@ -121,7 +121,7 @@
               {% for r in sub_rates %}
               <div class="rate-row">
                 <span style="flex:1;color:var(--text)">{{ r.work_type }}</span>
-                <span class="mono" style="color:#93c5fd">${{ '%.2f'|format(r.rate) }}</span>
+                <span class="mono" style="color:#93c5fd">{{ r.rate|usd }}</span>
                 <span class="badge badge-blue">{{ r.unit }}</span>
                 {% if r.notes %}<span style="color:var(--text3)">{{ r.notes }}</span>{% endif %}
                 <button class="btn btn-secondary btn-sm" type="button" onclick="toggleRateEdit({{ r.id }})">Edit</button>
@@ -254,7 +254,7 @@
               {% for r in app_rates %}
               <div class="rate-row">
                 <span style="flex:1;color:var(--text)">{{ r.manufacturer_name }} {{ r.product_line }} – {{ r.finish }}</span>
-                <span class="mono" style="color:#93c5fd">${{ '%.2f'|format(r.rate) }}/sqft</span>
+                <span class="mono" style="color:#93c5fd">{{ r.rate|usd }}/sqft</span>
                 <form method="POST" action="/admin/surfaces/delete_rate/{{ r.id }}" style="display:inline" onsubmit="return confirm('Remove?')">
                   <button class="btn btn-danger btn-sm">✕</button>
                 </form>

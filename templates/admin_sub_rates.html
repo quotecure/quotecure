@@ -23,7 +23,7 @@
             <tr id="row-{{ r.id }}">
               <td><span class="chip">{{ r.sub_name }}</span></td>
               <td style="font-weight:500">{{ r.work_type }}</td>
-              <td class="right mono">${{ '%.2f'|format(r.rate) }}</td>
+              <td class="right mono">{{ r.rate|usd }}</td>
               <td><span class="badge badge-blue">{{ r.unit }}</span></td>
               <td style="color:var(--text3); font-size:12px">{{ r.notes or '—' }}</td>
               <td style="white-space:nowrap;">

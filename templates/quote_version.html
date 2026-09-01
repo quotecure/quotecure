@@ -53,11 +53,11 @@
       <td>{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</td>
       <td class="r mono">{{ item.labor_quantity }}</td>
       <td class="r" style="color:var(--text3);">{{ item.labor_unit }}</td>
-      <td class="r mono" style="color:var(--text3);">{% if is_split %}—{% else %}${{ '%.2f'|format(item.labor_cost_per_unit or 0) }}{% endif %}</td>
-      <td class="r mono">${{ '%.2f'|format(item.total_cost or 0) }}</td>
+      <td class="r mono" style="color:var(--text3);">{% if is_split %}—{% else %}{{ (item.labor_cost_per_unit or 0)|usd }}{% endif %}</td>
+      <td class="r mono">{{ (item.total_cost or 0)|usd }}</td>
       <td class="r">{% if not is_split %}{{ '%.0f'|format(item.labor_markup_pct or 0) }}%{% else %}<span style="font-size:10px;color:var(--text3);">split ↕</span>{% endif %}</td>
       <td class="r"><span class="pill pill-margin">{{ '%.0f'|format(item.total_margin_pct or 0) }}%</span></td>
-      <td class="r mono" style="font-weight:600;">${{ '%.2f'|format(item.total_price or 0) }}</td>
+      <td class="r mono" style="font-weight:600;">{{ (item.total_price or 0)|usd }}</td>
     </tr>
     {% if is_split %}
     <tr class="qrow-split" style="border-bottom:1px solid var(--border2);">
@@ -65,22 +65,22 @@
       <td></td>
       <td class="r mono" style="font-size:12px;color:var(--text2);">{{ item.labor_quantity }}</td>
       <td class="r" style="font-size:11px;color:var(--text3);">{{ item.labor_unit }}</td>
-      <td class="r mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.labor_cost_per_unit or 0) }}</td>
-      <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.labor_total_cost or 0) }}</td>
+      <td class="r mono" style="font-size:12px;color:var(--text2);">{{ (item.labor_cost_per_unit or 0)|usd }}</td>
+      <td class="r mono" style="font-size:12px;">{{ (item.labor_total_cost or 0)|usd }}</td>
       <td class="r" style="font-size:11px;">{{ '%.0f'|format(item.labor_markup_pct or 0) }}%</td>
       <td class="r"><span class="pill pill-margin">{{ '%.0f'|format(item.labor_margin_pct or 0) }}%</span></td>
-      <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.labor_total_price or 0) }}</td>
+      <td class="r mono" style="font-size:12px;">{{ (item.labor_total_price or 0)|usd }}</td>
     </tr>
     <tr class="qrow-split" style="border-bottom:2px solid var(--border);">
       <td style="padding-left:20px;"><span class="split-tag tag-m">Material</span> <span style="font-size:11px;color:var(--text2);">{{ item.material_label or '—' }}</span></td>
       <td></td>
       <td class="r mono" style="font-size:12px;color:var(--text2);">{{ item.material_quantity }}</td>
       <td class="r" style="font-size:11px;color:var(--text3);">{{ item.material_unit }}</td>
-      <td class="r mono" style="font-size:12px;color:var(--text2);">${{ '%.2f'|format(item.material_cost_per_unit or 0) }}</td>
-      <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.material_total_cost or 0) }}</td>
+      <td class="r mono" style="font-size:12px;color:var(--text2);">{{ (item.material_cost_per_unit or 0)|usd }}</td>
+      <td class="r mono" style="font-size:12px;">{{ (item.material_total_cost or 0)|usd }}</td>
       <td class="r" style="font-size:11px;">{{ '%.0f'|format(item.material_markup_pct or 0) }}%</td>
       <td class="r"><span class="pill pill-margin">{{ '%.0f'|format(item.material_margin_pct or 0) }}%</span></td>
-      <td class="r mono" style="font-size:12px;">${{ '%.2f'|format(item.material_total_price or 0) }}</td>
+      <td class="r mono" style="font-size:12px;">{{ (item.material_total_price or 0)|usd }}</td>
     </tr>
     {% endif %}
     {% endfor %}
@@ -106,8 +106,8 @@
   </div>
 
   <div class="sum-grid" style="margin-bottom:16px;">
-    <div class="sum-card"><div class="sum-lbl">Total Cost</div><div class="sum-val">${{ '%.2f'|format(version.total_cost or 0) }}</div></div>
-    <div class="sum-card"><div class="sum-lbl">Total Price</div><div class="sum-val">${{ '%.2f'|format(version.total_price or 0) }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Total Cost</div><div class="sum-val">{{ (version.total_cost or 0)|usd }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Total Price</div><div class="sum-val">{{ (version.total_price or 0)|usd }}</div></div>
     <div class="sum-card"><div class="sum-lbl">Margin</div><div class="sum-val">{{ '%.0f'|format(version.total_margin or 0) }}%</div></div>
   </div>
 
@@ -139,7 +139,7 @@
       {% for item in declined_items %}
       <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border2);">
         <span style="font-size:12px;color:var(--text3);text-decoration:line-through;">{{ item.work_type_label }}</span>
-        <span class="mono" style="font-size:12px;color:var(--text3);">${{ '%.2f'|format(item.total_price or 0) }}</span>
+        <span class="mono" style="font-size:12px;color:var(--text3);">{{ (item.total_price or 0)|usd }}</span>
       </div>
       {% endfor %}
     </div>

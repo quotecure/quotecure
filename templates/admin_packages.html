@@ -145,7 +145,7 @@
         {% if pw.eligible_tiles %}
         <div style="display:flex;flex-wrap:wrap;gap:6px;">
           {% for t in pw.eligible_tiles %}
-          <span class="chip" style="font-size:11px;">{{ t.category }} – {{ t.series }} (${{ '%.2f'|format(t.cost_per_quote_unit) }}/lf)</span>
+          <span class="chip" style="font-size:11px;">{{ t.category }} – {{ t.series }} ({{ t.cost_per_quote_unit|usd }}/lf)</span>
           {% endfor %}
         </div>
         {% else %}
