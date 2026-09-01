@@ -390,23 +390,16 @@
             {{ item.description or '+ Add description' }}
           </div>
           {% set wt_mods = modifiers_by_wt.get(item.work_type_id, []) %}
-          {% if wt_mods or item.work_type_id in (6, 7) %}
+          {% if wt_mods %}
           <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;">
             {% for ql in wt_mods %}
             {% set applied = ql.modifier_id in item.applied_modifier_ids %}
             <span class="mod-chip {% if applied %}on{% endif %}"
                   id="mod-{{ item.id }}-{{ ql.modifier_id }}"
                   onclick="toggleModifier({{ item.id }}, {{ ql.modifier_id }}, {{ (not applied)|tojson }})">
-              {% if ql.per_unit %}{{ ql.label }} (+${{ '%.2f'|format(ql.amount) }}/{{ item.labor_unit }}){% else %}{{ ql.label }} (+${{ '%.0f'|format(ql.amount) }}){% endif %}
+              {% if ql.unit_type == 'per_unit' %}{{ ql.label }} (+${{ '%.2f'|format(ql.amount) }}/{{ item.labor_unit }}){% elif ql.unit_type == 'percent' %}{{ ql.label }} (+{{ '%.2f'|format(ql.amount) }}%){% else %}{{ ql.label }} (+${{ '%.0f'|format(ql.amount) }}){% endif %}
             </span>
             {% endfor %}
-            {% if item.work_type_id in (6, 7) %}
-            <span class="mod-chip {% if item.tax_included %}on{% endif %}"
-                  id="tax-{{ item.id }}"
-                  onclick="toggleTax({{ item.id }}, {{ (not item.tax_included)|tojson }})">
-              Tax
-            </span>
-            {% endif %}
           </div>
           {% endif %}
         </td>
@@ -1350,23 +1343,6 @@ async function toggleModifier(itemId, modifierId, checked) {
   const chip = document.getElementById('mod-' + itemId + '-' + modifierId);
   chip.classList.toggle('on', checked);
   chip.setAttribute('onclick', 'toggleModifier(' + itemId + ',' + modifierId + ',' + (!checked) + ')');
-  if (document.getElementById('tcost-' + itemId)) document.getElementById('tcost-' + itemId).textContent = '$' + d.total_cost.toFixed(2);
-  if (document.getElementById('price-' + itemId)) document.getElementById('price-' + itemId).textContent = '$' + d.total_price.toFixed(2);
-  if (document.getElementById('margin-' + itemId)) document.getElementById('margin-' + itemId).textContent = d.total_margin_pct.toFixed(0) + '%';
-  updateSummaryCards(d);
-}
-
-async function toggleTax(itemId, checked) {
-  if (LOCKED) { lockedAlert(); return; }
-  const resp = await fetch('/quotes/' + QID + '/line_items/' + itemId + '/tax/toggle', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({checked: checked})
-  });
-  if (!resp.ok) return;
-  const d = await resp.json();
-  const chip = document.getElementById('tax-' + itemId);
-  chip.classList.toggle('on', checked);
-  chip.setAttribute('onclick', 'toggleTax(' + itemId + ',' + (!checked) + ')');
   if (document.getElementById('tcost-' + itemId)) document.getElementById('tcost-' + itemId).textContent = '$' + d.total_cost.toFixed(2);
   if (document.getElementById('price-' + itemId)) document.getElementById('price-' + itemId).textContent = '$' + d.total_price.toFixed(2);
   if (document.getElementById('margin-' + itemId)) document.getElementById('margin-' + itemId).textContent = d.total_margin_pct.toFixed(0) + '%';

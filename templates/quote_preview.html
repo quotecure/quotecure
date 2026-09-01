@@ -149,7 +149,7 @@
         <td>
           <div class="item-name">{{ item.work_type_label }}</div>
           {% if item.description %}<div class="item-desc">{{ item.description }}</div>{% endif %}
-          {% set mod_labels = (item.modifiers|map(attribute='label')|list) + (['Tax'] if item.tax_included else []) %}
+          {% set mod_labels = item.modifiers|map(attribute='label')|list %}
           {% if mod_labels %}<div class="item-desc">Includes: {{ mod_labels|join(', ') }}</div>{% endif %}
           {% if item.product_label %}<div class="item-desc">{{ item.product_label }}</div>{% endif %}
           {% if item.material_label %}<div class="item-desc">Material: {{ item.material_label }}</div>{% endif %}
@@ -228,7 +228,7 @@
         <td>
           <div class="item-name">{{ item.work_type_label }}</div>
           {% if item.description %}<div class="item-desc">{{ item.description }}</div>{% endif %}
-          {% set mod_labels = (item.modifiers|map(attribute='label')|list) + (['Tax'] if item.tax_included else []) %}
+          {% set mod_labels = item.modifiers|map(attribute='label')|list %}
           {% if mod_labels %}<div class="item-desc">Includes: {{ mod_labels|join(', ') }}</div>{% endif %}
           {% if item.product_label %}<div class="item-desc">{{ item.product_label }}</div>{% endif %}
           {% if item.material_label %}<div class="item-desc">Material: {{ item.material_label }}</div>{% endif %}

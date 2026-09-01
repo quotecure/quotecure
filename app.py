@@ -2502,13 +2502,24 @@ def quick_add_line_item(quote_id):
         'quote_total_price': updated_quote['total_price'],
     })
 
+def _modifier_unit_type(q):
+    """Tolerates both the current snapshot shape ('unit_type') and the older one frozen
+    into modifiers_json before the percent type existed ('per_unit': true/false, no
+    unit_type key at all) -- old modifiers already applied to real quotes keep computing
+    exactly as they did when they were toggled, rather than silently changing shape."""
+    return q.get('unit_type') or ('per_unit' if q.get('per_unit') else 'flat')
+
 def _modifier_cost(q, item_row):
-    """A modifier snapshot's 'amount' is either a flat dollar figure, or -- when 'per_unit'
-    is set -- a $/unit rate multiplied by the item's own labor_quantity (e.g. Tile Removal
-    at $3/lf). Shared by every place that sums an item's modifiers_json, so a per-unit
-    modifier stays in sync if the item's quantity is edited after it was applied, rather
-    than a dollar amount snapshotted once and going stale."""
-    if q.get('per_unit'):
+    """A modifier snapshot's 'amount' is a flat dollar figure, a $/unit rate multiplied by
+    the item's own labor_quantity (e.g. Tile Removal at $3/lf), or a percentage of the
+    item's MATERIAL cost specifically -- not labor, not the item total (e.g. Tax). Shared by
+    every place that sums an item's modifiers_json, so a per-unit or percent modifier stays
+    in sync if the item's quantity/material cost is edited after it was applied, rather than
+    a dollar amount snapshotted once and going stale."""
+    unit_type = _modifier_unit_type(q)
+    if unit_type == 'percent':
+        return float(q['amount']) / 100 * float(item_row['material_total_cost'] or 0)
+    if unit_type == 'per_unit':
         return float(q['amount']) * float(item_row['labor_quantity'] or 0)
     return float(q['amount'])
 
@@ -2518,21 +2529,20 @@ def _rollup_item_totals(db, item_id):
     that changes labor/material components or modifiers. Returns (total_cost, total_price, total_margin)."""
     row = db.execute("SELECT * FROM quote_line_items WHERE id=?", (item_id,)).fetchone()
     quals = json.loads(row['modifiers_json'] or '[]')
-    pass_through_ids = {r['modifier_id'] for r in db.execute(
+    freight_ids = {r['modifier_id'] for r in db.execute(
         "SELECT modifier_id FROM modifiers WHERE is_freight=1").fetchall()}
-    markup_cost = sum(_modifier_cost(q, row) for q in quals if q['id'] not in pass_through_ids)
-    pass_through_cost = sum(_modifier_cost(q, row) for q in quals if q['id'] in pass_through_ids)
+    # Freight and percent-type modifiers (Tax) are both pass-through -- no markup layered
+    # on top -- but only Freight is exclusive-per-quote; that rule lives in toggle_modifier
+    # and is untouched by a modifier being percent-type.
+    def is_pass_through(q):
+        return q['id'] in freight_ids or _modifier_unit_type(q) == 'percent'
+    markup_cost = sum(_modifier_cost(q, row) for q in quals if not is_pass_through(q))
+    pass_through_cost = sum(_modifier_cost(q, row) for q in quals if is_pass_through(q))
     q_price = round(markup_cost * (1 + float(row['labor_markup_pct'] or 0) / 100), 2) + round(pass_through_cost, 2)
     q_cost = round(markup_cost + pass_through_cost, 2)
 
-    tax_cost = 0.0
-    if row['tax_included']:
-        settings = db.execute("SELECT tax_rate_pct FROM company_settings WHERE id=1").fetchone()
-        rate = float(settings['tax_rate_pct'] or 0) if settings and settings['tax_rate_pct'] is not None else 0
-        tax_cost = round(float(row['material_total_cost'] or 0) * rate / 100, 2)
-
-    total_cost = round(float(row['labor_total_cost'] or 0) + float(row['material_total_cost'] or 0) + q_cost + tax_cost, 2)
-    total_price = round(float(row['labor_total_price'] or 0) + float(row['material_total_price'] or 0) + q_price + tax_cost, 2)
+    total_cost = round(float(row['labor_total_cost'] or 0) + float(row['material_total_cost'] or 0) + q_cost, 2)
+    total_price = round(float(row['labor_total_price'] or 0) + float(row['material_total_price'] or 0) + q_price, 2)
     total_cost, total_price, total_margin = _apply_min_job_price(db, row['work_type_id'], total_cost, total_price)
     db.execute("UPDATE quote_line_items SET total_cost=?,total_price=?,total_margin_pct=? WHERE id=?",
                (total_cost, total_price, total_margin, item_id))
@@ -3612,14 +3622,13 @@ def admin_settings():
     db = get_db()
     if request.method == 'POST':
         db.execute("""UPDATE company_settings SET company_name=?,address=?,phone=?,email=?,
-                      license_number=?,quote_validity_days=?,terms_text=?,tax_rate_pct=?,
+                      license_number=?,quote_validity_days=?,terms_text=?,
                       financing_link_url=?,financing_message=? WHERE id=1""",
                    (request.form['company_name'], request.form.get('address',''),
                     request.form.get('phone',''), request.form.get('email',''),
                     request.form.get('license_number',''),
                     int(request.form.get('quote_validity_days', 30)),
                     request.form.get('terms_text',''),
-                    float(request.form.get('tax_rate_pct', 7.0) or 0),
                     request.form.get('financing_link_url','').strip(),
                     request.form.get('financing_message','').strip()))
         db.commit()
@@ -4727,7 +4736,7 @@ def toggle_modifier(quote_id, item_id):
     qrow = db.execute("SELECT * FROM modifiers WHERE modifier_id=?", (modifier_id,)).fetchone()
     if checked:
         if qrow:
-            quals.append({'id': modifier_id, 'label': qrow['label'], 'amount': float(qrow['amount']), 'per_unit': bool(qrow['per_unit'])})
+            quals.append({'id': modifier_id, 'label': qrow['label'], 'amount': float(qrow['amount']), 'unit_type': qrow['unit_type']})
     modifiers_total_cost = round(sum(_modifier_cost(q, row) for q in quals), 2)
     db.execute("UPDATE quote_line_items SET modifiers_json=?,modifiers_total_cost=? WHERE id=?",
                (json.dumps(quals), modifiers_total_cost, item_id))
@@ -4777,39 +4786,6 @@ def toggle_modifier(quote_id, item_id):
         'passthrough_total': _passthrough_total(db, quote_id),
     })
 
-@app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/tax/toggle', methods=['POST'])
-@login_required
-def toggle_tax(quote_id, item_id):
-    db = get_db()
-    if _is_locked_contract(db, quote_id):
-        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
-    data = request.json
-    checked = bool(data.get('checked'))
-    row = db.execute("SELECT id FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
-    if not row:
-        return jsonify({'error': 'Not found'}), 404
-    db.execute("UPDATE quote_line_items SET tax_included=? WHERE id=?", (1 if checked else 0, item_id))
-    total_cost, total_price, total_margin = _rollup_item_totals(db, item_id)
-    db.commit()
-    _recalc_quote(db, quote_id)
-    q = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    gross = float(q['total_price']) - float(q['total_cost'])
-    commission = _net_commission(q)
-    return jsonify({
-        'tax_included': checked,
-        'total_cost': total_cost,
-        'total_price': total_price,
-        'total_margin_pct': total_margin,
-        'quote_total_cost': float(q['total_cost']),
-        'quote_total_price': float(q['total_price']),
-        'quote_total_margin': float(q['total_margin']),
-        'quote_gross_profit': round(gross, 2),
-        'quote_commission': round(commission, 2),
-        'quote_net_profit': round(gross - commission, 2),
-        'optional_total': _optional_total(db, quote_id),
-        'passthrough_total': _passthrough_total(db, quote_id),
-    })
-
 # ══════════════════════════════════════════════════════════════════════════════
 # ADMIN: MODIFIERS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4830,14 +4806,17 @@ def admin_modifiers():
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
     return render_template('admin_modifiers.html', modifiers=modifiers, work_types=work_types)
 
+def _clean_unit_type(raw):
+    return raw if raw in ('flat', 'per_unit', 'percent') else 'flat'
+
 @app.route('/admin/modifiers/add', methods=['POST'])
 @require_permission('can_edit_work_types')
 def add_modifier():
     db = get_db()
     work_type_ids = request.form.getlist('work_type_ids')
-    cur = db.execute("INSERT INTO modifiers (label,amount,per_unit,active) VALUES (?,?,?,'Y') RETURNING modifier_id",
+    cur = db.execute("INSERT INTO modifiers (label,amount,unit_type,active) VALUES (?,?,?,'Y') RETURNING modifier_id",
                (request.form['label'], float(request.form.get('amount', 0) or 0),
-                1 if request.form.get('per_unit') else 0))
+                _clean_unit_type(request.form.get('unit_type'))))
     modifier_id = cur.fetchone()[0]
     for wt_id in work_type_ids:
         db.execute("INSERT INTO modifier_work_types (modifier_id, work_type_id) VALUES (?,?)", (modifier_id, wt_id))
@@ -4848,9 +4827,9 @@ def add_modifier():
 @require_permission('can_edit_work_types')
 def edit_modifier(modifier_id):
     db = get_db()
-    db.execute("UPDATE modifiers SET label=?,amount=?,per_unit=?,active=? WHERE modifier_id=?",
+    db.execute("UPDATE modifiers SET label=?,amount=?,unit_type=?,active=? WHERE modifier_id=?",
                (request.form['label'], float(request.form.get('amount', 0) or 0),
-                1 if request.form.get('per_unit') else 0,
+                _clean_unit_type(request.form.get('unit_type')),
                 request.form.get('active', 'Y'), modifier_id))
     work_type_ids = request.form.getlist('work_type_ids')
     db.execute("DELETE FROM modifier_work_types WHERE modifier_id=?", (modifier_id,))

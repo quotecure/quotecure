@@ -5,7 +5,7 @@
   <div class="page-header">
     <div>
       <div class="page-title">Modifiers</div>
-      <div class="page-subtitle">Optional add-on cost, shown on whichever work types you pick (e.g. "Tax" on everything, "Tile Removal" on just Cap Tile Installation) — flat or per-unit</div>
+      <div class="page-subtitle">Optional add-on cost, shown on whichever work types you pick — flat $, $/unit, or a % of the item's material cost (e.g. "Tax")</div>
     </div>
   </div>
   <div style="display:grid; grid-template-columns:2fr 1fr; gap:24px; align-items:start;">
@@ -22,8 +22,8 @@
             <tr id="row-{{ q.modifier_id }}" class="{% if q.active != 'Y' %}edit-row{% endif %}">
               <td style="font-weight:500">{{ q.label }}</td>
               <td style="color:var(--text2);font-size:12px;">{{ q.work_types|map(attribute='work_type')|join(', ') if q.work_types else '— none selected —' }}</td>
-              <td class="right mono">${{ '%.2f'|format(q.amount) }}</td>
-              <td>{{ 'per unit' if q.per_unit else 'flat' }}</td>
+              <td class="right mono">{% if q.unit_type == 'percent' %}{{ '%.2f'|format(q.amount) }}%{% else %}${{ '%.2f'|format(q.amount) }}{% endif %}</td>
+              <td>{{ {'flat': 'flat', 'per_unit': 'per unit', 'percent': '% of material cost'}[q.unit_type] }}</td>
               <td><span class="badge badge-{{ 'green' if q.active == 'Y' else 'red' }}">{{ 'Active' if q.active == 'Y' else 'Off' }}</span></td>
               <td><button class="btn btn-secondary btn-sm" onclick="toggleEdit({{ q.modifier_id }})">Edit</button></td>
             </tr>
@@ -40,10 +40,11 @@
                       <input class="form-control" name="amount" type="number" step="0.01" value="{{ q.amount }}" style="width:110px;">
                     </div>
                     <div>
-                      <label class="form-label">Per Unit?</label>
-                      <select class="form-control" name="per_unit" style="width:100px;">
-                        <option value="" {{ 'selected' if not q.per_unit }}>Flat</option>
-                        <option value="1" {{ 'selected' if q.per_unit }}>Per Unit</option>
+                      <label class="form-label">Type</label>
+                      <select class="form-control" name="unit_type" style="width:130px;">
+                        <option value="flat" {{ 'selected' if q.unit_type == 'flat' }}>Flat $</option>
+                        <option value="per_unit" {{ 'selected' if q.unit_type == 'per_unit' }}>$ / unit</option>
+                        <option value="percent" {{ 'selected' if q.unit_type == 'percent' }}>% of material cost</option>
                       </select>
                     </div>
                     <div>
@@ -98,10 +99,11 @@
               <input class="form-control" name="amount" type="number" step="0.01" value="0" required>
             </div>
             <div class="form-group" style="margin:0">
-              <label class="form-label">Per Unit?</label>
-              <select class="form-control" name="per_unit">
-                <option value="">Flat</option>
-                <option value="1">Per Unit</option>
+              <label class="form-label">Type</label>
+              <select class="form-control" name="unit_type">
+                <option value="flat">Flat $</option>
+                <option value="per_unit">$ / unit</option>
+                <option value="percent">% of material cost</option>
               </select>
             </div>
           </div>

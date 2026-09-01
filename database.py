@@ -1,4 +1,5 @@
 import os
+import json
 import db_compat
 
 def get_db():
@@ -3463,6 +3464,84 @@ def add_modifier_work_types(conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(modifiers)").fetchall()}
     if 'work_type_id' in cols:
         conn.execute("ALTER TABLE modifiers DROP COLUMN work_type_id")
+
+
+@migration
+def modifiers_percent_type_and_fold_in_tax(conn):
+    """Jim: "if we can have the Modifiers be dollar or percentage of the thing, that'd be
+    amazing." 'Tax' turned out to already BE a percentage modifier -- it was just built as
+    its own hardcoded special case before the real Modifiers system existed: a chip
+    unconditionally wired to work_type_id in (6, 7) (Coping/Paver Installation) in the
+    template, its own tax_included column and /tax/toggle route, and a rate pulled from
+    company_settings.tax_rate_pct instead of a normal modifier's own amount. Folding it in
+    properly needed 'percent' to be a real modifier type first.
+
+    modifiers.per_unit (0/1) becomes modifiers.unit_type ('flat' | 'per_unit' | 'percent').
+    A percent modifier's cost is amount% of the item's MATERIAL cost specifically -- not
+    labor, not the item total -- matching exactly what "Material Tax Rate" already meant
+    on the Settings page. Like Freight, percent modifiers are pass-through (no markup
+    layered on top of a tax figure), but unlike Freight they are NOT exclusive-per-quote --
+    Tax needs to apply independently per line item, same as it always has.
+
+    Then the fold: a real 'Tax' modifier is created (percent, amount = whatever
+    tax_rate_pct currently is), linked to Coping + Paver Installation to match where the
+    old hardcoded chip showed (widen it from the checklist same as any modifier now).
+    Every line item currently sitting at tax_included=1 gets that modifier appended into
+    its own modifiers_json -- deliberately NOT touching total_cost/total_price, since the
+    dollar contribution is identical either way (pass-through both before and after), only
+    where it's bookkept changes. Finally the special-case plumbing (tax_included,
+    tax_rate_pct, and their routes/template code, removed alongside this migration) goes
+    away entirely -- Tax's rate is just its amount on Admin -> Modifiers now, one place
+    instead of two."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(modifiers)").fetchall()}
+    if 'unit_type' not in cols:
+        conn.execute("ALTER TABLE modifiers ADD COLUMN unit_type TEXT DEFAULT 'flat'")
+        conn.execute("UPDATE modifiers SET unit_type='per_unit' WHERE per_unit=1")
+        conn.execute("UPDATE modifiers SET unit_type='flat' WHERE per_unit IS NULL OR per_unit=0")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(modifiers)").fetchall()}
+    if 'per_unit' in cols:
+        conn.execute("ALTER TABLE modifiers DROP COLUMN per_unit")
+
+    li_cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'tax_included' in li_cols:
+        settings = conn.execute("SELECT tax_rate_pct FROM company_settings WHERE id=1").fetchone()
+        tax_rate = float(settings['tax_rate_pct']) if settings and settings['tax_rate_pct'] is not None else 7.0
+
+        tax_mod = conn.execute("SELECT modifier_id FROM modifiers WHERE label='Tax' AND unit_type='percent'").fetchone()
+        if tax_mod:
+            tax_mod_id = tax_mod[0]
+        else:
+            cur = conn.execute(
+                "INSERT INTO modifiers (label,amount,unit_type,active,is_freight) VALUES (?,?,?,?,0) RETURNING modifier_id",
+                ('Tax', tax_rate, 'percent', 'Y')
+            )
+            tax_mod_id = cur.fetchone()[0]
+
+        for wt_id in (6, 7):  # Coping Installation, Paver Installation -- matches the old hardcoded chip
+            linked = conn.execute(
+                "SELECT 1 FROM modifier_work_types WHERE modifier_id=? AND work_type_id=?", (tax_mod_id, wt_id)
+            ).fetchone()
+            if not linked:
+                conn.execute("INSERT INTO modifier_work_types (modifier_id, work_type_id) VALUES (?,?)", (tax_mod_id, wt_id))
+
+        taxed_items = conn.execute(
+            "SELECT id, modifiers_json, modifiers_total_cost, material_total_cost FROM quote_line_items WHERE tax_included=1"
+        ).fetchall()
+        for item in taxed_items:
+            quals = json.loads(item['modifiers_json'] or '[]')
+            if any(q.get('id') == tax_mod_id for q in quals):
+                continue
+            quals.append({'id': tax_mod_id, 'label': 'Tax', 'amount': tax_rate, 'unit_type': 'percent'})
+            tax_cost = round(tax_rate / 100 * float(item['material_total_cost'] or 0), 2)
+            new_mod_total = round(float(item['modifiers_total_cost'] or 0) + tax_cost, 2)
+            conn.execute("UPDATE quote_line_items SET modifiers_json=?,modifiers_total_cost=? WHERE id=?",
+                         (json.dumps(quals), new_mod_total, item['id']))
+
+        conn.execute("ALTER TABLE quote_line_items DROP COLUMN tax_included")
+
+    cs_cols = {r[1] for r in conn.execute("PRAGMA table_info(company_settings)").fetchall()}
+    if 'tax_rate_pct' in cs_cols:
+        conn.execute("ALTER TABLE company_settings DROP COLUMN tax_rate_pct")
 
 
 def init_pebble_pros_surfaces(conn):
