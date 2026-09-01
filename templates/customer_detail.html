@@ -59,7 +59,12 @@
             <tr>
               <td class="mono"><a href="/quotes/{{ q.quote_id }}">QT-{{ '%04d'|format(q.quote_id) }}</a></td>
               <td style="color:var(--text2)">{{ q.address or '—' }}</td>
-              <td><span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status in ('sent', 'complete') else 'blue' if q.status == 'draft' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span></td>
+              <td>
+                <span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status in ('sent', 'complete') else 'blue' if q.status == 'draft' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span>
+                {% if q.quote_id in archived_ids %}
+                <span class="badge badge-amber" style="margin-left:4px;" title="Excluded from the Quotes stats">🗄 Archived</span>
+                {% endif %}
+              </td>
               <td class="right mono" style="font-weight:600">{{ q.total_price|usd }}</td>
               <td style="color:var(--text3); font-size:12px">{{ q.created_at[:10] if q.created_at else '—' }}</td>
             </tr>

@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Contracts — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Contracts</div>
+      <div class="page-subtitle">Signed jobs — open one to add a Change Order</div>
+    </div>
+    <a href="/quotes/new" class="btn btn-primary">+ New Quote</a>
+  </div>
+
+  <div class="card">
+    {% if quotes %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Customer</th>
+            <th>Address</th>
+            <th>Salesperson</th>
+            <th>Status</th>
+            <th class="right">Total Cost</th>
+            <th class="right">Total Price</th>
+            <th class="right">Margin</th>
+            {% if current_role and current_role.show_commission %}
+            <th class="right">Commission</th>
+            {% endif %}
+            <th>Signed</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for q in quotes %}
+          <tr>
+            <td class="mono">QT-{{ '%04d'|format(q.quote_id) }}</td>
+            <td>
+              <a href="/quotes/{{ q.quote_id }}">{{ q.customer_name }}</a>
+              {% if q.customer_id and quote_counts.get(q.customer_id, 1) > 1 %}
+              <a href="/customers/{{ q.customer_id }}" class="badge badge-blue" style="font-size:10px;margin-left:4px;" title="This customer has {{ quote_counts[q.customer_id] }} quotes">{{ quote_counts[q.customer_id] }} quotes</a>
+              {% endif %}
+            </td>
+            <td style="color:var(--text2)">{{ q.address or '—' }}</td>
+            <td style="color:var(--text2)">{{ q.salesperson or '—' }}</td>
+            <td><span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status == 'complete' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span></td>
+            <td class="right mono">{{ q.total_cost|usd }}</td>
+            <td class="right mono" style="font-weight:600">{{ q.total_price|usd }}</td>
+            <td class="right"><span class="pill pill-margin">{{ '%.0f'|format(q.total_margin) }}%</span></td>
+            {% if current_role and current_role.show_commission %}
+            <td class="right mono" style="color:var(--text2)">{{ net_commissions.get(q.quote_id, 0)|usd }}</td>
+            {% endif %}
+            <td style="color:var(--text3); font-size:12px">{{ q.signed_at or '—' }}</td>
+            <td></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-state-icon">📜</div>
+      <div class="empty-state-text">
+        No signed contracts yet. Quotes move here once a customer signs.
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

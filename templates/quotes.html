@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}{{ 'Contracts' if active_tab == 'contracts' else 'Quotes' }} — QuoteCure{% endblock %}
+{% block title %}{{ 'Archive' if active_tab == 'archive' else 'Quotes' }} — QuoteCure{% endblock %}
 {% block extra_css %}
 <style>
 .qtabs { display: flex; gap: 6px; margin-bottom: 14px; }
@@ -25,8 +25,8 @@
 <div class="page">
   <div class="page-header">
     <div>
-      <div class="page-title">{{ 'Contracts' if active_tab == 'contracts' else 'Quotes' }}</div>
-      <div class="page-subtitle">{{ 'Signed jobs — open one to add a Change Order' if active_tab == 'contracts' else 'Draft and sent quotes' }}</div>
+      <div class="page-title">{{ 'Archive' if active_tab == 'archive' else 'Quotes' }}</div>
+      <div class="page-subtitle">{{ 'Gone cold (30+ days) or marked lost — restore one to bring it back' if active_tab == 'archive' else 'Draft and sent quotes' }}</div>
     </div>
     <a href="/quotes/new" class="btn btn-primary">+ New Quote</a>
   </div>
@@ -56,8 +56,8 @@
   {% endif %}
 
   <div class="qtabs">
-    <a href="/quotes?tab=quotes" class="qtab {{ 'active' if active_tab != 'contracts' }}">Quotes</a>
-    <a href="/quotes?tab=contracts" class="qtab {{ 'active' if active_tab == 'contracts' }}">Contracts</a>
+    <a href="/quotes?tab=quotes" class="qtab {{ 'active' if active_tab != 'archive' }}">Quotes</a>
+    <a href="/quotes?tab=archive" class="qtab {{ 'active' if active_tab == 'archive' }}">Archive</a>
   </div>
 
   <div class="card">
@@ -71,13 +71,16 @@
             <th>Address</th>
             <th>Salesperson</th>
             <th>Status</th>
+            {% if active_tab == 'archive' %}
+            <th>Why</th>
+            {% endif %}
             <th class="right">Total Cost</th>
             <th class="right">Total Price</th>
             <th class="right">Margin</th>
             {% if current_role and current_role.show_commission %}
             <th class="right">Commission</th>
             {% endif %}
-            <th>{{ 'Signed' if active_tab == 'contracts' else 'Created' }}</th>
+            <th>Created</th>
             <th></th>
           </tr>
         </thead>
@@ -93,20 +96,24 @@
             </td>
             <td style="color:var(--text2)">{{ q.address or '—' }}</td>
             <td style="color:var(--text2)">{{ q.salesperson or '—' }}</td>
-            <td><span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status in ('sent', 'complete') else 'blue' if q.status == 'draft' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span></td>
+            <td><span class="badge badge-{{ 'green' if q.status == 'sent' else 'blue' }}">{{ q.status }}</span></td>
+            {% if active_tab == 'archive' %}
+            <td style="color:var(--text3);font-size:12px;">{{ q.archived_reason or 'Inactive 30+ days' }}</td>
+            {% endif %}
             <td class="right mono">{{ q.total_cost|usd }}</td>
             <td class="right mono" style="font-weight:600">{{ q.total_price|usd }}</td>
             <td class="right"><span class="pill pill-margin">{{ '%.0f'|format(q.total_margin) }}%</span></td>
             {% if current_role and current_role.show_commission %}
             <td class="right mono" style="color:var(--text2)">{{ net_commissions.get(q.quote_id, 0)|usd }}</td>
             {% endif %}
-            <td style="color:var(--text3); font-size:12px">{{ (q.signed_at if active_tab == 'contracts' else q.created_at[:10]) or '—' }}</td>
-            <td>
-              {% if active_tab != 'contracts' %}
+            <td style="color:var(--text3); font-size:12px">{{ (q.created_at[:10]) or '—' }}</td>
+            <td style="white-space:nowrap;">
+              {% if active_tab == 'archive' %}
+              <button class="btn btn-secondary btn-sm" type="button" onclick="restoreQuote({{ q.quote_id }})">Restore</button>
+              {% endif %}
               <form method="POST" action="/quotes/{{ q.quote_id }}/delete" style="display:inline" onsubmit="return confirm('Delete this quote?')">
                 <button class="btn btn-danger btn-sm">Delete</button>
               </form>
-              {% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -115,10 +122,10 @@
     </div>
     {% else %}
     <div class="empty-state">
-      <div class="empty-state-icon">{{ '📜' if active_tab == 'contracts' else '📋' }}</div>
+      <div class="empty-state-icon">{{ '🗄' if active_tab == 'archive' else '📋' }}</div>
       <div class="empty-state-text">
-        {% if active_tab == 'contracts' %}
-        No signed contracts yet. Quotes move here once a customer signs.
+        {% if active_tab == 'archive' %}
+        Nothing archived. Quotes land here once they've gone cold (30+ days) or get marked lost.
         {% else %}
         No quotes yet. <a href="/quotes/new">Create your first one.</a>
         {% endif %}
@@ -127,4 +134,10 @@
     {% endif %}
   </div>
 </div>
+<script>
+async function restoreQuote(id) {
+  const resp = await fetch('/quotes/' + id + '/restore', {method: 'POST'});
+  if (resp.ok) location.reload();
+}
+</script>
 {% endblock %}

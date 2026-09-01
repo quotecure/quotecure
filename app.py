@@ -234,13 +234,26 @@ def index():
 # ══════════════════════════════════════════════════════════════════════════════
 # QUOTES
 # ══════════════════════════════════════════════════════════════════════════════
+# A draft/sent quote is "archived" -- dead, out of the active Quotes list and out of the
+# stats panel -- if it was explicitly marked lost (archived_reason set), or if it's gone
+# cold: 30+ days since the later of its creation or its last keep-alive stamp. archived_at
+# doubles as that keep-alive stamp (written on mark-lost, restore, AND every send) so a
+# re-sent old draft doesn't stay stuck looking archived. Never evaluated against a signed
+# quote (contract/in_progress/complete) -- callers gate on status='draft' OR status='sent'
+# first. One shared fragment so the Quotes tab, Archive tab, and _quotes_stats() can't drift.
+_ARCHIVED_SQL = "(archived_reason != '' OR COALESCE(NULLIF(archived_at,''), created_at) < (now() - interval '30 days')::text)"
+
 def _quotes_stats(db):
-    """Business-wide stats for the top of the Quotes list -- deliberately across every
-    quote ever created (not just the current tab), since "% converted" only means anything
-    measured against the whole population. 'Converted' mirrors the Contracts tab's own
-    filter (status in contract/in_progress/complete) -- a quote that's been signed, at any
-    point in its life since, not just ones currently mid-job."""
-    rows = db.execute("SELECT status, salesperson, total_cost, total_price FROM quotes").fetchall()
+    """Business-wide stats for the top of the Quotes list -- every quote ever created that
+    isn't archived, not just the current tab, since "% converted" only means anything
+    measured against the whole active population. A signed quote (contract/in_progress/
+    complete) always counts, regardless of age -- archiving only ever applies to draft/sent.
+    'Converted' mirrors the Contracts page's own filter."""
+    rows = db.execute(
+        f"SELECT status, salesperson, total_cost, total_price FROM quotes "
+        f"WHERE status IN ('contract','in_progress','complete') "
+        f"OR ((status='draft' OR status='sent') AND NOT {_ARCHIVED_SQL})"
+    ).fetchall()
     total_count = len(rows)
     total_cost = sum(float(r['total_cost'] or 0) for r in rows)
     total_price = sum(float(r['total_price'] or 0) for r in rows)
@@ -269,38 +282,99 @@ def _quotes_stats(db):
         'by_salesperson': by_salesperson,
     }
 
+def _is_archived(db, quote_id):
+    """Whether one already-known quote currently qualifies as archived -- reuses
+    _ARCHIVED_SQL exactly (rather than re-parsing the stored timestamp text in Python,
+    which the exact `now()::text` format with a timezone offset makes fragile) so this can
+    never drift from what the Quotes/Archive tabs and the stats panel actually show. Used
+    on the quote detail page to decide between the Mark as Lost action and the archived
+    banner+Restore. Returns (is_archived, display_reason) -- display_reason falls back to
+    the auto-by-age explanation when no manual reason was ever set."""
+    row = db.execute(
+        f"SELECT {_ARCHIVED_SQL} as archived, archived_reason FROM quotes "
+        f"WHERE quote_id=? AND (status='draft' OR status='sent')", (quote_id,)
+    ).fetchone()
+    if not row or not row['archived']:
+        return False, ''
+    return True, row['archived_reason'] or 'Inactive 30+ days'
+
+def _quote_counts_for(db, quotes):
+    """Total quote count per customer, across every status -- not just whatever set of
+    quotes is currently showing -- so a badge can point out "this customer has other
+    quotes" even when one of them is sitting on a different page/tab entirely."""
+    customer_ids = {q['customer_id'] for q in quotes if q['customer_id']}
+    if not customer_ids:
+        return {}
+    placeholders = ','.join('?' * len(customer_ids))
+    rows = db.execute(
+        f"SELECT customer_id, COUNT(*) as c FROM quotes WHERE customer_id IN ({placeholders}) GROUP BY customer_id",
+        tuple(customer_ids)
+    ).fetchall()
+    return {r['customer_id']: r['c'] for r in rows}
+
 @app.route('/quotes')
 @login_required
 def quotes_list():
     db = get_db()
     tab = request.args.get('tab', 'quotes')
     if tab == 'contracts':
+        # Contracts moved to its own page -- redirect any stale bookmarks/links rather
+        # than silently changing what this URL shows.
+        return redirect(url_for('contracts_list'))
+    if tab == 'archive':
         quotes = db.execute(
-            "SELECT * FROM quotes WHERE status IN ('contract','in_progress','complete') ORDER BY signed_at DESC"
+            f"SELECT * FROM quotes WHERE (status='draft' OR status='sent') AND {_ARCHIVED_SQL} "
+            f"ORDER BY created_at DESC"
         ).fetchall()
     else:
         tab = 'quotes'
         quotes = db.execute(
-            "SELECT * FROM quotes WHERE status='draft' OR status='sent' ORDER BY created_at DESC"
+            f"SELECT * FROM quotes WHERE (status='draft' OR status='sent') AND NOT {_ARCHIVED_SQL} "
+            f"ORDER BY created_at DESC"
         ).fetchall()
     stats = _quotes_stats(db)
-    commission_policy = db.execute("SELECT * FROM commission_policy WHERE active='Y' LIMIT 1").fetchone()
-    # Total quote count per customer, across every status/tab -- not just the ones showing
-    # on this tab -- so a badge here can point out "this customer has other quotes" even
-    # when one of them is a signed contract sitting on the other tab.
-    customer_ids = {q['customer_id'] for q in quotes if q['customer_id']}
-    quote_counts = {}
-    if customer_ids:
-        placeholders = ','.join('?' * len(customer_ids))
-        rows = db.execute(
-            f"SELECT customer_id, COUNT(*) as c FROM quotes WHERE customer_id IN ({placeholders}) GROUP BY customer_id",
-            tuple(customer_ids)
-        ).fetchall()
-        quote_counts = {r['customer_id']: r['c'] for r in rows}
+    quote_counts = _quote_counts_for(db, quotes)
     net_commissions = {q['quote_id']: _net_commission(q) for q in quotes}
-    return render_template('quotes.html', quotes=quotes, commission_policy=commission_policy,
+    return render_template('quotes.html', quotes=quotes,
                            active_tab=tab, quote_counts=quote_counts, current_role=g.role,
                            net_commissions=net_commissions, stats=stats)
+
+@app.route('/contracts')
+@login_required
+def contracts_list():
+    db = get_db()
+    quotes = db.execute(
+        "SELECT * FROM quotes WHERE status IN ('contract','in_progress','complete') ORDER BY signed_at DESC"
+    ).fetchall()
+    quote_counts = _quote_counts_for(db, quotes)
+    net_commissions = {q['quote_id']: _net_commission(q) for q in quotes}
+    return render_template('contracts.html', quotes=quotes,
+                           quote_counts=quote_counts, current_role=g.role,
+                           net_commissions=net_commissions)
+
+@app.route('/quotes/<int:quote_id>/archive', methods=['POST'])
+@login_required
+def archive_quote(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT status FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return jsonify({'error': 'Not found'}), 404
+    if quote['status'] not in ('draft', 'sent'):
+        return jsonify({'error': "Can't archive a signed contract."}), 409
+    reason = (request.json.get('reason') or '').strip() if request.json else ''
+    if not reason:
+        return jsonify({'error': 'A reason is required.'}), 400
+    db.execute("UPDATE quotes SET archived_reason=?, archived_at=now()::text WHERE quote_id=?", (reason, quote_id))
+    db.commit()
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/restore', methods=['POST'])
+@login_required
+def restore_quote(quote_id):
+    db = get_db()
+    db.execute("UPDATE quotes SET archived_reason='', archived_at=now()::text WHERE quote_id=?", (quote_id,))
+    db.commit()
+    return jsonify({'success': True})
 
 @app.route('/customers')
 @login_required
@@ -335,8 +409,13 @@ def customer_detail(customer_id):
     quotes = db.execute(
         "SELECT * FROM quotes WHERE customer_id=? ORDER BY created_at DESC", (customer_id,)
     ).fetchall()
+    archived_ids = {r['quote_id'] for r in db.execute(
+        f"SELECT quote_id FROM quotes WHERE customer_id=? AND (status='draft' OR status='sent') AND {_ARCHIVED_SQL}",
+        (customer_id,)
+    ).fetchall()}
     timeline = _customer_timeline(db, customer_id)
-    return render_template('customer_detail.html', customer=customer, quotes=quotes, timeline=timeline)
+    return render_template('customer_detail.html', customer=customer, quotes=quotes,
+                           archived_ids=archived_ids, timeline=timeline)
 
 def _customer_timeline(db, customer_id):
     """Notes and attachments are two separate tables (plain text vs. base64 blob+mime) but
@@ -1986,7 +2065,9 @@ def edit_quote(quote_id):
     terms_docs = db.execute("SELECT id,label FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
     is_assigned_salesperson = bool(g.user and quote['salesperson'] and
                                    (quote['salesperson'] or '').strip().lower() == (g.user['display_name'] or '').strip().lower())
+    is_archived, archive_reason = _is_archived(db, quote_id)
     return render_template('edit_quote.html', quote=quote, line_items=line_items,
+                           is_archived=is_archived, archive_reason=archive_reason,
                            optional_items=optional_items, optional_total=optional_total,
                            passthrough_items=passthrough_items, passthrough_total=passthrough_total,
                            declined_items=declined_items, replaceable_items=replaceable_items,
@@ -4261,6 +4342,12 @@ def email_quote(quote_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     db.execute("UPDATE quotes SET status='sent' WHERE quote_id=? AND status='draft'", (quote_id,))
+    # Sending is the clearest "this quote is active again" signal there is -- stamp the
+    # keep-alive so a re-sent quote that had gone cold (30+ days, no archived_reason) isn't
+    # still showing in Archive right after being sent. Harmless no-op for a quote that
+    # wasn't archived to begin with; never touches archived_reason, so it can't un-mark a
+    # quote staff deliberately flagged lost.
+    db.execute("UPDATE quotes SET archived_at=now()::text WHERE quote_id=?", (quote_id,))
     if not _is_locked_contract(db, quote_id):
         _snapshot_quote_version(db, quote_id)
     db.commit()

@@ -3653,6 +3653,25 @@ def fix_surface_application_stray_default_material(conn):
         print(f'Stripped a stray material off {fixed} existing Surface Application line item(s)')
 
 
+@migration
+def add_quote_archiving(conn):
+    """Jim wants Contracts split into its own page, freeing up the Quotes page's second
+    tab for a new concept: Archive -- quotes that are dead, either because they've gone
+    cold (30 days with no activity, never converted) or because staff knows they lost the
+    job. Archived quotes stop counting in the Quotes-page stats panel.
+
+    Two new columns, not three -- archived_at doubles as both 'when marked lost' (paired
+    with a non-empty archived_reason) and a general 'last keep-alive' stamp (also written
+    on restore, and on every quote send) so a re-sent old draft doesn't stay stuck showing
+    as archived. See app.py's _ARCHIVED_SQL for the one shared fragment every consumer
+    (Quotes tab, Archive tab, the stats panel) uses, so they can't drift out of sync."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'archived_reason' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN archived_reason TEXT DEFAULT ''")
+    if 'archived_at' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN archived_at TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

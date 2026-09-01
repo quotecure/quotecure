@@ -128,6 +128,16 @@
 {% block content %}
 <div class="page-wide">
 
+  {% if is_archived %}
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;margin-bottom:12px;background:#78350f22;border:1px solid #78350f;border-radius:var(--radius);">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#fbbf24;background:#78350f44;border:1px solid #78350f;border-radius:4px;padding:2px 8px;">🗄 Archived</span>
+      <span style="font-size:12px;color:var(--text2);">{{ archive_reason }} — excluded from the Quotes stats.</span>
+    </div>
+    <button class="btn btn-secondary btn-sm" type="button" onclick="restoreThisQuote()">Restore</button>
+  </div>
+  {% endif %}
+
   {% if quote.status in ('contract', 'in_progress', 'complete') %}
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;margin-bottom:12px;background:#78350f22;border:1px solid #78350f;border-radius:var(--radius);">
     <div style="display:flex;align-items:center;gap:10px;">
@@ -214,6 +224,9 @@
       <button class="btn btn-secondary" type="button" onclick="openEmailPanel()" id="email-quote-btn">✉️ Email Quote</button>
       <a href="/quotes/{{ quote.quote_id }}/visualize" class="btn btn-secondary">🎨 Visualize</a>
       <a href="/quotes/{{ quote.quote_id }}/edit_details" class="btn btn-secondary">Edit Details</a>
+      {% if not is_archived and quote.status in ('draft', 'sent') %}
+      <button class="btn btn-secondary" type="button" onclick="openLostPanel()">Mark as Lost</button>
+      {% endif %}
       <a href="/quotes" class="btn btn-secondary">← Quotes</a>
     </div>
   </div>
@@ -228,6 +241,23 @@
       <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn btn-secondary btn-sm" type="button" onclick="closeEmailPanel()">Cancel</button>
         <button class="btn btn-primary btn-sm" type="button" onclick="sendEmailQuote()" id="email-send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mark as Lost panel (inline, hidden by default) -->
+  <div id="lost-panel-row" style="display:none;margin-bottom:20px;">
+    <div class="product-picker open">
+      <label class="nr-label">Reason</label>
+      <select class="nr-input" id="lost-reason-select" style="width:100%;" onchange="document.getElementById('lost-note-inp').style.display = this.value === 'Other' ? 'block' : 'none';">
+        <option value="Went with another company">Went with another company</option>
+        <option value="Not moving forward">Not moving forward</option>
+        <option value="Other">Other</option>
+      </select>
+      <input class="nr-input" id="lost-note-inp" placeholder="Details…" style="width:100%;margin-top:10px;display:none;">
+      <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" type="button" onclick="closeLostPanel()">Cancel</button>
+        <button class="btn btn-danger btn-sm" type="button" onclick="submitLostQuote()">Mark as Lost</button>
       </div>
     </div>
   </div>
@@ -1227,6 +1257,31 @@ async function sendEmailQuote() {
   }
   btn.disabled = false;
   btn.textContent = original;
+}
+
+function openLostPanel() {
+  document.getElementById('lost-panel-row').style.display = 'block';
+}
+
+function closeLostPanel() {
+  document.getElementById('lost-panel-row').style.display = 'none';
+}
+
+async function submitLostQuote() {
+  const select = document.getElementById('lost-reason-select').value;
+  const note = document.getElementById('lost-note-inp').value.trim();
+  const reason = select === 'Other' ? (note || 'Other') : select;
+  const resp = await fetch('/quotes/' + QID + '/archive', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({reason: reason})
+  });
+  if (resp.ok) location.reload();
+  else { const d = await resp.json(); alert(d.error || 'Could not archive this quote.'); }
+}
+
+async function restoreThisQuote() {
+  const resp = await fetch('/quotes/' + QID + '/restore', {method: 'POST'});
+  if (resp.ok) location.reload();
 }
 
 // ── Commission giveup ────────────────────────────────────────────
