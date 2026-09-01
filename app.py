@@ -4126,8 +4126,16 @@ def delete_visualization(quote_id, viz_id):
 def _default_quote_email(quote, settings, quote_id):
     company_name = settings['company_name'] if settings else 'Your Company'
     subject = f"Your Quote from {company_name} — QT-{quote_id:04d}"
-    body = (f"Hi {quote['customer_name']},\n\n"
+    # First name only in the greeting -- reads more like a real note from the person who
+    # quoted the job than a form letter with the customer's full name.
+    first_name = (quote['customer_name'] or '').strip().split(' ')[0] or quote['customer_name']
+    body = (f"Hi {first_name},\n\n"
             f"Please find your quote attached.\n\n"
+            f"We know you may be gathering a few quotes for this project — we always recommend "
+            f"comparing them apples-to-apples (materials, labor, warranty) to make sure you're "
+            f"getting real value, not just a lower number on paper. If you have any questions "
+            f"about what's included, or want to talk through fitting this into your budget, "
+            f"we're here to help.\n\n"
             f"Thank you,\n{quote['salesperson'] or company_name}")
     return subject, body
 

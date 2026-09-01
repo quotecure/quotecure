@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-01 — Default quote email: first-name greeting + apples-to-apples comparison language
+
+Jim wanted the default email a customer gets with their quote to read less like a form letter: greet by first name only ("Hi Jane," instead of "Hi Jane Smith,"), and add a short, warm note acknowledging they may be getting other quotes -- recommending an apples-to-apples comparison and offering to work with their budget, without being pushy or long.
+
+`_default_quote_email()` (app.py) now takes just the first word of `customer_name` for the greeting. Body gained one added paragraph between the "quote attached" line and the sign-off; nothing else about the function (subject line, sign-off, the editable-before-sending flow) changed.
+
+Verified: new test (`test_default_quote_email.py`) confirms the greeting uses only the first name, the new language is present, the sign-off is untouched, and the body stays reasonably concise (under 90 words). Full suite (38 files) passes. Live-verified in browser: opened the real Email Quote compose panel on a test quote and confirmed the pre-filled body matches exactly.
+
 ## 2026-09-01 — Fixed: Surface Application items could silently inherit a stray, price-inflating material
 
 Jim: an Optional Surface Application (Quartz) item was showing a phantom "Material: LUV Tile — Moon Rock 1x2&2x4" line on the PDF, alongside a correctly-priced main Pebble item. Root cause: Surface Application (work_type_id=1) never prices through the generic materials/`material_id` system at all -- it uses `surface_applicator_rates` (keyed by product + sub) exclusively, a completely separate table -- but nothing ever stopped `work_types.default_material_id` from being set to an unrelated material anyway. This app's own local dev seed data had exactly this: Surface Application's default material pointed at a Light fixture. `/api/work_type_defaults` handed that stray material out with no exclusion for work_type_id=1, so every new Surface Application item added manually silently inherited it.
