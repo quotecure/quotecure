@@ -1901,16 +1901,22 @@ def edit_quote(quote_id):
     coping_eligible_material_ids = {
         m['material_id'] for m in materials if _is_coping_eligible(m['work_type_id'], m['category'], m['subcategory'])
     }
-    modifier_rows = db.execute("SELECT * FROM modifiers WHERE active='Y' ORDER BY label").fetchall()
+    # A modifier now picks the work types it shows up on (many-to-many via
+    # modifier_work_types) instead of belonging to exactly one -- one row per
+    # (modifier, work type) pairing here, same as collection_rows above.
+    modifier_rows = db.execute("""SELECT m.*, mwt.work_type_id AS mwt_work_type_id FROM modifiers m
+                                   JOIN modifier_work_types mwt ON mwt.modifier_id=m.modifier_id
+                                   WHERE m.active='Y' ORDER BY m.label""").fetchall()
     modifiers_by_wt = {}
     for q in modifier_rows:
+        wt_id = q['mwt_work_type_id']
         # Leak Detection has two variants (pool vs. pool & spa) that only differ by
         # whether the job has a spa — show just the one that matches this quote's
         # dimensions instead of making staff pick the right one manually.
-        if q['work_type_id'] == 1 and q['label'] in ('Leak Detection', 'Leak Detection – Pool & Spa'):
+        if wt_id == 1 and q['label'] in ('Leak Detection', 'Leak Detection – Pool & Spa'):
             if bool(quote['has_spa']) != ('Spa' in q['label']):
                 continue
-        modifiers_by_wt.setdefault(q['work_type_id'], []).append(dict(q))
+        modifiers_by_wt.setdefault(wt_id, []).append(dict(q))
     additives = db.execute("SELECT * FROM surface_additives WHERE active='Y' ORDER BY label").fetchall()
     terms_docs = db.execute("SELECT id,label FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
     is_assigned_salesperson = bool(g.user and quote['salesperson'] and
@@ -4811,9 +4817,16 @@ def toggle_tax(quote_id, item_id):
 @require_permission('can_edit_work_types')
 def admin_modifiers():
     db = get_db()
-    modifiers = db.execute("""SELECT q.*, wt.work_type FROM modifiers q
-                               JOIN work_types wt ON q.work_type_id=wt.work_type_id
-                               ORDER BY wt.work_type, q.label""").fetchall()
+    modifier_rows = db.execute("SELECT * FROM modifiers ORDER BY label").fetchall()
+    mwt_rows = db.execute("""SELECT mwt.modifier_id, mwt.work_type_id, wt.work_type
+                              FROM modifier_work_types mwt
+                              JOIN work_types wt ON wt.work_type_id=mwt.work_type_id
+                              ORDER BY wt.work_type""").fetchall()
+    work_types_by_modifier = {}
+    for r in mwt_rows:
+        work_types_by_modifier.setdefault(r['modifier_id'], []).append(
+            {'work_type_id': r['work_type_id'], 'work_type': r['work_type']})
+    modifiers = [dict(m, work_types=work_types_by_modifier.get(m['modifier_id'], [])) for m in modifier_rows]
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
     return render_template('admin_modifiers.html', modifiers=modifiers, work_types=work_types)
 
@@ -4821,9 +4834,13 @@ def admin_modifiers():
 @require_permission('can_edit_work_types')
 def add_modifier():
     db = get_db()
-    db.execute("INSERT INTO modifiers (work_type_id,label,amount,per_unit,active) VALUES (?,?,?,?,'Y')",
-               (request.form['work_type_id'], request.form['label'],
-                float(request.form.get('amount', 0) or 0), 1 if request.form.get('per_unit') else 0))
+    work_type_ids = request.form.getlist('work_type_ids')
+    cur = db.execute("INSERT INTO modifiers (label,amount,per_unit,active) VALUES (?,?,?,'Y') RETURNING modifier_id",
+               (request.form['label'], float(request.form.get('amount', 0) or 0),
+                1 if request.form.get('per_unit') else 0))
+    modifier_id = cur.fetchone()[0]
+    for wt_id in work_type_ids:
+        db.execute("INSERT INTO modifier_work_types (modifier_id, work_type_id) VALUES (?,?)", (modifier_id, wt_id))
     db.commit()
     return redirect(url_for('admin_modifiers'))
 
@@ -4835,6 +4852,10 @@ def edit_modifier(modifier_id):
                (request.form['label'], float(request.form.get('amount', 0) or 0),
                 1 if request.form.get('per_unit') else 0,
                 request.form.get('active', 'Y'), modifier_id))
+    work_type_ids = request.form.getlist('work_type_ids')
+    db.execute("DELETE FROM modifier_work_types WHERE modifier_id=?", (modifier_id,))
+    for wt_id in work_type_ids:
+        db.execute("INSERT INTO modifier_work_types (modifier_id, work_type_id) VALUES (?,?)", (modifier_id, wt_id))
     db.commit()
     return redirect(url_for('admin_modifiers'))
 
@@ -4842,6 +4863,7 @@ def edit_modifier(modifier_id):
 @require_permission('can_edit_work_types')
 def delete_modifier(modifier_id):
     db = get_db()
+    db.execute("DELETE FROM modifier_work_types WHERE modifier_id=?", (modifier_id,))
     db.execute("DELETE FROM modifiers WHERE modifier_id=?", (modifier_id,))
     db.commit()
     return redirect(url_for('admin_modifiers'))

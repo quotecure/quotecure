@@ -3436,6 +3436,35 @@ def add_uses_pool_perimeter(conn):
     conn.execute("UPDATE work_types SET uses_pool_perimeter='N' WHERE work_type='Screen Rails'")
 
 
+@migration
+def add_modifier_work_types(conn):
+    """Modifiers used to belong to exactly one work_type_id, so making a modifier like
+    'Tax' available on several work types meant creating one duplicate row per work type --
+    Jim's own complaint: "I won't have a Modifier list that's enormous." The real
+    relationship is many-to-many: a modifier picks which work types it shows up on, not
+    the other way around.
+
+    New modifier_work_types join table replaces modifiers.work_type_id. Backfilled 1:1 from
+    each existing modifier's current single work type -- no automatic merging of same-label
+    modifiers across work types, since two rows named 'Tax' on different work types could
+    genuinely be different amounts; consolidating those, if wanted, is a manual step now via
+    the checklist on Admin -> Modifiers."""
+    tables = {r[0] for r in conn.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+    ).fetchall()}
+    if 'modifier_work_types' not in tables:
+        conn.execute("""CREATE TABLE modifier_work_types (
+            modifier_id INTEGER NOT NULL,
+            work_type_id INTEGER NOT NULL,
+            PRIMARY KEY (modifier_id, work_type_id)
+        )""")
+        conn.execute("""INSERT INTO modifier_work_types (modifier_id, work_type_id)
+                         SELECT modifier_id, work_type_id FROM modifiers WHERE work_type_id IS NOT NULL""")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(modifiers)").fetchall()}
+    if 'work_type_id' in cols:
+        conn.execute("ALTER TABLE modifiers DROP COLUMN work_type_id")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
