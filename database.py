@@ -3544,6 +3544,67 @@ def modifiers_percent_type_and_fold_in_tax(conn):
         conn.execute("ALTER TABLE company_settings DROP COLUMN tax_rate_pct")
 
 
+@migration
+def fix_passthrough_phantom_margin(conn):
+    """Jim added a pass-through work type (Concrete Deck Leveling Foam) through the admin
+    UI and found its line item showed Markup correctly as 'at cost' but Margin at 23%
+    anyway. Root cause, in two parts:
+
+    1. add_work_type/edit_work_type never actually zeroed Default/Min Markup for a
+       pass-through work type -- the admin form's tooltip claimed they were "forced to 0%
+       regardless," but that was never enforced server-side, so a pass-through work type
+       kept whatever Min Markup was typed (or the form's own default of 10).
+    2. Every pricing path that "locks" a pass-through item's markup at 0% did so by passing
+       can_override=False into calc_component() rather than actually zeroing the floor --
+       but can_override=False ACTIVATES calc_component's "markup_pct = max(markup_pct,
+       min_markup)" floor rather than preventing it, so whatever nonzero Min Markup came
+       from (1) silently re-inflated the already-zeroed markup right back up, both on the
+       initial add and on every later quantity/cost edit (see build_line_item,
+       update_markup, and update_line_item in app.py/line_item_logic.py, all fixed
+       alongside this migration).
+
+    This migration is the data-side half of that fix: zero Default/Min Markup on every
+    pass-through work type (so the admin UI stops showing a stale nonzero number and no
+    future line item inherits it), then recompute any EXISTING pass-through line item that
+    already has inflated labor/material pricing back down to true cost -- markup_pct and
+    min_markup to 0, price set equal to cost, margin to 0. total_cost never changes (only
+    price does), and whatever a modifier already contributed to total_price is preserved
+    untouched, isolating the fix to exactly the labor/material inflation this bug caused."""
+    conn.execute("UPDATE work_types SET default_markup=0, min_markup=0 WHERE is_passthrough='Y'")
+
+    rows = conn.execute(
+        "SELECT id, labor_total_cost, labor_total_price, labor_markup_pct, labor_min_markup, "
+        "material_total_cost, material_total_price, material_markup_pct, material_min_markup, "
+        "total_cost, total_price "
+        "FROM quote_line_items WHERE is_passthrough=1"
+    ).fetchall()
+    fixed = 0
+    for r in rows:
+        labor_cost = float(r['labor_total_cost'] or 0)
+        material_cost = float(r['material_total_cost'] or 0)
+        old_labor_price = float(r['labor_total_price'] or 0)
+        old_material_price = float(r['material_total_price'] or 0)
+        old_total_price = float(r['total_price'] or 0)
+        if old_labor_price == labor_cost and old_material_price == material_cost:
+            continue  # already correct -- e.g. Electrician/Deck Stabilization, seeded at 0% from the start
+        # Whatever a modifier already added on top of labor+material is untouched --
+        # isolates this fix to exactly the labor/material markup inflation.
+        modifier_contribution = round(old_total_price - old_labor_price - old_material_price, 2)
+        new_total_price = round(labor_cost + material_cost + modifier_contribution, 2)
+        new_total_cost = float(r['total_cost'] or 0)  # cost never changes, only price does
+        new_margin = round((new_total_price - new_total_cost) / new_total_price * 100, 1) if new_total_price else 0
+        conn.execute(
+            "UPDATE quote_line_items SET "
+            "labor_total_price=?,labor_markup_pct=0,labor_margin_pct=0,labor_min_markup=0,"
+            "material_total_price=?,material_markup_pct=0,material_margin_pct=0,material_min_markup=0,"
+            "total_price=?,total_margin_pct=? WHERE id=?",
+            (labor_cost, material_cost, new_total_price, new_margin, r['id'])
+        )
+        fixed += 1
+    if fixed:
+        print(f'Recomputed {fixed} pass-through line item(s) back down to true 0% margin')
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

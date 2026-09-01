@@ -635,12 +635,21 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
     # shared default -- e.g. Robert's Surface Prep prices at 100% markup while another sub
     # doing the same work type keeps a different margin. NULL (the common case) falls back
     # to the work type's default_markup exactly as before.
-    if rate_row and rate_row['markup_pct'] is not None:
+    # Pass-through work types are billed at exactly what the sub charges -- zero margin,
+    # same as build_line_item's manual-add path enforces. Both markup AND its floor have to
+    # be zeroed here: calc_component's "not can_override -> floor to min_markup" branch
+    # would otherwise re-inflate an already-zeroed markup right back up.
+    is_passthrough = bool(wt.get('is_passthrough') == 'Y')
+    if is_passthrough:
+        markup = 0.0
+        min_markup = 0.0
+    elif rate_row and rate_row['markup_pct'] is not None:
         markup = float(rate_row['markup_pct'])
+        min_markup = float(wt.get('min_markup', 10))
     else:
         markup = float(wt.get('default_markup', 30))
-    min_markup = float(wt.get('min_markup', 10))
-    l_cost, l_price, l_margin = calc_component(labor_cpu, qty, markup, min_markup, can_override)
+        min_markup = float(wt.get('min_markup', 10))
+    l_cost, l_price, l_margin = calc_component(labor_cpu, qty, markup, min_markup, can_override and not is_passthrough)
     # A sub-specific cost floor (e.g. Pro Hydroblasters always charges at least $2,600 for
     # Surface Removal, no matter how small the pool) -- represents a real minimum charge
     # from the sub, not a markup policy, so it's not can_override-bypassable like
@@ -649,7 +658,7 @@ def _compute_line_item_pricing(db, wt, default_sub_id, default_material_id, dims
     if rate_row and rate_row['min_total_cost'] and l_cost < float(rate_row['min_total_cost']):
         l_cost = float(rate_row['min_total_cost'])
         l_price = round(l_cost * (1 + markup / 100), 2)
-    m_cost, m_price, m_margin = calc_component(mat_cpu, mat_qty, markup, 10, can_override)
+    m_cost, m_price, m_margin = calc_component(mat_cpu, mat_qty, markup, 0.0 if is_passthrough else 10, can_override and not is_passthrough)
     total_cost = round(l_cost + m_cost, 2)
     total_price = round(l_price + m_price, 2)
     total_cost, total_price, total_margin = _apply_min_job_price(db, wt_id, total_cost, total_price)
@@ -1721,9 +1730,12 @@ def select_material_tile(quote_id):
         mat_row = db.execute("SELECT cost_per_quote_unit FROM materials WHERE material_id=?", (material_id,)).fetchone()
         mat_cpu = float(mat_row['cost_per_quote_unit']) if mat_row else 0.0
         qty = float(row['labor_quantity'])
-        markup = float(row['labor_markup_pct'])
-        min_m = float(row['material_min_markup'] or 10)
-        m_cost, m_price, m_margin = calc_component(mat_cpu, qty, markup, min_m, can_override)
+        is_passthrough = bool(row['is_passthrough'])
+        markup = 0.0 if is_passthrough else float(row['labor_markup_pct'])
+        # `or 10` would be wrong if material_min_markup is legitimately 0 (pass-through, or
+        # any item priced at a real 0% material floor) -- see update_line_item for the same fix.
+        min_m = 0.0 if is_passthrough else (float(row['material_min_markup']) if row['material_min_markup'] is not None else 10.0)
+        m_cost, m_price, m_margin = calc_component(mat_cpu, qty, markup, min_m, can_override and not is_passthrough)
         l_cost = float(row['labor_total_cost'])
         l_price = float(row['labor_total_price'])
         total_cost = round(l_cost + m_cost, 2)
@@ -1767,9 +1779,12 @@ def select_material_surface(quote_id):
         label = f"{sar['manufacturer_name']} {sar['product_line']} – {sar['finish']}"
         can_override = bool(g.role and g.role['can_override_min_markup'])
         qty = float(row['labor_quantity'])
-        markup = float(row['labor_markup_pct'])
-        min_m = float(row['labor_min_markup'] or 15)
-        l_cost, l_price, l_margin = calc_component(float(sar['rate']), qty, markup, min_m, can_override)
+        is_passthrough = bool(row['is_passthrough'])
+        markup = 0.0 if is_passthrough else float(row['labor_markup_pct'])
+        # `or 15` would be wrong if labor_min_markup is legitimately 0 (pass-through, or any
+        # item priced at a real 0% labor floor) -- see update_line_item for the same fix.
+        min_m = 0.0 if is_passthrough else (float(row['labor_min_markup']) if row['labor_min_markup'] is not None else 15.0)
+        l_cost, l_price, l_margin = calc_component(float(sar['rate']), qty, markup, min_m, can_override and not is_passthrough)
         m_cost = float(row['material_total_cost'] or 0)
         m_price = float(row['material_total_price'] or 0)
         total_cost = round(l_cost + m_cost, 2)
@@ -2407,13 +2422,18 @@ def update_markup(quote_id, item_id):
     # not even an override-capable role can bump this, since it's billed at exactly the
     # sub's cost by design, not a markup floor that can be waived. The UI already hides the
     # +/- stepper for these rows (see qt_rows in edit_quote.html); this is the server-side
-    # backstop in case this endpoint is ever hit directly.
-    if row['is_passthrough']:
+    # backstop in case this endpoint is ever hit directly. min_m below has to be forced to 0
+    # too, not just new_markup -- can_override=False ACTIVATES the "not can_override: floor
+    # to min_m" branch rather than preventing it, so a nonzero stored min_markup (this
+    # work type's own, or one contaminated before this fix) would silently re-inflate the
+    # just-zeroed markup right back up.
+    is_passthrough = bool(row['is_passthrough'])
+    if is_passthrough:
         new_markup = 0
         can_override = False
 
     if component == 'labor':
-        min_m = row['labor_min_markup']
+        min_m = 0 if is_passthrough else row['labor_min_markup']
         if not can_override:
             new_markup = max(new_markup, min_m)
         qty = row['labor_quantity']
@@ -2422,7 +2442,7 @@ def update_markup(quote_id, item_id):
         db.execute("UPDATE quote_line_items SET labor_markup_pct=?,labor_margin_pct=?,labor_total_price=? WHERE id=?",
                    (new_markup, margin, total_price, item_id))
     else:
-        min_m = row['material_min_markup']
+        min_m = 0 if is_passthrough else row['material_min_markup']
         if not can_override:
             new_markup = max(new_markup, min_m)
         qty = row['material_quantity']
@@ -2919,17 +2939,25 @@ def admin_work_types():
 @require_permission('can_edit_work_types')
 def add_work_type():
     db = get_db()
+    # Pass-through work types are billed at exactly what the sub charges -- Default/Min
+    # Markup are shown and editable in the form (with a tooltip saying so), but forced to 0
+    # here regardless of what was typed, so that claim is actually true rather than just a
+    # cosmetic disabled-looking field. This is the root fix: without it, a fresh min_markup
+    # (defaulting to 10 below) gets baked into every line item this work type ever prices,
+    # and calc_component's floor logic re-inflates markup back up from 0 on any edit.
+    is_passthrough = request.form.get('is_passthrough','N')
+    default_markup = 0.0 if is_passthrough == 'Y' else float(request.form.get('default_markup',30) or 30)
+    min_markup = 0.0 if is_passthrough == 'Y' else float(request.form.get('min_markup',10) or 10)
     db.execute("""INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,
                   show_on_quote,active,description,estimated_days,estimated_days_margin,timeline_exempt,is_passthrough,uses_pool_perimeter) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                (request.form['work_type'], request.form['unit'], request.form['cost_structure'],
-                float(request.form.get('default_markup',30) or 30),
-                float(request.form.get('min_markup',10) or 10),
+                default_markup, min_markup,
                 float(request.form.get('min_margin',9.1) or 9.1),
                 request.form.get('show_on_quote','Y'), 'Y', request.form.get('description',''),
                 float(request.form.get('estimated_days',0) or 0),
                 float(request.form.get('estimated_days_margin',0) or 0),
                 request.form.get('timeline_exempt','N'),
-                request.form.get('is_passthrough','N'),
+                is_passthrough,
                 # New work types default to NOT auto-filling the pool's own perimeter --
                 # only opt in explicitly (see add_uses_pool_perimeter) once you've confirmed
                 # a new lf work type genuinely installs around the pool's own edge.
@@ -2941,18 +2969,21 @@ def add_work_type():
 @require_permission('can_edit_work_types')
 def edit_work_type(wt_id):
     db = get_db()
+    # Same pass-through enforcement as add_work_type -- see its comment.
+    is_passthrough = request.form.get('is_passthrough','N')
+    default_markup = 0.0 if is_passthrough == 'Y' else float(request.form.get('default_markup',30) or 30)
+    min_markup = 0.0 if is_passthrough == 'Y' else float(request.form.get('min_markup',10) or 10)
     db.execute("""UPDATE work_types SET work_type=?,unit=?,cost_structure=?,default_markup=?,min_markup=?,min_margin=?,min_job_price=?,estimated_days=?,estimated_days_margin=?,timeline_exempt=?,is_passthrough=?,uses_pool_perimeter=?,default_material_id=?,active=?,description=?
                   WHERE work_type_id=?""",
                (request.form['work_type'],
                 request.form.get('unit','each'), request.form.get('cost_structure','labor_only'),
-                float(request.form.get('default_markup',30) or 30),
-                float(request.form.get('min_markup',10) or 10),
+                default_markup, min_markup,
                 float(request.form.get('min_margin',9.1) or 9.1),
                 float(request.form.get('min_job_price',0) or 0),
                 float(request.form.get('estimated_days',0) or 0),
                 float(request.form.get('estimated_days_margin',0) or 0),
                 request.form.get('timeline_exempt','N'),
-                request.form.get('is_passthrough','N'),
+                is_passthrough,
                 request.form.get('uses_pool_perimeter','N'),
                 request.form.get('default_material_id') or None,
                 request.form.get('active','Y'), request.form.get('description',''), wt_id))
@@ -4513,6 +4544,12 @@ def update_line_item(quote_id, item_id):
         return jsonify({'error': 'This is a calculated line item -- reopen its calculator to change dimensions.'}), 409
 
     can_override = bool(g.role and g.role['can_override_min_markup'])
+    # A pass-through item's stored labor_markup_pct/material_markup_pct are already
+    # correctly 0 (build_line_item enforces that at creation) -- but calc_component's
+    # min-markup floor doesn't know that, it just floors to whatever labor_min_markup/
+    # material_min_markup is stored. Reading those back as 0 here keeps any edit (qty,
+    # cost/unit, sub switch) from silently re-inflating an already-zeroed markup.
+    is_passthrough = bool(row['is_passthrough'])
 
     if field == 'sub':
         sub_name = ''
@@ -4542,7 +4579,7 @@ def update_line_item(quote_id, item_id):
         from line_item_logic import calc_component
         qty = float(row['labor_quantity'])
         markup = float(row['labor_markup_pct'])
-        min_m = float(row['labor_min_markup'])
+        min_m = 0.0 if is_passthrough else float(row['labor_min_markup'])
         l_cost, l_price, l_margin = calc_component(new_cpu, qty, markup, min_m, can_override)
         # Re-apply the sub's own minimum-charge floor, same as the qty/cost-per-unit edit
         # path already does -- a sub switch shouldn't be the one edit path that can undercut
@@ -4567,9 +4604,12 @@ def update_line_item(quote_id, item_id):
         m_qty = float(value) if field == 'mat_qty' else float(row['material_quantity'] or 0)
         m_cpu = float(value) if field == 'mat_cpu' else float(row['material_cost_per_unit'] or 0)
         l_markup = float(row['labor_markup_pct'])
-        l_min = float(row['labor_min_markup'])
-        m_markup = float(row['material_markup_pct'] or 30)
-        m_min = float(row['material_min_markup'] or 10)
+        l_min = 0.0 if is_passthrough else float(row['labor_min_markup'])
+        # `or 30`/`or 10` would be wrong here -- an item whose real material markup/min is
+        # legitimately 0 (pass-through, or any work type priced with a 0% material margin)
+        # needs that 0 to stick, not get silently bumped back up because 0 is falsy.
+        m_markup = float(row['material_markup_pct']) if row['material_markup_pct'] is not None else 30.0
+        m_min = 0.0 if is_passthrough else (float(row['material_min_markup']) if row['material_min_markup'] is not None else 10.0)
         l_cost, l_price, l_margin = calc_component(l_cpu, l_qty, l_markup, l_min, can_override)
         m_cost, m_price, m_margin = calc_component(m_cpu, m_qty, m_markup, m_min, can_override)
 
@@ -4621,9 +4661,11 @@ def update_line_item(quote_id, item_id):
         # actually wrote material_quantity itself, so it silently stayed at 0/stale and
         # never tracked a later labor-quantity edit again.
         qty = float(row['labor_quantity'])
-        markup = float(row['labor_markup_pct'])
-        min_m = float(row['material_min_markup'] or 10)
-        m_cost, m_price, m_margin = calc_component(mat_cpu, qty, markup, min_m, can_override)
+        markup = 0.0 if is_passthrough else float(row['labor_markup_pct'])
+        # `or 10` would be wrong if material_min_markup is legitimately 0 (pass-through, or
+        # any item priced at a real 0% material floor).
+        min_m = 0.0 if is_passthrough else (float(row['material_min_markup']) if row['material_min_markup'] is not None else 10.0)
+        m_cost, m_price, m_margin = calc_component(mat_cpu, qty, markup, min_m, can_override and not is_passthrough)
         l_cost = float(row['labor_total_cost'])
         l_price = float(row['labor_total_price'])
         total_cost = round(l_cost + m_cost, 2)

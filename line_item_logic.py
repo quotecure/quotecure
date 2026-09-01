@@ -17,13 +17,16 @@ def build_line_item(data, wt, sub_name, product_label, material_label, can_overr
     cost_structure = wt['cost_structure'] if wt else 'labor_only'
     quantity = float(data.get('quantity', 0) or 0)
     labor_unit = data.get('unit') or (wt['unit'] if wt else '')
-    labor_min = float(wt['min_markup'] if wt else 10.0)
     # Pass-through work types (Electrician, Deck Stabilization, ...) are billed through at
     # exactly what the sub charges -- zero margin, and LOCKED, not just defaulted: this
-    # overrides whatever markup a caller passed in, the same way the min-markup floor below
-    # can't be bypassed even by a can_override role, so the 0% can't be reintroduced by a
-    # stray/stale client payload.
+    # overrides whatever markup a caller passed in. The floor itself (min_markup) has to be
+    # zeroed too, not just the markup% -- passing can_override=False into calc_component
+    # ACTIVATES its "markup_pct = max(markup_pct, min_markup)" floor rather than preventing
+    # it, so a nonzero min_markup (the work type's own, or a stale/contaminated one already
+    # stored on this line item) would silently re-inflate the just-zeroed markup right back
+    # up. Zeroing min_markup here makes that floor a no-op regardless of can_override.
     is_passthrough = bool(wt and wt['is_passthrough'] == 'Y')
+    labor_min = 0.0 if is_passthrough else float(wt['min_markup'] if wt else 10.0)
 
     # Labor
     labor_cpu = float(data.get('labor_cost_per_unit', 0) or 0)
@@ -48,7 +51,7 @@ def build_line_item(data, wt, sub_name, product_label, material_label, can_overr
         if mat_markup_raw is None or mat_markup_raw == '':
             mat_markup_raw = wt['default_markup'] if wt else 30
     mat_markup = float(mat_markup_raw)
-    mat_min = float(data.get('material_min_markup', 10) or 10)
+    mat_min = 0.0 if is_passthrough else float(data.get('material_min_markup', 10) or 10)
     mat_qty = float(data.get('material_quantity', quantity) or quantity)  # may differ due to waste
     m_cost, m_price, m_margin = calc_component(mat_cpu, mat_qty, mat_markup, mat_min, can_override and not is_passthrough)
 
