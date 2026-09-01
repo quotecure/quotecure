@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-01 — Fixed: Add Single Material silently halved equipment prices (Conv. Factor default)
+
+Jim: raw price on the Jandy pump was $1,500, but the material showed up on a quote line item priced at $750. Root cause: `cost_per_quote_unit = raw_price × conversion_factor`, and the "Add Single Material" admin form defaulted Conv. Factor to `0.5` -- a leftover meant for sheet/box-priced tile that needs converting down to a per-sqft/per-lf cost, but silently wrong for anything priced "each" (pumps, filters, any one-off equipment) since it just halves the price with no error or warning. Same failure shape as several other bugs fixed this session (falsy-zero markup, the `.deck === '1'` type mismatch, pool-perimeter auto-fill): an unconfigured field silently substituting a plausible-but-wrong number instead of failing safely.
+
+Changed the Add Single Material form's default to `1.0` (no conversion -- raw price quotes as-is unless deliberately changed) and added a tooltip on the label explaining what the field does and when to touch it, on both that form and the per-row material Edit form. Left the "Upload Price Sheet (CSV)" bulk-import form's default at `0.5`, since that path is specifically for manufacturer sheet/box catalogs (Keystone Tile, F&F Pros-style) where a real conversion factor is the common case, not the exception -- only added the same tooltip there so it's clear what to check before uploading.
+
+This only fixes the form default going forward -- it does not touch existing rows. **Jim still needs to fix the actual Jandy pump material**: Admin → Materials → find it → Edit → change Conv. Factor from 0.5 to 1.00 → Save.
+
+Verified: scratchpad test confirms a material added via the route with no override now gets `cost_per_quote_unit == raw_price`, and that a genuine non-1.0 conversion factor still computes correctly. Full regression suite (26 test files) passed. Live-verified in browser: submitted the actual Add Single Material form as Jim would, confirmed a $1,500 raw price now yields $1,500 cost_per_quote_unit, not $750.
+
 ## 2026-08-31 — Added Quick Add Work Type (one page instead of three)
 
 The equipment setup walkthrough this session (Pump Installation, a new sub, a Jandy pump) took three separate admin pages -- Work Types, Sub Rates, Materials -- each its own form, each its own submit. Jim's reaction: "this seems pretty convoluted." Added a single-page wizard (`/admin/work_types/quick_add`, "+ Quick Add Work Type" button on Work Types) that does the common case in one submit: work type name/unit/markup, a labor rate for a sub (typing an existing sub's name reuses them, a new name creates them inline, no separate trip to Subs & Applicators), and an optional product that becomes the new work type's Default Material automatically. A single Markup % sets both the default and the floor -- margin is derived the same way `calc_component` computes it everywhere else, not asked for as a second number that could drift out of sync.

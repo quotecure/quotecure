@@ -142,7 +142,7 @@
                       </select>
                     </div>
                     <div>
-                      <label class="form-label">Conv. Factor</label>
+                      <label class="form-label" title="Multiplied against Raw Price to get the actual quoted cost -- 1.0 means no conversion (a $1,500 pump quotes at $1,500). Only change from 1.0 if Raw Price is priced by a different unit than Quote Unit (e.g. $/sheet needing to convert down to $/sqft).">Conv. Factor</label>
                       <input class="form-control mono" name="conversion_factor" type="number" step="0.01" value="{{ m.conversion_factor }}" style="width:90px;">
                     </div>
                     <div>
@@ -258,7 +258,7 @@
                 </select>
               </div>
               <div class="form-group" style="margin:0">
-                <label class="form-label">Conv. Factor</label>
+                <label class="form-label" title="Multiplied against Raw Price to get the actual quoted cost -- 1.0 means no conversion. Bulk sheet/box price sheets often need a real conversion (e.g. $/sheet down to $/sqft), which is why this defaults to 0.5 here -- double check it matches this sheet's actual coverage per unit before uploading.">Conv. Factor</label>
                 <input class="form-control" name="conversion_factor" type="number" step="0.01" value="0.5" placeholder="0.5">
               </div>
             </div>
@@ -347,8 +347,8 @@
             </div>
             <div class="form-row form-row-2" style="margin-top:12px;">
               <div class="form-group" style="margin:0">
-                <label class="form-label">Conv. Factor</label>
-                <input class="form-control" name="conversion_factor" type="number" step="0.01" value="0.5">
+                <label class="form-label" title="Multiplied against Raw Price to get the actual quoted cost -- 1.0 means no conversion (a $1,500 pump quotes at $1,500). Only change this from 1.0 if Raw Price is priced by a different unit than Quote Unit below (e.g. $/sheet needing to convert down to $/sqft).">Conv. Factor</label>
+                <input class="form-control" name="conversion_factor" type="number" step="0.01" value="1.0">
               </div>
               <div class="form-group" style="margin:0">
                 <label class="form-label">Quote Unit</label>
