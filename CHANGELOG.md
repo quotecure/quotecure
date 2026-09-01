@@ -4,6 +4,10 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-08-31 — Tooltip on Cost Structure, since it kept coming up
+
+Jim asked a second time whether Pump Installation needed to be "bundled" to price with both labor and material -- confirmed again that Cost Structure is purely cosmetic, doesn't affect pricing either way. Rather than rely on him remembering an answer from earlier in a long conversation, added a tooltip directly on the Cost Structure field itself (both the Add and per-row Edit forms) saying so at the point where the doubt actually comes up, instead of only in the collapsible help block further up the page.
+
 ## 2026-08-31 — Self-service Default Material picker on Admin → Work Types
 
 Jim asked how to change what material Skimmer Installation auto-fills (it was showing "SCP Pool Supply — Skimmer" and he uses an AquaStar Flowstar). `work_types.default_material_id` already drives this everywhere -- the manual add-item flow's autofill and the automatic template/package pricing path both read it -- but had no admin form field at all, only settable by editing the database directly. Added a "Default Material" dropdown to each work type's edit form on Admin → Work Types, scoped to materials already tagged for that work type (add the product under Admin → Materials first, then it shows up here to pick as the default). No schema change needed -- the column already existed and was just never exposed.

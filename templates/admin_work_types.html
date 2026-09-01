@@ -60,7 +60,7 @@
                     </select>
                   </div>
                   <div>
-                    <label class="form-label">Cost Structure</label>
+                    <label class="form-label" title="Purely a label -- doesn't affect pricing either way. A work type prices with both labor and material the moment a sub rate AND a Default Material (or a material picked on the quote) both exist for it, regardless of what this says.">Cost Structure</label>
                     <select class="form-control" name="cost_structure" style="width:110px;">
                       <option value="labor_only" {{ 'selected' if wt.cost_structure == 'labor_only' }}>labor_only</option>
                       <option value="bundled" {{ 'selected' if wt.cost_structure == 'bundled' }}>bundled</option>
