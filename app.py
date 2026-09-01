@@ -2168,6 +2168,17 @@ def _price_catalog_item(db, quote, data):
         if p:
             product_label = p['manufacturer_name'] + ' ' + p['product_line'] + ' \u2013 ' + p['finish']
 
+    # Surface Application (work_type_id=1) never prices through the generic
+    # materials/material_id system -- it uses surface_applicator_rates (product_id + sub_id)
+    # exclusively. /api/work_type_defaults already refuses to hand out a default material for
+    # it, but this is the defense-in-depth backstop: build_line_item has no way to know
+    # Surface Application's material component is unused, so a stray material_id reaching it
+    # (a leftover work_types.default_material_id, or a direct API call) doesn't just mislabel
+    # the item -- it silently multiplies that material's cost_per_quote_unit into the item's
+    # real total_cost/total_price. Strip it here, on a copy, before it ever reaches pricing.
+    if str(work_type_id) == '1':
+        data = {k: v for k, v in data.items() if not k.startswith('material_')}
+
     material_label = ''
     material_id = data.get('material_id')
     if material_id:
@@ -2785,7 +2796,14 @@ def work_type_defaults():
                         'material_id': None, 'material_cost': 0})
     material_id = None
     material_cost = 0
-    if wt['default_material_id']:
+    # Surface Application (work_type_id=1) never prices through the generic
+    # materials/material_id system -- it uses surface_applicator_rates (product_id + sub_id)
+    # exclusively, a completely separate table. A default_material_id stored on it is always
+    # stray/leftover, never legitimate, and letting it through here doesn't just mislabel the
+    # item -- build_line_item has no way to know Surface Application's material component is
+    # unused, so a nonzero-cost stray material silently multiplies its cost_per_quote_unit by
+    # the pool's full square footage straight into the item's real total_cost/total_price.
+    if wt['default_material_id'] and str(wt_id) != '1':
         mat = db.execute("SELECT cost_per_quote_unit FROM materials WHERE material_id=?", (wt['default_material_id'],)).fetchone()
         if mat:
             material_id = wt['default_material_id']

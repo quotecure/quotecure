@@ -3605,6 +3605,54 @@ def fix_passthrough_phantom_margin(conn):
         print(f'Recomputed {fixed} pass-through line item(s) back down to true 0% margin')
 
 
+@migration
+def fix_surface_application_stray_default_material(conn):
+    """Jim: an Optional Surface Application (Quartz) item was showing a phantom
+    'Material: LUV Tile -- Moon Rock 1x2&2x4' line on the PDF. Root cause: Surface
+    Application (work_type_id=1) never prices through the generic materials/material_id
+    system -- it uses surface_applicator_rates (product_id + sub_id) exclusively, a
+    completely separate table -- but nothing stopped work_types.default_material_id from
+    being set to an unrelated material anyway (confirmed: even this app's own local dev
+    seed data had Surface Application's default_material_id pointing at a Light fixture
+    material). /api/work_type_defaults handed that stray material out with no exclusion for
+    work_type_id=1, so every NEW Surface Application item added manually silently inherited
+    it -- not just the label: build_line_item has no way to know Surface Application's
+    material component is unused, so a nonzero-cost stray material multiplies its
+    cost_per_quote_unit by the pool's full square footage straight into the item's real
+    total_cost/total_price. Confirmed via a synthetic reproduction: a $900/unit stray
+    material inflated a single item's total by over $400,000.
+
+    Code-side, /api/work_type_defaults and _price_catalog_item (app.py) now both refuse to
+    hand a material to a Surface Application item at all, and the admin Work Types edit form
+    hides the Default Material field for it entirely, so this can't recur. This migration is
+    the data-side half: clears the stray default_material_id off Surface Application itself,
+    then finds every EXISTING quote_line_items row on work_type_id=1 that already leaked a
+    material_id and strips it back out -- clearing the material_* columns and subtracting
+    whatever dollar amount that material had already contributed to total_cost/total_price,
+    leaving labor (and any already-applied modifier) untouched."""
+    conn.execute("UPDATE work_types SET default_material_id=NULL WHERE work_type_id=1")
+
+    rows = conn.execute(
+        "SELECT id, total_cost, total_price, material_total_cost, material_total_price "
+        "FROM quote_line_items WHERE work_type_id=1 AND material_id IS NOT NULL"
+    ).fetchall()
+    fixed = 0
+    for r in rows:
+        new_total_cost = round(float(r['total_cost'] or 0) - float(r['material_total_cost'] or 0), 2)
+        new_total_price = round(float(r['total_price'] or 0) - float(r['material_total_price'] or 0), 2)
+        new_margin = round((new_total_price - new_total_cost) / new_total_price * 100, 1) if new_total_price else 0
+        conn.execute(
+            "UPDATE quote_line_items SET "
+            "material_id=NULL,material_label='',material_cost_per_unit=0,material_quantity=0,"
+            "material_total_cost=0,material_total_price=0,material_markup_pct=0,material_margin_pct=0,material_min_markup=0,"
+            "total_cost=?,total_price=?,total_margin_pct=? WHERE id=?",
+            (new_total_cost, new_total_price, new_margin, r['id'])
+        )
+        fixed += 1
+    if fixed:
+        print(f'Stripped a stray material off {fixed} existing Surface Application line item(s)')
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
