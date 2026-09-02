@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-02 — Quotes stats panel: Draft/Sent/Converted breakdown + a date-range selector (YTD, etc.)
+
+Jim: "Dollars and number of quotes Sent, in draft, converted, and maybe some sort of date selector, like YTD."
+
+`_quotes_stats(db, date_range='all')` (app.py) now takes a range and returns per-status counts/dollars for Draft, Sent, and Converted, plus a date dropdown on the Quotes page (All Time / YTD / This Month / Last 12 Months) that filters the whole panel, the by-salesperson breakdown included, and carries through when switching between the Quotes and Archive tabs.
+
+Each status windows by the date that actually means something for it, not a single blanket "created" filter -- this took a real back-and-forth: **Draft** uses `created_at` (the only date that exists for it). **Sent** uses `COALESCE(archived_at, created_at)` -- `archived_at` already doubles as the "last sent" keepalive stamp `email_quote()` writes on every send (see the prior entry), so a quote drafted last year but sent this morning correctly shows under "This Month" instead of being invisible there. **Converted**, at Jim's explicit call, uses `signed_at` rather than `created_at` -- "that's what 'converted' actually means" -- so a quote created in January but signed in March counts toward March's converted number, not January's. `signed_at` is stored as Python's pretty `'%B %d, %Y %I:%M %p'` text (needed as-is for display on contracts/PDFs/change orders), so filtering it needed `to_timestamp(signed_at, 'FMMonth DD, YYYY HH12:MI AM')` in SQL rather than a plain string comparison the way `created_at`/`archived_at` allow.
+
+Verified: new test (`test_quotes_date_range_stats.py`) proves the three different date fields actually get used correctly -- a quote created 25 days ago drops out of "This Month" but stays in "Last 12 Months"; a quote drafted 200 days ago but sent yesterday shows up under "This Month" (proving Sent uses archived_at, not created_at); a quote created 400 days ago but signed today counts as converted "this month" (proving Converted uses parsed signed_at); and every range value (plus a bogus one, which falls back to "all") renders the page without error. Full suite (33 files) passes. Live-verified in browser: seeded 6 demo quotes spanning old/new drafts, old/recently-resent sent quotes, and two converted contracts signed today; confirmed "All Time" totals match manual arithmetic exactly ($53,000 cost / $85,500 quoted / 2 converted at 33%), confirmed switching to "This Month" correctly drops the older draft and older sent quote while keeping both converted deals, and confirmed the Archive tab link carries the selected range forward.
+
 ## 2026-09-01 — Contracts is now its own page; added a Quotes Archive (30-day auto or manual "lost")
 
 Jim: Contracts should be its own top-level page like Quotes/Customers/Schedule, not a tab -- which frees up the Quotes page's second tab slot for a new concept, **Archive**: quotes that are dead, either because they've gone cold (30 days, never converted) or because staff knows they lost the job. Archived quotes stop counting in the stats panel -- "those stats should exit the data," in Jim's words.

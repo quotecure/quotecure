@@ -32,13 +32,26 @@
   </div>
 
   <!-- Business-wide stats -- every quote ever created, not just the current tab, so
-       "% converted" is measured against the whole population -->
+       "% converted" is measured against the whole population. Draft/Sent are windowed by
+       when they were created; Converted is windowed by when it was actually signed. -->
+  <form method="GET" style="margin-bottom:10px;" id="range-form">
+    <input type="hidden" name="tab" value="{{ active_tab }}">
+    <label class="form-label" style="display:inline;margin-right:8px;">Date range</label>
+    <select name="range" class="form-control" style="display:inline-block;width:auto;" onchange="document.getElementById('range-form').submit()">
+      <option value="all" {{ 'selected' if date_range == 'all' }}>All Time</option>
+      <option value="ytd" {{ 'selected' if date_range == 'ytd' }}>Year to Date</option>
+      <option value="month" {{ 'selected' if date_range == 'month' }}>This Month</option>
+      <option value="12mo" {{ 'selected' if date_range == '12mo' }}>Last 12 Months</option>
+    </select>
+  </form>
   <div class="sum-grid">
     <div class="sum-card"><div class="sum-lbl">Quotes</div><div class="sum-val">{{ stats.total_count }}</div></div>
+    <div class="sum-card"><div class="sum-lbl">Draft</div><div class="sum-val">{{ stats.draft_count }} <span style="font-size:13px;color:var(--text3);">/ {{ stats.draft_price|usd }}</span></div></div>
+    <div class="sum-card"><div class="sum-lbl">Sent</div><div class="sum-val">{{ stats.sent_count }} <span style="font-size:13px;color:var(--text3);">/ {{ stats.sent_price|usd }}</span></div></div>
+    <div class="sum-card"><div class="sum-lbl">Converted</div><div class="sum-val green">{{ stats.converted_count }} <span style="font-size:13px;color:var(--text3);">({{ '%.0f'|format(stats.converted_pct) }}%) / {{ stats.converted_price|usd }}</span></div></div>
     <div class="sum-card"><div class="sum-lbl">Total Cost</div><div class="sum-val">{{ stats.total_cost|usd }}</div></div>
     <div class="sum-card"><div class="sum-lbl">Total Quoted</div><div class="sum-val blue">{{ stats.total_price|usd }}</div></div>
     <div class="sum-card"><div class="sum-lbl">Avg Deal</div><div class="sum-val">{{ stats.avg_price|usd }}</div></div>
-    <div class="sum-card"><div class="sum-lbl">Converted</div><div class="sum-val green">{{ stats.converted_count }} <span style="font-size:13px;color:var(--text3);">({{ '%.0f'|format(stats.converted_pct) }}%)</span></div></div>
   </div>
 
   {% if stats.by_salesperson|length > 1 %}
@@ -56,8 +69,8 @@
   {% endif %}
 
   <div class="qtabs">
-    <a href="/quotes?tab=quotes" class="qtab {{ 'active' if active_tab != 'archive' }}">Quotes</a>
-    <a href="/quotes?tab=archive" class="qtab {{ 'active' if active_tab == 'archive' }}">Archive</a>
+    <a href="/quotes?tab=quotes&range={{ date_range }}" class="qtab {{ 'active' if active_tab != 'archive' }}">Quotes</a>
+    <a href="/quotes?tab=archive&range={{ date_range }}" class="qtab {{ 'active' if active_tab == 'archive' }}">Archive</a>
   </div>
 
   <div class="card">

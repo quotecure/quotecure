@@ -243,22 +243,53 @@ def index():
 # first. One shared fragment so the Quotes tab, Archive tab, and _quotes_stats() can't drift.
 _ARCHIVED_SQL = "(archived_reason != '' OR COALESCE(NULLIF(archived_at,''), created_at) < (now() - interval '30 days')::text)"
 
-def _quotes_stats(db):
+_STATS_DATE_RANGES = {
+    'all': None,
+    'ytd': "date_trunc('year', now())",
+    'month': "date_trunc('month', now())",
+    '12mo': "(now() - interval '12 months')",
+}
+
+def _quotes_stats(db, date_range='all'):
     """Business-wide stats for the top of the Quotes list -- every quote ever created that
     isn't archived, not just the current tab, since "% converted" only means anything
     measured against the whole active population. A signed quote (contract/in_progress/
     complete) always counts, regardless of age -- archiving only ever applies to draft/sent.
-    'Converted' mirrors the Contracts page's own filter."""
+    'Converted' mirrors the Contracts page's own filter.
+
+    date_range narrows the population to a time window, but each status uses the date field
+    that actually matters for it: draft uses created_at (when it was made), sent uses
+    COALESCE(archived_at, created_at) (archived_at doubles as email_quote()'s send-keepalive
+    stamp, so it's really "last sent" for a sent quote -- falls back to created_at only for
+    a pre-keepalive edge case, e.g. unsign_quote() reverting a contract to 'sent' without
+    touching it), and converted uses signed_at (when it actually closed) -- a quote created
+    last year but signed this month should count in this year's "converted" bucket. signed_at
+    is stored as Python's pretty '%B %d, %Y %I:%M %p' text (for display on contracts/PDFs),
+    not the ISO-ish format created_at/archived_at use, so it needs to_timestamp() with an
+    explicit format to compare against a date boundary."""
+    bound = _STATS_DATE_RANGES.get(date_range)
+    if bound is None:
+        draft_filter = 'TRUE'
+        sent_filter = 'TRUE'
+        signed_filter = 'TRUE'
+    else:
+        draft_filter = f"created_at >= {bound}::text"
+        sent_filter = f"COALESCE(NULLIF(archived_at,''), created_at) >= {bound}::text"
+        signed_filter = f"to_timestamp(NULLIF(signed_at,''), 'FMMonth DD, YYYY HH12:MI AM') >= {bound}"
+
     rows = db.execute(
         f"SELECT status, salesperson, total_cost, total_price FROM quotes "
-        f"WHERE status IN ('contract','in_progress','complete') "
-        f"OR ((status='draft' OR status='sent') AND NOT {_ARCHIVED_SQL})"
+        f"WHERE (status IN ('contract','in_progress','complete') AND {signed_filter}) "
+        f"OR (status='draft' AND NOT {_ARCHIVED_SQL} AND {draft_filter}) "
+        f"OR (status='sent' AND NOT {_ARCHIVED_SQL} AND {sent_filter})"
     ).fetchall()
     total_count = len(rows)
     total_cost = sum(float(r['total_cost'] or 0) for r in rows)
     total_price = sum(float(r['total_price'] or 0) for r in rows)
     converted = [r for r in rows if r['status'] in ('contract', 'in_progress', 'complete')]
     converted_count = len(converted)
+    draft_rows = [r for r in rows if r['status'] == 'draft']
+    sent_rows = [r for r in rows if r['status'] == 'sent']
 
     by_rep = {}
     for r in rows:
@@ -277,7 +308,12 @@ def _quotes_stats(db):
         'total_cost': round(total_cost, 2),
         'total_price': round(total_price, 2),
         'avg_price': round(total_price / total_count, 2) if total_count else 0,
+        'draft_count': len(draft_rows),
+        'draft_price': round(sum(float(r['total_price'] or 0) for r in draft_rows), 2),
+        'sent_count': len(sent_rows),
+        'sent_price': round(sum(float(r['total_price'] or 0) for r in sent_rows), 2),
         'converted_count': converted_count,
+        'converted_price': round(sum(float(r['total_price'] or 0) for r in converted), 2),
         'converted_pct': round(converted_count / total_count * 100, 1) if total_count else 0,
         'by_salesperson': by_salesperson,
     }
@@ -317,6 +353,9 @@ def _quote_counts_for(db, quotes):
 def quotes_list():
     db = get_db()
     tab = request.args.get('tab', 'quotes')
+    date_range = request.args.get('range', 'all')
+    if date_range not in _STATS_DATE_RANGES:
+        date_range = 'all'
     if tab == 'contracts':
         # Contracts moved to its own page -- redirect any stale bookmarks/links rather
         # than silently changing what this URL shows.
@@ -332,12 +371,12 @@ def quotes_list():
             f"SELECT * FROM quotes WHERE (status='draft' OR status='sent') AND NOT {_ARCHIVED_SQL} "
             f"ORDER BY created_at DESC"
         ).fetchall()
-    stats = _quotes_stats(db)
+    stats = _quotes_stats(db, date_range)
     quote_counts = _quote_counts_for(db, quotes)
     net_commissions = {q['quote_id']: _net_commission(q) for q in quotes}
     return render_template('quotes.html', quotes=quotes,
                            active_tab=tab, quote_counts=quote_counts, current_role=g.role,
-                           net_commissions=net_commissions, stats=stats)
+                           net_commissions=net_commissions, stats=stats, date_range=date_range)
 
 @app.route('/contracts')
 @login_required
