@@ -2031,8 +2031,15 @@ def new_quote():
     if prefill_customer_id:
         prefill_customer = db.execute("SELECT customer_id, name, address, email FROM customers WHERE customer_id=?",
                                       (prefill_customer_id,)).fetchone()
+    # Known salesperson names, for the "assign to someone else" picker -- offering a
+    # dropdown of names already on file (rather than a free-typed field) is what actually
+    # prevents recreating the 'Doug' vs 'Doug Walker' typo split the merge tool exists to fix.
+    salesperson_names = [r['name'] for r in db.execute(
+        "SELECT DISTINCT TRIM(salesperson) as name FROM quotes WHERE TRIM(salesperson) != '' ORDER BY name"
+    ).fetchall()]
     return render_template('new_quote.html', salesperson_name=salesperson_name, packages=packages,
-                           customers=customers, prefill_customer=prefill_customer)
+                           customers=customers, prefill_customer=prefill_customer,
+                           salesperson_names=salesperson_names)
 
 @app.route('/quotes/<int:quote_id>/select_materials')
 @login_required

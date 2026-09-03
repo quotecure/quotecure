@@ -107,7 +107,21 @@ input:checked + .slider:before { transform:translateX(16px); }
             <div id="existing-customer-note" style="display:{{ 'block' if prefill_customer else 'none' }};font-size:11px;color:#4ade80;margin-top:6px;">✓ Linked to existing customer — address/email below still editable for this job.</div>
           </div>
           <div class="form-group">
-            <input type="hidden" name="salesperson" value="{{ salesperson_name }}">
+            <label class="form-label">Salesperson</label>
+            <div style="padding:9px 0;font-size:13px;color:var(--text2);" id="salesperson-display">
+              {{ salesperson_name }} &middot; <a href="#" onclick="toggleSalesperson(); return false;" style="color:var(--blue-light);">assign to someone else</a>
+            </div>
+            <div id="salesperson-picker" style="display:none;">
+              <input class="form-control" id="salesperson-override-inp" list="salesperson-list"
+                     placeholder="Type or pick a name" autocomplete="off" oninput="onSalespersonOverrideInput()">
+              <datalist id="salesperson-list">
+                {% for name in salesperson_names %}
+                <option value="{{ name }}">
+                {% endfor %}
+              </datalist>
+              <a href="#" onclick="toggleSalesperson(); return false;" style="font-size:11px;color:var(--text3);display:inline-block;margin-top:6px;">cancel, assign to me instead</a>
+            </div>
+            <input type="hidden" name="salesperson" id="salesperson-inp" value="{{ salesperson_name }}">
             <input type="hidden" name="customer_id" id="customer-id-inp" value="{{ prefill_customer.customer_id if prefill_customer else '' }}">
           </div>
         </div>
@@ -323,6 +337,29 @@ function onCustomerNameInput() {
     document.getElementById('customer-id-inp').value = '';
     note.style.display = 'none';
   }
+}
+
+// ── Assign to someone else ───────────────────────────────────────
+// Hidden by default -- the common case is self-assigning, and this stays out of the way
+// for that. The actual submitted field (#salesperson-inp) always holds the real value;
+// the visible picker is just a UI proxy that writes into it.
+const SALESPERSON_SELF = {{ salesperson_name|tojson }};
+function toggleSalesperson() {
+  const picker = document.getElementById('salesperson-picker');
+  const display = document.getElementById('salesperson-display');
+  const showingPicker = picker.style.display === 'none';
+  picker.style.display = showingPicker ? 'block' : 'none';
+  display.style.display = showingPicker ? 'none' : 'block';
+  if (showingPicker) {
+    document.getElementById('salesperson-override-inp').value = '';
+    document.getElementById('salesperson-override-inp').focus();
+  } else {
+    document.getElementById('salesperson-inp').value = SALESPERSON_SELF;
+  }
+}
+function onSalespersonOverrideInput() {
+  const typed = document.getElementById('salesperson-override-inp').value.trim();
+  document.getElementById('salesperson-inp').value = typed || SALESPERSON_SELF;
 }
 
 function recalc() {

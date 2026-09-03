@@ -4,6 +4,15 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-03 — New Quote: "assign to someone else" salesperson override
+
+Jim: Doug goes on-site and does the calls, but sometimes Jim ends up building the quote himself from Doug's notes — Doug should still get commission credit for those. `salesperson` was already free-text and decoupled from login accounts (commission already keys off whatever name is stored there — this needed no calculation changes), but New Quote silently hardcoded it to whoever's logged in via a hidden field, with no way to change it until after the fact via Edit Details.
+
+Added a small toggle on New Quote: "Owner · assign to someone else" — off by default (zero extra friction for the normal self-assigned case), and clicking it reveals a picker with a datalist of every salesperson name already on file (same list `Admin → Salespeople` tracks), so picking "Doug Walker" from a dropdown is now the default motion instead of retyping a name — deliberately, since a retyped name is exactly how "Doug" vs "Doug Walker" became two people in the stats panel in the first place (see `add_admin_salespeople` entry below). Typing a name not yet on file (a new hire) still works as free text. Purely front-end: the hidden `salesperson` field `new_quote()` already reads was never touched, so no backend/schema change was needed at all.
+
+Verified: new test (`test_new_quote_salesperson_override.py`) confirms the New Quote page's datalist includes known names and that posting an overridden name saves correctly with commission computing normally against it. Full suite (32 files) passes. Live-verified in browser: toggled the picker open, typed "Doug Walker," confirmed the hidden field updated live via JS, submitted the real form, and confirmed the quote saved with `salesperson='Doug Walker'` — not the logged-in owner.
+
+## 2026-09-03 — GoHighLevel CRM integration (Contacts, Opportunities, notes, inbound lead capture)
 ## 2026-09-03 — GoHighLevel CRM integration (Contacts, Opportunities, notes, inbound lead capture)
 
 Jim's marketing package includes a whitelabeled GoHighLevel CRM. Validated live API access first (Private Integration Token, `services.leadconnectorhq.com`) and found his real pipeline ("GenTech Marketing") already has stages matching a quote's lifecycle almost exactly: New → Qualifying → On-site scheduled → **Ready for quote** → **Quote sent** → Quote follow-up → **Won** / **Lost** / Unqualified. Built the full scope Jim approved across several exchanges: push a Contact/Opportunity through that real pipeline as a quote moves through Send/Sign/Lost, two-way note sync, auto-create a Customer when a lead reaches "Ready for quote," attach the quote PDF to the GHL contact on send, a `lead_source` breakdown in the Quotes stats panel, and a site-visit date stamped from "On-site scheduled."
