@@ -11,6 +11,7 @@ from database import init_db, init_auth, init_materials, init_company_settings, 
 from line_item_logic import build_line_item, calc_component, price_component
 import hashlib
 import secrets
+import ghl_client
 
 app = Flask(__name__)
 
@@ -225,6 +226,98 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+# ── GHL inbound webhook ──────────────────────────────────────────────────────
+# Unauthenticated by necessity (GHL Workflows can't send a session cookie) -- gated by an
+# unguessable secret in the URL path instead, same idiom as password_resets' token, just
+# generated once at migration time rather than per-request. One route, event-dispatched,
+# so Jim only needs to paste one URL into three different GHL Workflow "Webhook" actions.
+@app.route('/integrations/ghl/webhook/<secret>', methods=['POST'])
+def ghl_webhook(secret):
+    db = get_db()
+    settings = db.execute("SELECT ghl_webhook_secret FROM company_settings WHERE id=1").fetchone()
+    if not settings or not settings['ghl_webhook_secret'] or secret != settings['ghl_webhook_secret']:
+        return jsonify({'error': 'forbidden'}), 403
+    data = request.get_json(silent=True) or {}
+    event = data.get('event')
+    try:
+        if event == 'ready_for_quote':
+            return _ghl_webhook_ready_for_quote(db, data)
+        if event == 'on_site_scheduled':
+            return _ghl_webhook_on_site_scheduled(db, data)
+        if event == 'note_added':
+            return _ghl_webhook_note_added(db, data)
+    except Exception as e:
+        print(f'[GHL webhook] event={event} failed: {e}')
+        return jsonify({'success': False}), 200  # 200 so GHL doesn't retry-storm on a transient bug
+    return jsonify({'error': 'unknown event'}), 400
+
+def _get_or_create_customer_by_ghl_contact(db, contact_id, name, email, phone, address=''):
+    """Distinct from _get_or_create_customer() (which matches on normalized name) because
+    inbound GHL events key by contact_id/email, not name -- conflating the two matching
+    strategies risks the same false-merge problem _get_or_create_customer's own docstring
+    warns about (two different people who happen to share a name)."""
+    existing = db.execute("SELECT customer_id FROM customers WHERE ghl_contact_id=?", (contact_id,)).fetchone()
+    if existing:
+        return existing['customer_id']
+    if email:
+        existing = db.execute("SELECT customer_id FROM customers WHERE LOWER(TRIM(email))=? AND email != ''", (email.lower().strip(),)).fetchone()
+        if existing:
+            db.execute("UPDATE customers SET ghl_contact_id=? WHERE customer_id=?", (contact_id, existing['customer_id']))
+            return existing['customer_id']
+    cur = db.execute(
+        "INSERT INTO customers (name, address, email, phone, ghl_contact_id) VALUES (?,?,?,?,?) RETURNING customer_id",
+        ((name or '').strip() or 'Unknown Lead', address or '', email or '', phone or '', contact_id)
+    )
+    return cur.fetchone()[0]
+
+def _ghl_webhook_ready_for_quote(db, data):
+    contact_id = data.get('contact_id')
+    if not contact_id:
+        return jsonify({'error': 'missing contact_id'}), 400
+    customer_id = _get_or_create_customer_by_ghl_contact(
+        db, contact_id, data.get('name'), data.get('email'), data.get('phone'), data.get('address'))
+    lead_source = (data.get('lead_source') or '').strip()
+    if lead_source:
+        db.execute("UPDATE customers SET lead_source=? WHERE customer_id=?", (lead_source, customer_id))
+    db.commit()
+    return jsonify({'success': True, 'customer_id': customer_id})
+
+def _ghl_webhook_on_site_scheduled(db, data):
+    contact_id = data.get('contact_id')
+    if not contact_id:
+        return jsonify({'error': 'missing contact_id'}), 400
+    # Safe even if this fires before ready_for_quote does -- stage order in a real pipeline
+    # isn't strictly guaranteed -- by resolving/creating the customer the same way.
+    customer_id = _get_or_create_customer_by_ghl_contact(
+        db, contact_id, data.get('name'), data.get('email'), data.get('phone'), data.get('address'))
+    db.execute("UPDATE customers SET site_visit_at=? WHERE customer_id=?", (data.get('site_visit_at') or '', customer_id))
+    db.commit()
+    return jsonify({'success': True, 'customer_id': customer_id})
+
+def _ghl_webhook_note_added(db, data):
+    contact_id = data.get('contact_id')
+    note_id = data.get('note_id')
+    if not contact_id or not note_id:
+        return jsonify({'error': 'missing contact_id or note_id'}), 400
+    # The loop-breaker: if a row already has this ghl_note_id, it's either a note QuoteCure
+    # itself just pushed (add_customer_note stores the returned id right after creating it)
+    # echoing back through GHL's own "note added" trigger, or a duplicate webhook retry --
+    # either way, skip. Inbound notes never get pushed back out, which is what actually
+    # prevents an infinite loop (this check just prevents a duplicate row).
+    if db.execute("SELECT 1 FROM customer_notes WHERE ghl_note_id=?", (note_id,)).fetchone():
+        return jsonify({'success': True, 'skipped': 'already recorded'})
+    customer = db.execute("SELECT customer_id FROM customers WHERE ghl_contact_id=?", (contact_id,)).fetchone()
+    if not customer:
+        return jsonify({'error': 'unknown contact_id'}), 404
+    note_text = (data.get('note_text') or '').strip()
+    if not note_text:
+        return jsonify({'error': 'missing note_text'}), 400
+    author = (data.get('created_by') or '').strip() or 'GHL'
+    db.execute("INSERT INTO customer_notes (customer_id, note_text, created_by, ghl_note_id) VALUES (?,?,?,?)",
+               (customer['customer_id'], note_text, author, note_id))
+    db.commit()
+    return jsonify({'success': True})
+
 # ── Home ──────────────────────────────────────────────────────────────────────
 @app.route('/')
 @login_required
@@ -273,15 +366,21 @@ def _quotes_stats(db, date_range='all'):
         sent_filter = 'TRUE'
         signed_filter = 'TRUE'
     else:
-        draft_filter = f"created_at >= {bound}::text"
-        sent_filter = f"COALESCE(NULLIF(archived_at,''), created_at) >= {bound}::text"
-        signed_filter = f"to_timestamp(NULLIF(signed_at,''), 'FMMonth DD, YYYY HH12:MI AM') >= {bound}"
+        draft_filter = f"q.created_at >= {bound}::text"
+        sent_filter = f"COALESCE(NULLIF(q.archived_at,''), q.created_at) >= {bound}::text"
+        signed_filter = f"to_timestamp(NULLIF(q.signed_at,''), 'FMMonth DD, YYYY HH12:MI AM') >= {bound}"
+
+    # _ARCHIVED_SQL's bare column names need a q. prefix once quotes is joined to customers
+    # below (for lead_source) -- qualified as a local variable here only, so the shared
+    # module-level constant itself (and its other, single-table callers) stays untouched.
+    archived_sql_q = _ARCHIVED_SQL.replace('archived_reason', 'q.archived_reason').replace('archived_at', 'q.archived_at').replace('created_at', 'q.created_at')
 
     rows = db.execute(
-        f"SELECT status, salesperson, total_cost, total_price FROM quotes "
-        f"WHERE (status IN ('contract','in_progress','complete') AND {signed_filter}) "
-        f"OR (status='draft' AND NOT {_ARCHIVED_SQL} AND {draft_filter}) "
-        f"OR (status='sent' AND NOT {_ARCHIVED_SQL} AND {sent_filter})"
+        f"SELECT q.status, q.salesperson, q.total_cost, q.total_price, c.lead_source FROM quotes q "
+        f"LEFT JOIN customers c ON c.customer_id = q.customer_id "
+        f"WHERE (q.status IN ('contract','in_progress','complete') AND {signed_filter}) "
+        f"OR (q.status='draft' AND NOT {archived_sql_q} AND {draft_filter}) "
+        f"OR (q.status='sent' AND NOT {archived_sql_q} AND {sent_filter})"
     ).fetchall()
     total_count = len(rows)
     total_cost = sum(float(r['total_cost'] or 0) for r in rows)
@@ -303,6 +402,18 @@ def _quotes_stats(db, date_range='all'):
         rep['converted_pct'] = round(rep['converted_count'] / rep['count'] * 100, 1) if rep['count'] else 0
     by_salesperson = sorted(by_rep.items(), key=lambda kv: kv[1]['total_price'], reverse=True)
 
+    by_source = {}
+    for r in rows:
+        src = (r['lead_source'] or '').strip() or 'Unknown'
+        s = by_source.setdefault(src, {'count': 0, 'total_price': 0.0, 'converted_count': 0})
+        s['count'] += 1
+        s['total_price'] += float(r['total_price'] or 0)
+        if r['status'] in ('contract', 'in_progress', 'complete'):
+            s['converted_count'] += 1
+    for s in by_source.values():
+        s['converted_pct'] = round(s['converted_count'] / s['count'] * 100, 1) if s['count'] else 0
+    by_lead_source = sorted(by_source.items(), key=lambda kv: kv[1]['total_price'], reverse=True)
+
     return {
         'total_count': total_count,
         'total_cost': round(total_cost, 2),
@@ -316,6 +427,7 @@ def _quotes_stats(db, date_range='all'):
         'converted_price': round(sum(float(r['total_price'] or 0) for r in converted), 2),
         'converted_pct': round(converted_count / total_count * 100, 1) if total_count else 0,
         'by_salesperson': by_salesperson,
+        'by_lead_source': by_lead_source,
     }
 
 def _is_archived(db, quote_id):
@@ -333,6 +445,87 @@ def _is_archived(db, quote_id):
     if not row or not row['archived']:
         return False, ''
     return True, row['archived_reason'] or 'Inactive 30+ days'
+
+# ── GHL sync ──────────────────────────────────────────────────────────────────
+# Jim's real GHL pipeline ("GenTech Marketing") -- confirmed live against his account.
+# Hardcoded rather than an admin-configurable mapping: this app hardcodes business-specific
+# IDs everywhere (work-type rates, sub IDs) with no config-abstraction layer for single-
+# tenant constants, and there's exactly one pipeline.
+_GHL_PIPELINE_ID = 'hGsFpOcsSCPht3qnat8L'
+_GHL_STAGE_NEW = '8c4984fa-869d-47b1-a888-6287e9bbe12a'
+_GHL_STAGE_QUALIFYING = '14e6d4ee-8f55-4fff-b522-9ca46e35d683'
+_GHL_STAGE_ON_SITE_SCHEDULED = 'dd7c4817-42ed-44a2-aa0b-49a3d9ad1528'
+_GHL_STAGE_READY_FOR_QUOTE = '2aafdc03-80ba-4101-bd21-adfc5777d5d4'
+_GHL_STAGE_QUOTE_SENT = '6bf48fd5-afa8-4ef8-a162-42ef1e951f31'
+_GHL_STAGE_QUOTE_FOLLOW_UP = '09494e0c-1537-42fd-8c4e-c691474125ba'
+_GHL_STAGE_WON = '954803b7-a04d-4bce-9018-0f5d35344de6'
+_GHL_STAGE_LOST = '1dff3bf6-1101-4fdb-8b08-b2496f782856'
+_GHL_STAGE_UNQUALIFIED = 'bf6c661d-681a-4ecf-916a-c05c0f13f93b'
+
+def _ensure_ghl_contact(db, customer_id):
+    """Returns this customer's GHL contact_id, creating it if needed. Three paths in order:
+    (1) already linked -- customers.ghl_contact_id set, either by a prior outbound call or
+    the inbound lead-capture webhook, (2) search GHL by email so a customer Jim's team
+    already knows in GHL (but QuoteCure doesn't) links instead of duplicating, (3) create
+    fresh. Called lazily, only from inside an actual outbound sync -- not eagerly on every
+    customer creation, since most walk-in/referral customers may never need a GHL presence,
+    and a quote created and abandoned in draft shouldn't burn an API call. Returns None
+    (never raises) if the customer has no email, or on any GHL failure -- callers must
+    treat None as 'skip this sync', and this function is only ever called from inside
+    another function that already wraps the whole operation in try/except, so it doesn't
+    duplicate that here (would just swallow the exception one layer too early and lose the
+    breadcrumb)."""
+    customer = db.execute("SELECT ghl_contact_id, name, email, phone FROM customers WHERE customer_id=?", (customer_id,)).fetchone()
+    if not customer:
+        return None
+    if customer['ghl_contact_id']:
+        return customer['ghl_contact_id']
+    if not customer['email']:
+        return None
+    found = ghl_client.find_contact_by_email(db, customer['email'])
+    contact_id = found['id'] if found else ghl_client.create_contact(db, customer['name'], customer['email'], customer['phone'])
+    db.execute("UPDATE customers SET ghl_contact_id=? WHERE customer_id=?", (contact_id, customer_id))
+    db.commit()
+    return contact_id
+
+def _sync_quote_to_ghl(db, quote_id, stage_id, note_text=None, pdf_bytes=None, pdf_filename=None, mark_status=None):
+    """Idempotent push of one quote's current state to its GHL Opportunity -- creates the
+    Opportunity (and Contact, via _ensure_ghl_contact) on first call for a quote, updates it
+    on every call after (quotes.ghl_opportunity_id is the guard). Makes every multi-call
+    scenario safe by construction: re-sending an already-sent quote, sign -> unsign ->
+    re-sign, archive -> restore -- all just update the same Opportunity, never create a
+    second one. Never raises -- this is the one place that swallows a GHL failure, so
+    callers invoke it as a plain statement after their own db.commit(), never before or
+    interleaved with it. A GHL outage can slow the request (synchronous call, capped by
+    ghl_client's timeout) but can never fail or roll back the actual QuoteCure action."""
+    try:
+        quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+        if not quote:
+            return
+        contact_id = _ensure_ghl_contact(db, quote['customer_id'])
+        if not contact_id:
+            return
+        if quote['ghl_opportunity_id']:
+            ghl_client.update_opportunity(db, quote['ghl_opportunity_id'], stage_id,
+                                           monetary_value=float(quote['total_price'] or 0), status=mark_status)
+        else:
+            opp_id = ghl_client.create_opportunity(db, contact_id, _GHL_PIPELINE_ID, stage_id,
+                                                     quote['customer_name'] or f"QT-{quote_id:04d}",
+                                                     float(quote['total_price'] or 0), status=mark_status or 'open')
+            db.execute("UPDATE quotes SET ghl_opportunity_id=? WHERE quote_id=?", (opp_id, quote_id))
+            db.commit()
+        if note_text:
+            try:
+                ghl_client.add_note(db, contact_id, note_text)
+            except Exception as e:
+                print(f'[GHL] quote {quote_id} note push failed: {e}')
+        if pdf_bytes:
+            try:
+                ghl_client.attach_file_to_conversation(db, contact_id, pdf_filename or f'QT-{quote_id:04d}.pdf', 'application/pdf', pdf_bytes)
+            except Exception as e:
+                print(f'[GHL] quote {quote_id} PDF attach failed: {e}')
+    except Exception as e:
+        print(f'[GHL] quote {quote_id} sync failed: {e}')
 
 def _quote_counts_for(db, quotes):
     """Total quote count per customer, across every status -- not just whatever set of
@@ -405,14 +598,21 @@ def archive_quote(quote_id):
         return jsonify({'error': 'A reason is required.'}), 400
     db.execute("UPDATE quotes SET archived_reason=?, archived_at=now()::text WHERE quote_id=?", (reason, quote_id))
     db.commit()
+    if quote['status'] == 'sent':
+        # A draft never had an Opportunity pushed (that only happens on Send), so pushing a
+        # "Lost" stage for one now would create a phantom deal GHL never actually tracked.
+        _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_LOST, note_text=f'Marked lost: {reason}', mark_status='lost')
     return jsonify({'success': True})
 
 @app.route('/quotes/<int:quote_id>/restore', methods=['POST'])
 @login_required
 def restore_quote(quote_id):
     db = get_db()
+    quote = db.execute("SELECT status FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     db.execute("UPDATE quotes SET archived_reason='', archived_at=now()::text WHERE quote_id=?", (quote_id,))
     db.commit()
+    if quote and quote['status'] == 'sent':
+        _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_QUOTE_SENT, mark_status='open')
     return jsonify({'success': True})
 
 @app.route('/customers')
@@ -479,10 +679,26 @@ def add_customer_note(customer_id):
     note_text = request.form.get('note_text', '').strip()
     if note_text:
         author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
-        db.execute("INSERT INTO customer_notes (customer_id, note_text, created_by) VALUES (?,?,?)",
-                   (customer_id, note_text, author))
+        cur = db.execute("INSERT INTO customer_notes (customer_id, note_text, created_by) VALUES (?,?,?) RETURNING id",
+                          (customer_id, note_text, author))
+        note_id = cur.fetchone()[0]
         db.commit()
+        _push_note_to_ghl(db, note_id, customer_id, note_text)
     return redirect(url_for('customer_detail', customer_id=customer_id))
+
+def _push_note_to_ghl(db, note_id, customer_id, note_text):
+    """Best-effort outbound half of the two-way note sync -- stores the GHL-assigned note
+    id back on the row so the note_added webhook handler recognizes this note as its own
+    when GHL's own automation echoes it back, instead of inserting a duplicate."""
+    try:
+        contact_id = _ensure_ghl_contact(db, customer_id)
+        if not contact_id:
+            return
+        ghl_note_id = ghl_client.add_note(db, contact_id, note_text)
+        db.execute("UPDATE customer_notes SET ghl_note_id=? WHERE id=?", (ghl_note_id, note_id))
+        db.commit()
+    except Exception as e:
+        print(f'[GHL] note {note_id} push failed: {e}')
 
 @app.route('/customers/<int:customer_id>/notes/<int:note_id>/delete', methods=['POST'])
 @login_required
@@ -3892,7 +4108,8 @@ def admin_settings():
         return redirect(url_for('admin_settings'))
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
     terms_docs = db.execute("SELECT * FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
-    return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs)
+    ghl_webhook_url = url_for('ghl_webhook', secret=settings['ghl_webhook_secret'], _external=True) if settings and settings['ghl_webhook_secret'] else ''
+    return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs, ghl_webhook_url=ghl_webhook_url)
 
 @app.route('/admin/settings/email_config', methods=['POST'])
 @require_permission('can_edit_commission_policy')
@@ -3905,6 +4122,19 @@ def update_email_config():
                    (gmail_address, new_app_password))
     else:
         db.execute("UPDATE company_settings SET gmail_address=? WHERE id=1", (gmail_address,))
+    db.commit()
+    return redirect(url_for('admin_settings'))
+
+@app.route('/admin/settings/ghl_config', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def update_ghl_config():
+    db = get_db()
+    location_id = request.form.get('ghl_location_id', '').strip()
+    new_token = request.form.get('ghl_api_token', '').strip()
+    if new_token:
+        db.execute("UPDATE company_settings SET ghl_location_id=?,ghl_api_token=? WHERE id=1", (location_id, new_token))
+    else:
+        db.execute("UPDATE company_settings SET ghl_location_id=? WHERE id=1", (location_id,))
     db.commit()
     return redirect(url_for('admin_settings'))
 
@@ -4390,6 +4620,9 @@ def email_quote(quote_id):
     if not _is_locked_contract(db, quote_id):
         _snapshot_quote_version(db, quote_id)
     db.commit()
+    _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_QUOTE_SENT, mark_status='open',
+                        note_text=f"QT-{quote_id:04d} sent to {to_email}, {_usd(quote['total_price'])}",
+                        pdf_bytes=pdf_bytes, pdf_filename=f'QT-{quote_id:04d}.pdf')
     return jsonify({'success': True, 'sent_to': to_email})
 
 def _snapshot_quote_version(db, quote_id):
@@ -4497,6 +4730,15 @@ def sign_quote(quote_id):
     db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=?,status='contract' WHERE quote_id=?",
                (signature_data, signed_at, printed_name, quote_id))
     db.commit()
+    quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    signed_pdf_bytes = None
+    try:
+        signed_pdf_bytes = _generate_quote_pdf_bytes(_quote_preview_html(quote_id))
+    except Exception as e:
+        print(f'[GHL] quote {quote_id} signed-PDF render for GHL attach failed: {e}')
+    _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_WON, mark_status='won',
+                        note_text=f"QT-{quote_id:04d} signed by {printed_name}, {_usd(quote['total_price'])}",
+                        pdf_bytes=signed_pdf_bytes, pdf_filename=f'QT-{quote_id:04d}-signed.pdf')
     return jsonify({'success': True, 'signed_at': signed_at})
 
 @app.route('/quotes/<int:quote_id>/unsign', methods=['POST'])
@@ -4510,6 +4752,7 @@ def unsign_quote(quote_id):
     db = get_db()
     db.execute("UPDATE quotes SET signature_data='',signed_at='',signed_name='',status='sent' WHERE quote_id=?", (quote_id,))
     db.commit()
+    _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_QUOTE_SENT, mark_status='open')
     return jsonify({'success': True})
 
 @app.route('/admin/settings/upload_logo', methods=['POST'])

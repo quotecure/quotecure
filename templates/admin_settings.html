@@ -108,6 +108,46 @@
         </form>
       </div>
     </div>
+
+    <!-- GoHighLevel CRM sync -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">GoHighLevel CRM Sync</div></div>
+      <div class="card-body">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:14px;">
+          Get the API token from GHL Settings → Private Integrations (scopes: Contacts, Opportunities, Conversations).
+          The Location ID is your sub-account ID, in Settings → Business Info.
+        </div>
+        <form method="POST" action="/admin/settings/ghl_config">
+          <div class="form-group">
+            <label class="form-label">API Token</label>
+            <input class="form-control" name="ghl_api_token" type="password" placeholder="{{ '••••••••••••••••' if settings and settings.ghl_api_token else 'pit-...' }}" autocomplete="new-password">
+            <div style="font-size:11px;color:var(--text3);margin-top:6px;">Leave blank to keep the current one.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Location ID</label>
+            <input class="form-control" name="ghl_location_id" value="{{ settings.ghl_location_id or '' }}" placeholder="e.g. MowUqgKPL6e5lJhakTT9">
+          </div>
+          <button class="btn btn-primary" type="submit">Save</button>
+        </form>
+        {% if ghl_webhook_url %}
+        <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border2);">
+          <label class="form-label">Inbound Webhook URL</label>
+          <input class="form-control mono" value="{{ ghl_webhook_url }}" readonly onclick="this.select()" style="font-size:11px;">
+          <div style="font-size:11px;color:var(--text3);margin-top:8px;">
+            Paste this one URL into the "Webhook" action of three GHL Workflows (Settings → Workflows → new Workflow → Add Action → Webhook), each with a custom JSON body:
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:10px;">
+            <strong>1. Trigger: Opportunity stage changed to "Ready for quote"</strong>
+            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"ready_for_quote","contact_id":"{{ '{{contact.id}}' }}","name":"{{ '{{contact.full_name}}' }}","email":"{{ '{{contact.email}}' }}","phone":"{{ '{{contact.phone}}' }}","address":"{{ '{{contact.address1}}' }}","lead_source":"{{ '{{contact.source}}' }}"}</pre>
+            <strong>2. Trigger: Opportunity stage changed to "On-site scheduled"</strong>
+            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"on_site_scheduled","contact_id":"{{ '{{contact.id}}' }}","site_visit_at":"{{ '{{appointment.start_time}}' }}"}</pre>
+            <strong>3. Trigger: Note added on a contact</strong>
+            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"note_added","contact_id":"{{ '{{contact.id}}' }}","note_id":"{{ '{{note.id}}' }}","note_text":"{{ '{{note.body}}' }}","created_by":"{{ '{{note.userName}}' }}"}</pre>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
   </div>
 
   <!-- Terms & Conditions Library -->

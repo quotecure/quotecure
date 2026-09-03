@@ -37,6 +37,12 @@
           </div>
           <button class="btn btn-primary" type="submit" style="margin-top:4px;">Save</button>
         </form>
+        {% if customer.lead_source or customer.site_visit_at %}
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2);font-size:12px;color:var(--text2);">
+          {% if customer.lead_source %}<div>Lead source: <strong>{{ customer.lead_source }}</strong></div>{% endif %}
+          {% if customer.site_visit_at %}<div style="margin-top:4px;">Site visit: <strong>{{ customer.site_visit_at }}</strong></div>{% endif %}
+        </div>
+        {% endif %}
       </div>
     </div>
 

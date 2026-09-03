@@ -68,6 +68,20 @@
   </div>
   {% endif %}
 
+  {% if stats.by_lead_source|length > 1 %}
+  <div class="rep-card">
+    <div class="rep-card-title">By Lead Source</div>
+    {% for name, r in stats.by_lead_source %}
+    <div class="rep-row">
+      <span class="rep-name">{{ name }}</span>
+      <span class="rep-stat"><b>{{ r.count }}</b> quotes</span>
+      <span class="rep-stat"><b>{{ r.total_price|usd }}</b> quoted</span>
+      <span class="rep-stat"><b>{{ r.converted_count }}</b> converted <span style="color:var(--text3);">({{ '%.0f'|format(r.converted_pct) }}%)</span></span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div class="qtabs">
     <a href="/quotes?tab=quotes&range={{ date_range }}" class="qtab {{ 'active' if active_tab != 'archive' }}">Quotes</a>
     <a href="/quotes?tab=archive&range={{ date_range }}" class="qtab {{ 'active' if active_tab == 'archive' }}">Archive</a>

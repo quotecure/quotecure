@@ -3672,6 +3672,61 @@ def add_quote_archiving(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN archived_at TEXT DEFAULT ''")
 
 
+@migration
+def add_ghl_integration_settings(conn):
+    """GHL Private Integration Token + inbound webhook shared secret -- same 'admin pastes
+    a secret through a masked UI field, can rotate it without a redeploy' pattern as
+    gmail_app_password (add_email_quote). The webhook secret is generated automatically
+    on first migration run (not left blank) since it gates an unauthenticated inbound
+    route (app.py's /integrations/ghl/webhook/<secret>) from day one."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(company_settings)").fetchall()}
+    if 'ghl_api_token' not in cols:
+        conn.execute("ALTER TABLE company_settings ADD COLUMN ghl_api_token TEXT DEFAULT ''")
+    if 'ghl_location_id' not in cols:
+        conn.execute("ALTER TABLE company_settings ADD COLUMN ghl_location_id TEXT DEFAULT ''")
+    if 'ghl_webhook_secret' not in cols:
+        conn.execute("ALTER TABLE company_settings ADD COLUMN ghl_webhook_secret TEXT DEFAULT ''")
+        import secrets
+        conn.execute("UPDATE company_settings SET ghl_webhook_secret=? WHERE id=1 AND ghl_webhook_secret=''",
+                     (secrets.token_urlsafe(24),))
+
+
+@migration
+def add_ghl_opportunity_id(conn):
+    """Set once, the first time a quote gets pushed to GHL (on send); reused for every
+    later stage update (sign/unsign/lost/restore) so a quote never ends up with two
+    Opportunities in GHL's pipeline."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'ghl_opportunity_id' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN ghl_opportunity_id TEXT DEFAULT ''")
+
+
+@migration
+def add_ghl_contact_and_crm_fields(conn):
+    """ghl_contact_id links a QuoteCure customer to its GHL contact (set by either side --
+    an outbound sync searching/creating one, or the inbound lead-capture webhook). lead_source
+    and site_visit_at are populated only by the inbound webhook; both last-value-wins, same
+    text-stamp convention as archived_at -- no history, just 'the current value'."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(customers)").fetchall()}
+    if 'ghl_contact_id' not in cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN ghl_contact_id TEXT DEFAULT ''")
+    if 'lead_source' not in cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN lead_source TEXT DEFAULT ''")
+    if 'site_visit_at' not in cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN site_visit_at TEXT DEFAULT ''")
+
+
+@migration
+def add_ghl_note_id(conn):
+    """The two-way note-sync loop-breaker. Outbound: add_customer_note() pushes to GHL,
+    then stores the returned note id here. Inbound: the note_added webhook handler checks
+    this column before inserting, so GHL's own webhook echoing a note QuoteCure just
+    pushed doesn't create a duplicate row."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(customer_notes)").fetchall()}
+    if 'ghl_note_id' not in cols:
+        conn.execute("ALTER TABLE customer_notes ADD COLUMN ghl_note_id TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
