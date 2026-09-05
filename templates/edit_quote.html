@@ -1733,8 +1733,19 @@ async function addReplacementRow() {
 
 let nrMaterialDefault = {};
 let nrMarkupOverride = {};
+// Picking a work type (or sub) kicks off 2-3 sequential fetches that eventually write the
+// resolved rate into the Cost/Unit box. Nothing used to stop an OLDER, slower pick's fetches
+// from finishing after a NEWER pick's and silently overwriting the box with the wrong work
+// type's rate -- the item still saved with the right work_type_id, just a stale dollar
+// amount (this is exactly how "add Remove Deck Drain" once ended up priced like tile).
+// Each pick bumps its section's generation counter; every await-resume point below checks
+// it's still the current generation before touching shared DOM/state, and bails out silently
+// otherwise -- an outdated pick's results just get discarded instead of applied.
+let nrGen = {};
 
 async function onNrWorkType(section) {
+  nrGen[section] = (nrGen[section] || 0) + 1;
+  const myGen = nrGen[section];
   const wtId = nrWorkTypeId(section);
   const wt = WORK_TYPES[wtId];
   const unit = wt?.unit || 'each';
@@ -1774,6 +1785,7 @@ async function onNrWorkType(section) {
   // Load subs
   const r = await fetch('/api/subs_for_work_type?work_type_id=' + wtId);
   const subs = await r.json();
+  if (nrGen[section] !== myGen) return;  // a newer pick superseded this one -- discard
   const subSel = document.getElementById('nr-sub-' + section);
   subSel.innerHTML = '<option value="">— None —</option>';
   subs.forEach(s => subSel.innerHTML += '<option value="' + s.sub_id + '" ' + (s.sub_id === defSub ? 'selected' : '') + '>' + s.name + '</option>');
@@ -1783,6 +1795,7 @@ async function onNrWorkType(section) {
   // manually-added item silently comes in labor-only.
   const dr = await fetch('/api/work_type_defaults?work_type_id=' + wtId);
   const dd = await dr.json();
+  if (nrGen[section] !== myGen) return;
   if (dd.material_id) {
     nrMaterialDefault[section] = {material_id: dd.material_id, cost: dd.material_cost};
   }
@@ -1791,6 +1804,7 @@ async function onNrWorkType(section) {
   if (defSub) {
     const rr = await fetch('/api/rate?sub_id=' + defSub + '&work_type_id=' + wtId);
     const rd = await rr.json();
+    if (nrGen[section] !== myGen) return;
     if (rd.rate !== null) {
       document.getElementById('nr-cpu-' + section).value = rd.rate;
       nrMarkupOverride[section] = rd.markup_pct;
@@ -1806,6 +1820,8 @@ async function onNrWorkType(section) {
 }
 
 async function onNrSub(section) {
+  nrGen[section] = (nrGen[section] || 0) + 1;
+  const myGen = nrGen[section];
   const wtId = nrWorkTypeId(section);
   const subId = document.getElementById('nr-sub-' + section).value;
   if (!subId || !wtId) return;
@@ -1813,6 +1829,7 @@ async function onNrSub(section) {
   const usesPoolLf = !!WORK_TYPES[wtId]?.poolLf;
   const r = await fetch('/api/rate?sub_id=' + subId + '&work_type_id=' + wtId);
   const d = await r.json();
+  if (nrGen[section] !== myGen) return;  // a newer pick (work type or sub) superseded this
   nrMarkupOverride[section] = null;
   if (d.rate !== null) {
     document.getElementById('nr-cpu-' + section).value = d.rate;

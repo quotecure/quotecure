@@ -196,7 +196,16 @@ function fmtMoney(v) { v = parseFloat(v) || 0; const abs = Math.abs(v).toLocaleS
 const COID = {{ co.id }};
 const WORK_TYPES = {{ work_types | tojson }};
 
+// Same guard as edit_quote.html's onNrWorkType/onNrSub: picking a work type or sub kicks
+// off sequential fetches that eventually write into the Cost/Unit box, and nothing used to
+// stop an older, slower pick's fetches from landing after a newer pick's and silently
+// overwriting it with the wrong work type's rate. Each pick bumps its section's generation;
+// every await-resume point checks it's still current before writing, and bails out otherwise.
+let coGen = {};
+
 async function onCoWtChange(section) {
+  coGen[section] = (coGen[section] || 0) + 1;
+  const myGen = coGen[section];
   const wtId = document.getElementById(section + '-wt').value;
   const subSel = document.getElementById(section + '-sub');
   const matSel = document.getElementById(section + '-material');
@@ -213,15 +222,19 @@ async function onCoWtChange(section) {
     matLabel.textContent = 'Material';
     const mr = await fetch('/api/materials_for_work_type?work_type_id=' + wtId);
     const mats = await mr.json();
+    if (coGen[section] !== myGen) return;
     mats.forEach(m => matSel.innerHTML += '<option value="' + m.material_id + '" data-cpu="' + m.cost + '">' + m.category + ' — ' + m.series + '</option>');
   }
 
   const r = await fetch('/api/subs_for_work_type?work_type_id=' + wtId);
   const subs = await r.json();
+  if (coGen[section] !== myGen) return;
   subs.forEach(s => subSel.innerHTML += '<option value="' + s.sub_id + '">' + s.name + '</option>');
 }
 
 async function onCoSubChange(section) {
+  coGen[section] = (coGen[section] || 0) + 1;
+  const myGen = coGen[section];
   const wtId = document.getElementById(section + '-wt').value;
   const subId = document.getElementById(section + '-sub').value;
   if (!subId || !wtId) return;
@@ -231,10 +244,12 @@ async function onCoSubChange(section) {
     matSel.innerHTML = '<option value="">— Select —</option>';
     const r = await fetch('/api/products_for_applicator?sub_id=' + subId);
     const products = await r.json();
+    if (coGen[section] !== myGen) return;
     products.forEach(p => matSel.innerHTML += '<option value="' + p.product_id + '" data-rate="' + p.rate + '">' + p.label + '</option>');
   } else {
     const r = await fetch('/api/rate?sub_id=' + subId + '&work_type_id=' + wtId);
     const d = await r.json();
+    if (coGen[section] !== myGen) return;
     if (d.rate !== null) document.getElementById(section + '-cpu').value = d.rate;
   }
   calcCoPreview(section);

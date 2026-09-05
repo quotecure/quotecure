@@ -3753,6 +3753,25 @@ def add_optional_item_category(conn):
         conn.execute("ALTER TABLE quote_line_items ADD COLUMN optional_category TEXT DEFAULT 'Optional'")
 
 
+@migration
+def fix_deck_drain_pool_perimeter_flag(conn):
+    """The three Deck Drain work types (Over Base, Cutting Concrete, Replace) were left
+    uses_pool_perimeter='Y' from the old backfill the 2026-08-13 CHANGELOG entry already
+    flagged as needing individual per-work-type review -- never actually reviewed for these
+    three. A deck drain run is typically a short, localized length, not something installed
+    around the pool's entire perimeter, so auto-filling its quantity with the full pool
+    perimeter (like Coping/Waterline/Cap Tile correctly do) silently produced a
+    plausible-looking but wrong total on every add. Flips it to 'N' -- same as any other new
+    lf work type's default -- so staff fills in the real length by hand instead."""
+    rows = conn.execute(
+        "SELECT work_type_id FROM work_types WHERE work_type IN "
+        "('Deck Drain Over Base', 'Deck Drain Cutting Concrete', 'Replace Deck Drain') "
+        "AND uses_pool_perimeter='Y'"
+    ).fetchall()
+    for r in rows:
+        conn.execute("UPDATE work_types SET uses_pool_perimeter='N' WHERE work_type_id=?", (r[0],))
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
