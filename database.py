@@ -3740,6 +3740,19 @@ def add_city_field(conn):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN city TEXT DEFAULT ''")
 
 
+@migration
+def add_optional_item_category(conn):
+    """Jim wants the Optional Add-Ons section split into three flavors: plain Optional,
+    staff-Recommended, and Contingent (may be needed depending on what's found once work
+    starts -- e.g. rebuilding a bond beam -- can't tell until then). Pure label, same as the
+    plan Jim confirmed: no pricing/inclusion behavior changes, is_optional/is_declined still
+    do all of that -- this just tags which of the three an already-optional item is, defaulting
+    every existing optional item to 'Optional' so nothing looks recategorized on its own."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'optional_category' not in cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN optional_category TEXT DEFAULT 'Optional'")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

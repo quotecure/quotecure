@@ -643,10 +643,15 @@ def customers_list():
 def add_customer():
     db = get_db()
     name = request.form.get('name','').strip()
-    if name:
+    email = request.form.get('email','').strip()
+    phone = request.form.get('phone','').strip()
+    # Backend backstop for the form's own JS validation (at-least-one-of isn't expressible
+    # with plain `required` on two separate fields) -- silently no-ops rather than erroring,
+    # matching this route's existing convention for a missing name.
+    if name and (email or phone):
         db.execute("INSERT INTO customers (name,address,city,email,phone) VALUES (?,?,?,?,?)",
                    (name, request.form.get('address','').strip(), request.form.get('city','').strip(),
-                    request.form.get('email','').strip(), request.form.get('phone','').strip()))
+                    email, phone))
         db.commit()
     return redirect(url_for('customers_list'))
 
@@ -2363,6 +2368,13 @@ def edit_quote(quote_id):
     is_assigned_salesperson = bool(g.user and quote['salesperson'] and
                                    (quote['salesperson'] or '').strip().lower() == (g.user['display_name'] or '').strip().lower())
     is_archived, archive_reason = _is_archived(db, quote_id)
+    # So staff can glance at what a customer said (site-visit notes, budget, preferences)
+    # without leaving the quote to go find their profile -- and jot down a new one right
+    # here too, since that's exactly the moment something worth remembering tends to come up.
+    customer_notes = db.execute(
+        "SELECT note_text, created_by, created_at FROM customer_notes WHERE customer_id=? ORDER BY created_at DESC",
+        (quote['customer_id'],)
+    ).fetchall() if quote['customer_id'] else []
     return render_template('edit_quote.html', quote=quote, line_items=line_items,
                            is_archived=is_archived, archive_reason=archive_reason,
                            optional_items=optional_items, optional_total=optional_total,
@@ -2384,7 +2396,8 @@ def edit_quote(quote_id):
                            missing_estimate_labels=missing_estimate_labels, terms_docs=terms_docs,
                            net_commission=_net_commission(quote), is_assigned_salesperson=is_assigned_salesperson,
                            is_locked_contract=_is_locked_contract(db, quote_id),
-                           financing_link_url=settings['financing_link_url'] if settings else '')
+                           financing_link_url=settings['financing_link_url'] if settings else '',
+                           customer_notes=customer_notes)
 
 @app.route('/quotes/<int:quote_id>/commission_giveup', methods=['POST'])
 @login_required
@@ -5055,7 +5068,7 @@ def update_line_item(quote_id, item_id):
     row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
     if not row:
         return jsonify({'error': 'Not found'}), 404
-    if row['is_calculated'] and field != 'description':
+    if row['is_calculated'] and field not in ('description', 'optional_category'):
         # Sunshelf Construction's total isn't qty*cost_per_unit -- it's a sum of 7 formula
         # components from the dimensions calculator. The UI already hides these controls
         # (see qt_rows, field='none' for is_calculated items); this is the server-side
@@ -5187,6 +5200,15 @@ def update_line_item(quote_id, item_id):
     elif field == 'description':
         db.execute("UPDATE quote_line_items SET description=? WHERE id=?", (value or '', item_id))
 
+    elif field == 'optional_category':
+        # Pure label, no pricing/inclusion effect -- which of the three flavors of "not yet
+        # in the total" an optional item is: plain Optional, staff-Recommended, or Contingent
+        # (may be needed depending on what's found once work starts, e.g. rebuilding a bond
+        # beam -- can't tell until then).
+        if value not in ('Optional', 'Recommended', 'Contingent'):
+            return jsonify({'error': 'Invalid category'}), 400
+        db.execute("UPDATE quote_line_items SET optional_category=? WHERE id=?", (value, item_id))
+
     elif field == 'surface_product':
         product_id = value
         sub_id = data.get('sub_id') or row['sub_id']
@@ -5235,7 +5257,7 @@ def update_line_item(quote_id, item_id):
                           labor_margin_pct=? WHERE id=?""",
                        (product_id, label, actual_qty, cpu, l_cost, l_price, l_margin, item_id))
 
-    if field != 'description':
+    if field not in ('description', 'optional_category'):
         _rollup_item_totals(db, item_id)
     db.commit()
     _recalc_quote(db, quote_id)

@@ -46,7 +46,7 @@
     <div class="card">
       <div class="card-header"><div class="card-title">Add Customer</div></div>
       <div class="card-body">
-        <form method="POST" action="/customers/add">
+        <form method="POST" action="/customers/add" id="add-customer-form">
           <div class="form-group">
             <label class="form-label">Name</label>
             <input class="form-control" name="name" required placeholder="Smith Residence">
@@ -61,14 +61,29 @@
           </div>
           <div class="form-group">
             <label class="form-label">Phone</label>
-            <input class="form-control" name="phone" placeholder="(555) 555-5555">
+            <input class="form-control" name="phone" placeholder="(555) 555-5555" oninput="validateContactRequired()">
           </div>
           <div class="form-group">
             <label class="form-label">Email</label>
-            <input class="form-control" name="email" type="email" placeholder="customer@email.com">
+            <input class="form-control" name="email" type="email" placeholder="customer@email.com" oninput="validateContactRequired()">
           </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:-4px;margin-bottom:8px;">A phone number or email is required.</div>
           <button class="btn btn-primary" type="submit" style="margin-top:4px;">Add Customer</button>
         </form>
+        <script>
+          // At-least-one-of validation isn't expressible with plain `required` on two
+          // separate fields -- setCustomValidity on both, cleared the moment either has a
+          // value, gives a native browser validation bubble instead of a silent no-op.
+          function validateContactRequired() {
+            const form = document.getElementById('add-customer-form');
+            const phone = form.querySelector('[name=phone]');
+            const email = form.querySelector('[name=email]');
+            const msg = (phone.value.trim() || email.value.trim()) ? '' : 'Enter a phone number or email address';
+            phone.setCustomValidity(msg);
+            email.setCustomValidity(msg);
+          }
+          validateContactRequired();
+        </script>
       </div>
     </div>
   </div>

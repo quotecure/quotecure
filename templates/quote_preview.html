@@ -213,17 +213,7 @@
   {% endif %}
 
   <!-- Optional Add-Ons -->
-  {% if optional_items %}
-  <div class="section-title">Optional Add-Ons <span style="text-transform:none;font-weight:400;color:#94a3b8;">(not included in total above)</span></div>
-  <table>
-    <thead>
-      <tr>
-        <th>Service</th>
-        <th class="right">Price</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in optional_items %}
+  {% macro opt_row(item, quote) %}
       <tr id="opt-row-{{ item.id }}">
         <td>
           <div class="item-name">{{ item.work_type_label }}</div>
@@ -245,9 +235,30 @@
           </div>
         </td>
       </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% endmacro %}
+  {% if optional_items %}
+  <div class="section-title">Optional Add-Ons <span style="text-transform:none;font-weight:400;color:#94a3b8;">(not included in total above)</span></div>
+  {% for cat, cat_note in [('Optional', ''), ('Recommended', ''), ('Contingent', ' — may be needed once work starts, not yet known for sure')] %}
+    {% set cat_items = optional_items|selectattr('optional_category', 'equalto', cat)|list %}
+    {% if cat_items %}
+    {% if optional_items|map(attribute='optional_category')|unique|list|length > 1 %}
+    <div style="font-size:12px;font-weight:600;color:#475569;margin-top:14px;">{{ cat }}{{ cat_note }}</div>
+    {% endif %}
+    <table>
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th class="right">Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in cat_items %}
+        {{ opt_row(item, quote) }}
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  {% endfor %}
   {% endif %}
 
   <!-- Customer Declined -->

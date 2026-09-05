@@ -123,7 +123,7 @@
             <div style="white-space:pre-wrap;">{{ item.note_text }}</div>
             {% else %}
               {% if item.mime_type in ['image/jpeg','image/png','image/gif','image/webp'] %}
-              <img src="data:{{ item.mime_type }};base64,{{ item.file_data }}" style="max-width:220px; max-height:220px; border-radius:8px; display:block; margin-bottom:6px;">
+              <img src="data:{{ item.mime_type }};base64,{{ item.file_data }}" style="max-width:220px; max-height:220px; border-radius:8px; display:block; margin-bottom:6px; cursor:zoom-in;" onclick="enlargePhoto(this.src)">
               {% endif %}
               <a href="/customers/attachments/{{ item.id }}/download" style="color:var(--blue-light);">📎 {{ item.filename }}</a>
             {% endif %}
@@ -144,6 +144,17 @@
     </div>
   </div>
 </div>
+
+<!-- Photo lightbox: one shared overlay, reused for every thumbnail -->
+<div id="photo-lightbox" onclick="this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;cursor:zoom-out;">
+  <img id="photo-lightbox-img" src="" style="max-width:90vw;max-height:90vh;border-radius:8px;">
+</div>
+<script>
+function enlargePhoto(src) {
+  document.getElementById('photo-lightbox-img').src = src;
+  document.getElementById('photo-lightbox').style.display = 'flex';
+}
+</script>
 {% if current_role and current_role.can_access_admin %}
 <script>
 async function deleteCustomer() {

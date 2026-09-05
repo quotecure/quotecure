@@ -202,6 +202,7 @@
         {% if quote.salesperson %}<span>Rep: <strong>{{ quote.salesperson }}</strong></span>{% endif %}
         {% if quote.total_surface_sqft %}<span><strong>{{ quote.total_surface_sqft|int }} sqft</strong>{% if quote.has_spa %} Pool+Spa{% endif %}</span>{% endif %}
         {% if quote.pool_perimeter %}<span>{{ quote.pool_perimeter|int }} lf perimeter</span>{% endif %}
+        {% if quote.customer_id %}<span><a href="#" onclick="toggleNotesPanel(); return false;" style="color:var(--blue-light);">📝 Notes ({{ customer_notes|length }})</a></span>{% endif %}
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
@@ -258,6 +259,33 @@
       <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn btn-secondary btn-sm" type="button" onclick="closeLostPanel()">Cancel</button>
         <button class="btn btn-danger btn-sm" type="button" onclick="submitLostQuote()">Mark as Lost</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Customer Notes panel (inline, hidden by default) -->
+  <div id="notes-panel-row" style="display:none;margin-bottom:20px;">
+    <div class="product-picker open">
+      {% if customer_notes %}
+      <div style="max-height:240px;overflow-y:auto;margin-bottom:12px;">
+        {% for n in customer_notes %}
+        <div style="padding:8px 0;border-bottom:1px solid var(--border2);">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:3px;">{{ n.created_at[:16] if n.created_at else '' }}{% if n.created_by %} · {{ n.created_by }}{% endif %}</div>
+          <div style="white-space:pre-wrap;font-size:13px;">{{ n.note_text }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">No notes yet for this customer.</div>
+      {% endif %}
+      <label class="nr-label">Quick Note</label>
+      <textarea class="nr-input" id="quick-note-inp" rows="2" style="width:100%;resize:vertical;height:auto;" placeholder="e.g. Wants pebble finish instead of quartz, budget around $70k…"></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px;justify-content:space-between;align-items:center;">
+        <a href="/customers/{{ quote.customer_id }}" target="_blank" style="font-size:11px;color:var(--text3);">View full customer profile →</a>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary btn-sm" type="button" onclick="toggleNotesPanel()">Close</button>
+          <button class="btn btn-primary btn-sm" type="button" onclick="submitQuickNote()">Add Note</button>
+        </div>
       </div>
     </div>
   </div>
@@ -394,6 +422,13 @@
           <div class="svc-name">{{ item.work_type_label }}</div>
           {% if item.replaces_label %}
           <div style="font-size:11px;color:#f87171;">↩ Credit — {{ item.replaces_label }}</div>
+          {% endif %}
+          {% if item.is_optional %}
+          <select class="svc-bc" style="border:none;padding:2px 8px;margin-top:4px;" onchange="updateOptionalCategory({{ item.id }}, this.value)">
+            <option value="Optional" {{ 'selected' if (item.optional_category or 'Optional') == 'Optional' }}>Optional</option>
+            <option value="Recommended" {{ 'selected' if item.optional_category == 'Recommended' }}>Recommended</option>
+            <option value="Contingent" {{ 'selected' if item.optional_category == 'Contingent' }}>Contingent</option>
+          </select>
           {% endif %}
           {% if item.work_type_id == 1 %}
           <div class="svc-bc {% if not item.product_label %}empty{% endif %}"
@@ -894,8 +929,8 @@
   <div class="card" style="margin-top:16px;">
     <div style="padding:14px 16px 0;display:flex;justify-content:space-between;align-items:baseline;">
       <div>
-        <div style="font-size:13px;font-weight:700;color:var(--text);">Optional Add-Ons</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Priced but not included in the quote total. Customer decides.</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text);">Optional / Recommended / Contingent Add-Ons</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Priced but not included in the quote total. Customer decides. Tag each item's flavor with the dropdown under its name — Contingent for work that may be needed depending on what's found once the job starts (e.g. rebuilding a bond beam), not yet known for sure.</div>
       </div>
       <div class="mono" id="optional-total-wrap" style="font-size:13px;color:var(--text2);{% if not optional_items %}display:none;{% endif %}">
         <span id="optional-total">{{ money(optional_total) }}</span> if all added
@@ -1282,6 +1317,33 @@ async function submitLostQuote() {
 async function restoreThisQuote() {
   const resp = await fetch('/quotes/' + QID + '/restore', {method: 'POST'});
   if (resp.ok) location.reload();
+}
+
+async function updateOptionalCategory(id, value) {
+  // Pure label, no pricing effect -- no reload/price-refresh needed, the select's own
+  // value already reflects the change.
+  await fetch('/quotes/' + QID + '/line_items/' + id + '/update', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({field: 'optional_category', value: value})
+  });
+}
+
+function toggleNotesPanel() {
+  const row = document.getElementById('notes-panel-row');
+  row.style.display = row.style.display === 'none' ? 'block' : 'none';
+}
+
+async function submitQuickNote() {
+  const text = document.getElementById('quick-note-inp').value.trim();
+  if (!text) return;
+  const fd = new FormData();
+  fd.append('note_text', text);
+  // Reuses the same route the customer page's own note form posts to -- it always
+  // redirects on success, which fetch() follows transparently, so resp.ok is enough to
+  // know it worked without needing a JSON response from that route.
+  const resp = await fetch({{ ("/customers/" ~ quote.customer_id ~ "/notes/add")|tojson }}, {method: 'POST', body: fd});
+  if (resp.ok) location.reload();
+  else alert('Could not save the note.');
 }
 
 // ── Commission giveup ────────────────────────────────────────────

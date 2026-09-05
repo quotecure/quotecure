@@ -4,6 +4,22 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Photo lightbox, notes-while-quoting, required contact info, Optional/Recommended/Contingent
+
+Four small features from one batch of asks:
+
+**Click-to-enlarge customer photos.** Thumbnails on the customer page (`customer_detail.html`) now open a full-size lightbox on click — one shared overlay reused for every photo, closes on click-anywhere. No backend change.
+
+**Customer notes while building a quote.** `edit_quote()` now loads the linked customer's notes and passes them to `edit_quote.html`, which shows a "📝 Notes (N)" toggle in the page subtitle — click it and a panel lists every note plus a "Quick Note" box that posts to the same `/customers/<id>/notes/add` route the customer page itself uses (fetch + reload, no new backend route needed). A "View full customer profile →" link covers anything that needs the full History section (photos, older context).
+
+**Phone or email required on Add Customer.** `add_customer()` (`customers.html`'s quick-add form) now needs at least one of phone/email — enforced with `setCustomValidity()` on both fields (native browser validation bubble, since plain `required` can't express "at least one of two fields"), plus a server-side backstop that silently no-ops otherwise, matching this route's existing convention for a missing name. Scoped to this one form only — quote-creation's inline customer creation is untouched, since a quote may legitimately get started before contact info is known.
+
+**Optional Add-Ons split into Optional / Recommended / Contingent.** New `quote_line_items.optional_category` column (`TEXT DEFAULT 'Optional'`, every existing optional item defaults there automatically). Confirmed scope up front: this is a pure label, not a pricing or inclusion change — `is_optional`/`is_declined` still do all of that, unchanged. "Contingent" (Jim's naming, over "Potentially Required") is for work that may be needed depending on what's found once the job starts — rebuilding a bond beam being the example — not yet known for sure. A small dropdown under each optional item's name (`edit_quote.html`) tags it, saved via a new `optional_category` case in the existing `update_line_item()` route (a pure write, explicitly excluded from both the pricing rollup and the `is_calculated` guard, same treatment as `description`). The customer-facing quote preview/PDF (`_quote_preview_html`, shared by `/preview` and the emailed PDF) groups optional items under a heading per category — but only when more than one category is actually present, so a quote with everything still just "Optional" looks exactly like it always did.
+
+*Not built yet, doesn't need code*: adding Cap Tile Installation to the "Create Blank Quote" starter items is just an Admin → Quote Template → "Add to Template" action Jim can do himself in the UI — the quote_template table has no hardcoded item list to change.
+
+Verified: new test (`test_five_small_features.py`, 9 assertions) covers the lightbox markup wiring, notes showing up (and updating) on the quote page, Add Customer's backend refusing a no-phone-no-email submission while accepting phone-only, an optional item's category defaulting to 'Optional', a category update saving with zero pricing side effects, an invalid category value being rejected, and the customer preview rendering both categories with grouping headings. Full suite (25 files) passes. Live-verified in browser: opened the lightbox on a real thumbnail and confirmed the overlay shows the right image, toggled the notes panel and confirmed a note appears then re-confirmed after adding a second one, confirmed the category dropdown pre-selects "Contingent" for a seeded item, and confirmed a single-category quote's customer preview shows no redundant heading (only shows up once 2+ categories are actually present).
+
 ## 2026-09-05 — Admin-only Customer delete
 
 Jim: needed a way to delete a customer record, admin-only. Confirmed design up front: blocked if the customer has any quotes on file (protects real business/contract history — deleting is only for empty or duplicate/test customer records), gated to `can_access_admin` (Owner/Coordinator today, not Sales).
