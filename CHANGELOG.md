@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Sunshelf Construction can now be added as Optional
+
+Jim: a Sunshelf built via the dimensions calculator always landed as a regular line item — there was no way to make one Optional, since `add_sunshelf_line_item()` never wrote `is_optional` at all (it just took whatever the column's default was). Added an "Optional — priced but not included in the quote total" checkbox to the calculator panel, wired into both the create route and the update route (reopening the calculator to edit an existing sunshelf can flip it either way). Once optional, it's excluded from the quote's binding total the same way any other optional item is (`_recalc_quote()` already filters on the `is_optional` column regardless of item type), shows up in the Optional Add-Ons section, and — since `update_line_item()`'s calculated-item guard already carves out `optional_category` as a pure-label exception — can be tagged Optional/Recommended/Contingent same as any other optional item, no extra work needed there.
+
+Verified: new test (`test_sunshelf_optional.py`) covers adding a sunshelf item with the checkbox checked (saves `is_optional=1`, excluded from the quote's total_price), the category dropdown showing up and working for it, and reopening the calculator to uncheck Optional correctly pulling it back into the binding total. Full suite (28 files) passes. Live-verified in browser: added a real 8×4 sunshelf as Optional end-to-end and confirmed it priced at $5,437.87 while the quote's own total stayed $0.00.
+
 ## 2026-09-05 — Salesperson picker on Edit Details too, for reassigning an existing quote
 
 Jim: New Quote's "assign to someone else" picker only helps at creation time — reassigning a quote that already exists still meant retyping a name into a plain text box on Edit Details, the exact kind of typo that split "Doug" into two people in the stats panel in the first place. Same fix as before: the Salesperson field on Edit Details is now backed by a datalist of every name already on file (`edit_quote_details()` runs the same distinct-name query New Quote's picker uses), so picking from the list is the default motion instead of typing. No hide/reveal toggle here (unlike New Quote) since this field is already the whole point of visiting Edit Details, always visible either way.

@@ -2748,12 +2748,13 @@ def add_sunshelf_line_item(quote_id):
         "(quote_id, work_type_id, work_type_label, cost_structure, "
         "labor_quantity, labor_unit, labor_cost_per_unit, labor_total_cost, labor_markup_pct, "
         "labor_margin_pct, labor_total_price, labor_min_markup, "
-        "total_cost, total_price, total_margin_pct, sort_order, is_calculated, notes) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "total_cost, total_price, total_margin_pct, sort_order, is_calculated, notes, is_optional) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (quote_id, wt['work_type_id'], label, 'calculated',
          sqft, 'sqft', labor_cpu, breakdown['total_cost'], markup,
          margin_pct, total_price, wt['min_markup'],
-         breakdown['total_cost'], total_price, margin_pct, sort_order, 1, json.dumps(breakdown))
+         breakdown['total_cost'], total_price, margin_pct, sort_order, 1, json.dumps(breakdown),
+         1 if data.get('is_optional') else 0)
     )
     db.commit()
     _recalc_quote(db, quote_id)
@@ -2789,9 +2790,10 @@ def update_sunshelf_line_item(quote_id, item_id):
     db.execute(
         "UPDATE quote_line_items SET work_type_label=?, labor_quantity=?, labor_cost_per_unit=?, "
         "labor_total_cost=?, labor_markup_pct=?, labor_margin_pct=?, labor_total_price=?, "
-        "total_cost=?, total_price=?, total_margin_pct=?, notes=? WHERE id=?",
+        "total_cost=?, total_price=?, total_margin_pct=?, notes=?, is_optional=? WHERE id=?",
         (label, sqft, labor_cpu, breakdown['total_cost'], markup, margin_pct, total_price,
-         breakdown['total_cost'], total_price, margin_pct, json.dumps(breakdown), item_id)
+         breakdown['total_cost'], total_price, margin_pct, json.dumps(breakdown),
+         1 if data.get('is_optional') else 0, item_id)
     )
     db.commit()
     _recalc_quote(db, quote_id)

@@ -454,7 +454,7 @@
           </div>
           {% endif %}
           {% if item.is_calculated %}
-          <div class="svc-bc" onclick="openSunshelfEditor({{ item.id }})">
+          <div class="svc-bc" onclick="openSunshelfEditor({{ item.id }}, {{ (item.is_optional|int)|tojson }})">
             ✎ Edit dimensions
           </div>
           <script type="application/json" id="ss-data-{{ item.id }}">{{ item.sunshelf_breakdown|tojson }}</script>
@@ -900,6 +900,10 @@
               <div style="display:flex;justify-content:space-between;margin-top:6px;font-weight:700;color:var(--text);font-size:14px;"><span>Price</span><span class="mono" id="ss-b-price">—</span></div>
             </div>
 
+            <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--text2);">
+              <input type="checkbox" id="ss-optional">
+              Optional — priced but not included in the quote total, customer decides
+            </label>
             <div style="margin-top:12px;display:flex;gap:8px;">
               <button class="btn btn-green btn-sm" id="ss-add-btn" onclick="addSunshelfItem()">Add</button>
               <button class="btn btn-secondary btn-sm" onclick="closeSunshelfPanel()">Cancel</button>
@@ -1899,6 +1903,7 @@ let sunshelfDebounce = null;
 function openSunshelfPanel() {
   if (LOCKED) { lockedAlert(); return; }
   sunshelfEditingId = null;
+  document.getElementById('ss-optional').checked = false;
   document.getElementById('ss-add-btn').textContent = 'Add';
   document.getElementById('sunshelf-panel-row').style.display = 'table-row';
   document.getElementById('ss-length').focus();
@@ -1911,12 +1916,13 @@ function sunshelfToggleLight() {
   document.getElementById('ss-conduit-row').style.display = document.getElementById('ss-light').value === '1' ? 'grid' : 'none';
 }
 
-function openSunshelfEditor(itemId) {
+function openSunshelfEditor(itemId, isOptional) {
   if (LOCKED) { lockedAlert(); return; }
   const dataEl = document.getElementById('ss-data-' + itemId);
   if (!dataEl) return;
   const d = JSON.parse(dataEl.textContent);
   sunshelfEditingId = itemId;
+  document.getElementById('ss-optional').checked = !!isOptional;
   document.getElementById('ss-length').value = d.inputs.shelf_length;
   document.getElementById('ss-width').value = d.inputs.shelf_width;
   document.getElementById('ss-thickness').value = d.inputs.shelf_thickness;
@@ -1946,6 +1952,7 @@ function sunshelfPayload() {
     include_light: document.getElementById('ss-light').value === '1',
     conduit_run: parseFloat(document.getElementById('ss-conduit').value) || 0,
     markup_pct: sunshelfMarkup,
+    is_optional: document.getElementById('ss-optional').checked,
   };
 }
 
