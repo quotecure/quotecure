@@ -2571,7 +2571,13 @@ def edit_quote_details(quote_id):
             db.execute("UPDATE quotes SET customer_id=? WHERE quote_id=?", (customer_id, quote_id))
         db.commit()
         return redirect(url_for('edit_quote', quote_id=quote_id))
-    return render_template('edit_quote_details.html', quote=quote)
+    # Known salesperson names for the picker -- same reasoning as New Quote's version:
+    # offering a dropdown of names already on file, instead of a free-typed field, is what
+    # actually prevents recreating the 'Doug' vs 'Doug Walker' typo split.
+    salesperson_names = [r['name'] for r in db.execute(
+        "SELECT DISTINCT TRIM(salesperson) as name FROM quotes WHERE TRIM(salesperson) != '' ORDER BY name"
+    ).fetchall()]
+    return render_template('edit_quote_details.html', quote=quote, salesperson_names=salesperson_names)
 
 def _price_catalog_item(db, quote, data):
     """Shared pricing body for a catalog-based line item: resolves sub/material/product

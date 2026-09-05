@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Salesperson picker on Edit Details too, for reassigning an existing quote
+
+Jim: New Quote's "assign to someone else" picker only helps at creation time — reassigning a quote that already exists still meant retyping a name into a plain text box on Edit Details, the exact kind of typo that split "Doug" into two people in the stats panel in the first place. Same fix as before: the Salesperson field on Edit Details is now backed by a datalist of every name already on file (`edit_quote_details()` runs the same distinct-name query New Quote's picker uses), so picking from the list is the default motion instead of typing. No hide/reveal toggle here (unlike New Quote) since this field is already the whole point of visiting Edit Details, always visible either way.
+
+Verified: new test (`test_edit_details_salesperson_picker.py`) confirms the page renders the datalist with known names and that reassigning an existing quote through it actually saves the new salesperson. Full suite (27 files) passes. Live-verified in browser: confirmed the field's `list` attribute correctly points at a populated datalist.
+
 ## 2026-09-05 — Fixed the "wrong number pulled in" bug: unguarded async race on the add-item picker
 
 Jim: "adding Remove deck drain pulls the tile amount" -- and a broader ask to audit why this keeps happening. Ran a full audit of every rate/cost lookup path (name-based work-type matching, the JS picker's fetch chain, the `/api/rate`/`/api/subs_for_work_type`/`/api/work_type_defaults` endpoints, `sub_rates` data integrity). The data itself was clean -- no duplicate work-type names, no miskeyed `sub_rates` rows. The real bug: picking a work type in the "Add Line Item" panel (`edit_quote.html`'s `onNrWorkType`) kicks off 2-3 *sequential* `await`ed fetches (sub list → defaults → rate) that write straight into the Cost/Unit box when they land -- with nothing stopping an *older, slower* pick's fetches from finishing *after* a *newer* pick's and silently overwriting the box with the wrong work type's rate. The saved line item's `work_type_id` was always correct; only the dollar amount went stale. Exact repro: pick Tile, then quickly pick Deck Drain before Tile's chain settles -- if Tile's response lands last, Deck Drain gets priced like Tile. Same unguarded pattern existed in the Change Order builder's add-item flow (`onCoWtChange`/`onCoSubChange`).

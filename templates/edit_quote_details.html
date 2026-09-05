@@ -56,7 +56,12 @@ input:checked + .slider:before { transform:translateX(16px); }
           </div>
           <div class="form-group">
             <label class="form-label">Salesperson</label>
-            <input class="form-control" name="salesperson" value="{{ quote.salesperson or '' }}">
+            <input class="form-control" name="salesperson" value="{{ quote.salesperson or '' }}" list="salesperson-list" autocomplete="off">
+            <datalist id="salesperson-list">
+              {% for name in salesperson_names %}
+              <option value="{{ name }}">
+              {% endfor %}
+            </datalist>
           </div>
         </div>
         <div class="form-group">
