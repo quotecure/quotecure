@@ -25,6 +25,16 @@
 .svc-desc { font-size:11px; color:var(--text3); margin-top:2px; cursor:pointer; max-width:260px;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .svc-desc:hover { text-decoration:underline; color:var(--text2); }
+
+/* Optional-item category tag -- same palette as the badge-green/amber/blue chips used
+   everywhere else in this app, so it reads as "one more status color," not a random
+   native-gray dropdown dropped into a dark UI. */
+.opt-cat { font-size:10px; font-weight:600; letter-spacing:0.02em; border-radius:4px;
+  padding:2px 6px; margin-top:4px; cursor:pointer; appearance:none; -webkit-appearance:none; }
+.opt-cat-optional { background:#1e3a8a44; color:#93c5fd; border:1px solid #1e3a8a; }
+.opt-cat-recommended { background:#14532d44; color:#4ade80; border:1px solid #14532d; }
+.opt-cat-contingent { background:#78350f44; color:#fbbf24; border:1px solid #78350f; }
+.opt-cat option { background:#0f172a; color:#e2e8f0; }
 .svc-desc.empty { font-style:italic; }
 .mod-chip { font-size:10px; padding:2px 7px; border-radius:10px; border:1px solid var(--border);
   color:var(--text3); cursor:pointer; user-select:none; }
@@ -424,7 +434,7 @@
           <div style="font-size:11px;color:#f87171;">↩ Credit — {{ item.replaces_label }}</div>
           {% endif %}
           {% if item.is_optional %}
-          <select class="svc-bc" style="border:none;padding:2px 8px;margin-top:4px;" onchange="updateOptionalCategory({{ item.id }}, this.value)">
+          <select class="opt-cat opt-cat-{{ (item.optional_category or 'Optional')|lower }}" id="opt-cat-{{ item.id }}" onchange="updateOptionalCategory({{ item.id }}, this.value)">
             <option value="Optional" {{ 'selected' if (item.optional_category or 'Optional') == 'Optional' }}>Optional</option>
             <option value="Recommended" {{ 'selected' if item.optional_category == 'Recommended' }}>Recommended</option>
             <option value="Contingent" {{ 'selected' if item.optional_category == 'Contingent' }}>Contingent</option>
@@ -1320,8 +1330,10 @@ async function restoreThisQuote() {
 }
 
 async function updateOptionalCategory(id, value) {
-  // Pure label, no pricing effect -- no reload/price-refresh needed, the select's own
-  // value already reflects the change.
+  // Pure label, no pricing effect -- no reload/price-refresh needed beyond re-tinting the
+  // select itself to match its new category.
+  const sel = document.getElementById('opt-cat-' + id);
+  sel.className = 'opt-cat opt-cat-' + value.toLowerCase();
   await fetch('/quotes/' + QID + '/line_items/' + id + '/update', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({field: 'optional_category', value: value})

@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Optional/Recommended/Contingent dropdown: real colors instead of a bare native select
+
+Jim: "the color scheme is gross" on yesterday's new category dropdown -- it was a plain `<select>` with no background/border styling, so it rendered as the browser's default native control sitting awkwardly in the dark UI. Gave it the same badge palette already used everywhere else in this app (blue/green/amber, matching `badge-blue`/`badge-green`/`badge-amber`): Optional is blue, Recommended is green, Contingent is amber. The select re-tints itself immediately on change (before the save even round-trips) so picking a new category feels instant.
+
+Verified: full suite (25 files) still passes (this was a pure CSS/class change, no behavior touched). Confirmed via computed styles in browser that the three categories render with distinct, correct background/text colors.
+
 ## 2026-09-05 — Photo lightbox, notes-while-quoting, required contact info, Optional/Recommended/Contingent
 
 Four small features from one batch of asks:
