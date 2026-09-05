@@ -1946,6 +1946,23 @@ def estimate_packages():
         results[pkg['package_id']] = round(total, 2)
     return jsonify(results)
 
+def _known_salesperson_names(db):
+    """Names for the 'assign to someone else' picker (New Quote and Edit Details) -- a
+    dropdown of names already on file, rather than a free-typed field, is what actually
+    prevents recreating the 'Doug' vs 'Doug Walker' typo split the merge tool exists to fix.
+    Pulling only from quotes.salesperson missed anyone who hasn't been assigned a quote yet
+    (a newly onboarded salesperson, or someone whose only past quotes got merged into a
+    teammate's name) -- unioned with every active login's display_name so a real staff
+    member always shows up here even before their first quote."""
+    rows = db.execute(
+        "SELECT name FROM ("
+        "  SELECT TRIM(salesperson) as name FROM quotes WHERE TRIM(salesperson) != ''"
+        "  UNION"
+        "  SELECT TRIM(display_name) as name FROM users WHERE active=1 AND TRIM(display_name) != ''"
+        ") x ORDER BY name"
+    ).fetchall()
+    return [r['name'] for r in rows]
+
 def _get_or_create_customer(db, name, address, email, phone='', city=''):
     """Normalized-name match against existing customers -- typing the same customer's name
     again on a new quote links to the same record instead of creating a duplicate. Case/
@@ -2071,12 +2088,7 @@ def new_quote():
     if prefill_customer_id:
         prefill_customer = db.execute("SELECT customer_id, name, address, city, email FROM customers WHERE customer_id=?",
                                       (prefill_customer_id,)).fetchone()
-    # Known salesperson names, for the "assign to someone else" picker -- offering a
-    # dropdown of names already on file (rather than a free-typed field) is what actually
-    # prevents recreating the 'Doug' vs 'Doug Walker' typo split the merge tool exists to fix.
-    salesperson_names = [r['name'] for r in db.execute(
-        "SELECT DISTINCT TRIM(salesperson) as name FROM quotes WHERE TRIM(salesperson) != '' ORDER BY name"
-    ).fetchall()]
+    salesperson_names = _known_salesperson_names(db)
     return render_template('new_quote.html', salesperson_name=salesperson_name, packages=packages,
                            customers=customers, prefill_customer=prefill_customer,
                            salesperson_names=salesperson_names)
@@ -2571,12 +2583,7 @@ def edit_quote_details(quote_id):
             db.execute("UPDATE quotes SET customer_id=? WHERE quote_id=?", (customer_id, quote_id))
         db.commit()
         return redirect(url_for('edit_quote', quote_id=quote_id))
-    # Known salesperson names for the picker -- same reasoning as New Quote's version:
-    # offering a dropdown of names already on file, instead of a free-typed field, is what
-    # actually prevents recreating the 'Doug' vs 'Doug Walker' typo split.
-    salesperson_names = [r['name'] for r in db.execute(
-        "SELECT DISTINCT TRIM(salesperson) as name FROM quotes WHERE TRIM(salesperson) != '' ORDER BY name"
-    ).fetchall()]
+    salesperson_names = _known_salesperson_names(db)
     return render_template('edit_quote_details.html', quote=quote, salesperson_names=salesperson_names)
 
 def _price_catalog_item(db, quote, data):

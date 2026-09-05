@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Salesperson picker was only showing Jim's own name
+
+Jim: the "assign to someone else" dropdown wasn't listing anyone but himself. Root cause: it only pulled distinct names already used on some existing quote's `salesperson` column -- so a salesperson who hasn't been assigned a quote yet (or whose only past quotes had all been merged into a teammate's canonical name, e.g. into "Doug Walker") never showed up at all. New shared `_known_salesperson_names(db)` helper (replacing the duplicated query in both `new_quote()` and `edit_quote_details()`) unions in every active login's `display_name` too, so any real staff account appears in the picker immediately, before their first quote.
+
+Verified: new test (`test_salesperson_picker_includes_logins.py`) covers a brand-new active login with zero quotes anywhere showing up in both New Quote's and Edit Details' pickers, and confirms an inactive login is correctly excluded. Full suite (29 files) passes.
+
 ## 2026-09-05 — Sunshelf Construction can now be added as Optional
 
 Jim: a Sunshelf built via the dimensions calculator always landed as a regular line item — there was no way to make one Optional, since `add_sunshelf_line_item()` never wrote `is_optional` at all (it just took whatever the column's default was). Added an "Optional — priced but not included in the quote total" checkbox to the calculator panel, wired into both the create route and the update route (reopening the calculator to edit an existing sunshelf can flip it either way). Once optional, it's excluded from the quote's binding total the same way any other optional item is (`_recalc_quote()` already filters on the `is_optional` column regardless of item type), shows up in the Optional Add-Ons section, and — since `update_line_item()`'s calculated-item guard already carves out `optional_category` as a pure-label exception — can be tagged Optional/Recommended/Contingent same as any other optional item, no extra work needed there.
