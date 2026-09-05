@@ -22,6 +22,18 @@ def _usd(value):
     v = float(value or 0)
     return f"-${-v:,.2f}" if v < 0 else f"${v:,.2f}"
 
+@app.template_filter('full_address')
+def _full_address(address, city=None):
+    """The one place every template should format a street address + city through, instead
+    of each screen showing the raw address column alone. No state field -- every job is in
+    FL right now, so it's a fixed suffix, not stored data. Falls back to plain address for
+    older customers/quotes with no city on file yet, so nothing looks broken retroactively."""
+    address = (address or '').strip()
+    city = (city or '').strip()
+    if not city:
+        return address
+    return f"{address}, {city}, FL" if address else f"{city}, FL"
+
 # Local secrets folder (used only for local-dev file fallbacks — production sets SECRET_KEY via env var)
 _secrets_dir = Path.home() / 'Documents' / 'quotecure_data'
 
@@ -251,7 +263,7 @@ def ghl_webhook(secret):
         return jsonify({'success': False}), 200  # 200 so GHL doesn't retry-storm on a transient bug
     return jsonify({'error': 'unknown event'}), 400
 
-def _get_or_create_customer_by_ghl_contact(db, contact_id, name, email, phone, address=''):
+def _get_or_create_customer_by_ghl_contact(db, contact_id, name, email, phone, address='', city=''):
     """Distinct from _get_or_create_customer() (which matches on normalized name) because
     inbound GHL events key by contact_id/email, not name -- conflating the two matching
     strategies risks the same false-merge problem _get_or_create_customer's own docstring
@@ -265,8 +277,8 @@ def _get_or_create_customer_by_ghl_contact(db, contact_id, name, email, phone, a
             db.execute("UPDATE customers SET ghl_contact_id=? WHERE customer_id=?", (contact_id, existing['customer_id']))
             return existing['customer_id']
     cur = db.execute(
-        "INSERT INTO customers (name, address, email, phone, ghl_contact_id) VALUES (?,?,?,?,?) RETURNING customer_id",
-        ((name or '').strip() or 'Unknown Lead', address or '', email or '', phone or '', contact_id)
+        "INSERT INTO customers (name, address, city, email, phone, ghl_contact_id) VALUES (?,?,?,?,?,?) RETURNING customer_id",
+        ((name or '').strip() or 'Unknown Lead', address or '', city or '', email or '', phone or '', contact_id)
     )
     return cur.fetchone()[0]
 
@@ -275,7 +287,7 @@ def _ghl_webhook_ready_for_quote(db, data):
     if not contact_id:
         return jsonify({'error': 'missing contact_id'}), 400
     customer_id = _get_or_create_customer_by_ghl_contact(
-        db, contact_id, data.get('name'), data.get('email'), data.get('phone'), data.get('address'))
+        db, contact_id, data.get('name'), data.get('email'), data.get('phone'), data.get('address'), data.get('city'))
     lead_source = (data.get('lead_source') or '').strip()
     if lead_source:
         db.execute("UPDATE customers SET lead_source=? WHERE customer_id=?", (lead_source, customer_id))
@@ -289,7 +301,7 @@ def _ghl_webhook_on_site_scheduled(db, data):
     # Safe even if this fires before ready_for_quote does -- stage order in a real pipeline
     # isn't strictly guaranteed -- by resolving/creating the customer the same way.
     customer_id = _get_or_create_customer_by_ghl_contact(
-        db, contact_id, data.get('name'), data.get('email'), data.get('phone'), data.get('address'))
+        db, contact_id, data.get('name'), data.get('email'), data.get('phone'), data.get('address'), data.get('city'))
     db.execute("UPDATE customers SET site_visit_at=? WHERE customer_id=?", (data.get('site_visit_at') or '', customer_id))
     db.commit()
     return jsonify({'success': True, 'customer_id': customer_id})
@@ -632,9 +644,9 @@ def add_customer():
     db = get_db()
     name = request.form.get('name','').strip()
     if name:
-        db.execute("INSERT INTO customers (name,address,email,phone) VALUES (?,?,?,?)",
-                   (name, request.form.get('address','').strip(), request.form.get('email','').strip(),
-                    request.form.get('phone','').strip()))
+        db.execute("INSERT INTO customers (name,address,city,email,phone) VALUES (?,?,?,?,?)",
+                   (name, request.form.get('address','').strip(), request.form.get('city','').strip(),
+                    request.form.get('email','').strip(), request.form.get('phone','').strip()))
         db.commit()
     return redirect(url_for('customers_list'))
 
@@ -757,10 +769,11 @@ def edit_customer(customer_id):
     email = request.form.get('email','').strip()
     phone = request.form.get('phone','').strip()
     address = request.form.get('address','').strip()
+    city = request.form.get('city','').strip()
     if name:
         _cascade_customer_contact(db, customer_id, name, email, phone)
-    # Address is customer-record-only (see _cascade_customer_contact) -- never pushed to quotes.
-    db.execute("UPDATE customers SET address=? WHERE customer_id=?", (address, customer_id))
+    # Address/city are customer-record-only (see _cascade_customer_contact) -- never pushed to quotes.
+    db.execute("UPDATE customers SET address=?,city=? WHERE customer_id=?", (address, city, customer_id))
     db.commit()
     return redirect(url_for('customer_detail', customer_id=customer_id))
 
@@ -1907,7 +1920,7 @@ def estimate_packages():
         results[pkg['package_id']] = round(total, 2)
     return jsonify(results)
 
-def _get_or_create_customer(db, name, address, email, phone=''):
+def _get_or_create_customer(db, name, address, email, phone='', city=''):
     """Normalized-name match against existing customers -- typing the same customer's name
     again on a new quote links to the same record instead of creating a duplicate. Case/
     whitespace-insensitive only; doesn't try to fuzzy-match near-spellings, since a wrong
@@ -1920,8 +1933,8 @@ def _get_or_create_customer(db, name, address, email, phone=''):
     if existing:
         return existing['customer_id']
     cur = db.execute(
-        "INSERT INTO customers (name, address, email, phone) VALUES (?,?,?,?) RETURNING customer_id",
-        (name, address or '', email or '', phone or '')
+        "INSERT INTO customers (name, address, city, email, phone) VALUES (?,?,?,?,?) RETURNING customer_id",
+        (name, address or '', city or '', email or '', phone or '')
     )
     return cur.fetchone()[0]
 
@@ -1944,6 +1957,7 @@ def new_quote():
         default_terms_id = default_terms[0] if default_terms else None
         customer_name = request.form['customer_name']
         address = request.form.get('address','')
+        city = request.form.get('city','').strip()
         customer_email = request.form.get('customer_email','').strip()
         # An explicit customer_id (picked from the existing-customer search, or carried in
         # from a "+ New Quote" link on that customer's own page) ties this quote to the
@@ -1954,15 +1968,15 @@ def new_quote():
         if picked_customer_id and db.execute("SELECT 1 FROM customers WHERE customer_id=?", (picked_customer_id,)).fetchone():
             customer_id = int(picked_customer_id)
         else:
-            customer_id = _get_or_create_customer(db, customer_name, address, customer_email)
-        db.execute("""INSERT INTO quotes (customer_name,address,salesperson,
+            customer_id = _get_or_create_customer(db, customer_name, address, customer_email, city=city)
+        db.execute("""INSERT INTO quotes (customer_name,address,city,salesperson,
                       pool_perimeter,pool_shallow,pool_deep,pool_sqft,
                       has_spa,spa_perimeter,spa_depth,spa_sqft,
                       has_shelf,shelf_sqft,total_surface_sqft,
                       steps_lf,benches_lf,swimouts_lf,customer_email,water_surface_sqft,deck_sqft,
                       terms_document_id,customer_id)
-                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                   (customer_name, address,
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   (customer_name, address, city,
                     request.form.get('salesperson',''),
                     float(request.form.get('pool_perimeter',0) or 0),
                     float(request.form.get('pool_shallow',0) or 0),
@@ -2025,11 +2039,11 @@ def new_quote():
     salesperson_name = g.user['display_name'] if g.user and g.user['display_name'] else ''
     db = get_db()
     packages = db.execute("SELECT * FROM packages WHERE active='Y' ORDER BY sort_order").fetchall()
-    customers = db.execute("SELECT customer_id, name, address, email FROM customers ORDER BY name").fetchall()
+    customers = db.execute("SELECT customer_id, name, address, city, email FROM customers ORDER BY name").fetchall()
     prefill_customer = None
     prefill_customer_id = request.args.get('customer_id', type=int)
     if prefill_customer_id:
-        prefill_customer = db.execute("SELECT customer_id, name, address, email FROM customers WHERE customer_id=?",
+        prefill_customer = db.execute("SELECT customer_id, name, address, city, email FROM customers WHERE customer_id=?",
                                       (prefill_customer_id,)).fetchone()
     # Known salesperson names, for the "assign to someone else" picker -- offering a
     # dropdown of names already on file (rather than a free-typed field) is what actually
@@ -2486,14 +2500,15 @@ def edit_quote_details(quote_id):
             return redirect(url_for('edit_quote', quote_id=quote_id))
         customer_name = request.form['customer_name']
         address = request.form.get('address','')
+        city = request.form.get('city','').strip()
         customer_email = request.form.get('customer_email','').strip()
-        db.execute("""UPDATE quotes SET customer_name=?,address=?,salesperson=?,
+        db.execute("""UPDATE quotes SET customer_name=?,address=?,city=?,salesperson=?,
                       pool_perimeter=?,pool_shallow=?,pool_deep=?,pool_sqft=?,
                       has_spa=?,spa_perimeter=?,spa_depth=?,spa_sqft=?,
                       has_shelf=?,shelf_sqft=?,total_surface_sqft=?,
                       steps_lf=?,benches_lf=?,swimouts_lf=?,customer_email=?,water_surface_sqft=?,deck_sqft=?
                       WHERE quote_id=?""",
-                   (customer_name, address,
+                   (customer_name, address, city,
                     request.form.get('salesperson',''),
                     float(request.form.get('pool_perimeter',0) or 0),
                     float(request.form.get('pool_shallow',0) or 0),
@@ -2515,7 +2530,7 @@ def edit_quote_details(quote_id):
                     quote_id))
         # Cascade name/email (not address -- see _cascade_customer_contact) to every other
         # quote for this same customer, so editing it here matches editing it from /customers.
-        customer_id = quote['customer_id'] if quote and quote['customer_id'] else _get_or_create_customer(db, customer_name, address, customer_email)
+        customer_id = quote['customer_id'] if quote and quote['customer_id'] else _get_or_create_customer(db, customer_name, address, customer_email, city=city)
         current_phone = db.execute("SELECT phone FROM customers WHERE customer_id=?", (customer_id,)).fetchone()
         _cascade_customer_contact(db, customer_id, customer_name, customer_email, current_phone['phone'] if current_phone else '')
         if not (quote and quote['customer_id']):

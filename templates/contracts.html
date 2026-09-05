@@ -41,7 +41,7 @@
               <a href="/customers/{{ q.customer_id }}" class="badge badge-blue" style="font-size:10px;margin-left:4px;" title="This customer has {{ quote_counts[q.customer_id] }} quotes">{{ quote_counts[q.customer_id] }} quotes</a>
               {% endif %}
             </td>
-            <td style="color:var(--text2)">{{ q.address or '—' }}</td>
+            <td style="color:var(--text2)">{{ (q.address|full_address(q.city)) or '—' }}</td>
             <td style="color:var(--text2)">{{ q.salesperson or '—' }}</td>
             <td><span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status == 'complete' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span></td>
             <td class="right mono">{{ q.total_cost|usd }}</td>

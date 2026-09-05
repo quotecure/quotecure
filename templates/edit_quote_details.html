@@ -63,9 +63,15 @@ input:checked + .slider:before { transform:translateX(16px); }
           <label class="form-label">Customer Email</label>
           <input class="form-control" name="customer_email" type="email" value="{{ quote.customer_email or '' }}" placeholder="customer@email.com">
         </div>
-        <div class="form-group">
-          <label class="form-label">Address</label>
-          <input class="form-control" name="address" value="{{ quote.address or '' }}">
+        <div class="form-row form-row-2">
+          <div class="form-group">
+            <label class="form-label">Address</label>
+            <input class="form-control" name="address" value="{{ quote.address or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">City</label>
+            <input class="form-control" name="city" value="{{ quote.city or '' }}" placeholder="Tampa">
+          </div>
         </div>
 
         <div class="section-label">Pool Dimensions</div>

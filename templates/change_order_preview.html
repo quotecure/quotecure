@@ -100,7 +100,7 @@
     <div>
       <div class="customer-label">Prepared For</div>
       <div class="customer-value">{{ quote.customer_name }}</div>
-      {% if quote.address %}<div class="customer-sub">{{ quote.address }}</div>{% endif %}
+      {% if quote.address %}<div class="customer-sub">{{ quote.address|full_address(quote.city) }}</div>{% endif %}
     </div>
     <div>
       <div class="customer-label">Prepared By</div>

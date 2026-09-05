@@ -95,7 +95,7 @@
     <div>
       <div class="page-title">Version {{ version.version_number }} — {{ quote.customer_name }}</div>
       <div class="page-subtitle">
-        QT-{{ '%04d'|format(quote.quote_id) }} — {{ quote.address or '' }} — sent {{ version.sent_at[:16] if version.sent_at else '' }}{% if version.sent_by %} by {{ version.sent_by }}{% endif %}
+        QT-{{ '%04d'|format(quote.quote_id) }} — {{ quote.address|full_address(quote.city) }} — sent {{ version.sent_at[:16] if version.sent_at else '' }}{% if version.sent_by %} by {{ version.sent_by }}{% endif %}
       </div>
     </div>
     <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Current Quote</a>

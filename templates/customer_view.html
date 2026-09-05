@@ -37,7 +37,7 @@
   <div class="page-header cv-header">
     <div>
       <div class="cv-title">{{ quote.customer_name }}</div>
-      <div class="cv-sub">QT-{{ '%04d'|format(quote.quote_id) }}{% if quote.address %} &middot; {{ quote.address }}{% endif %}</div>
+      <div class="cv-sub">QT-{{ '%04d'|format(quote.quote_id) }}{% if quote.address %} &middot; {{ quote.address|full_address(quote.city) }}{% endif %}</div>
     </div>
     <div style="display:flex;gap:8px;">
       <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">Full Details (Staff) →</a>

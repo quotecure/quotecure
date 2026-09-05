@@ -28,6 +28,10 @@
             <div style="font-size:11px;color:var(--text3);margin-top:4px;">Just this customer's own record — doesn't change the address on any of their existing quotes below.</div>
           </div>
           <div class="form-group">
+            <label class="form-label">City</label>
+            <input class="form-control" name="city" value="{{ customer.city or '' }}" placeholder="Tampa">
+          </div>
+          <div class="form-group">
             <label class="form-label">Phone</label>
             <input class="form-control" name="phone" value="{{ customer.phone or '' }}">
           </div>
@@ -64,7 +68,7 @@
             {% for q in quotes %}
             <tr>
               <td class="mono"><a href="/quotes/{{ q.quote_id }}">QT-{{ '%04d'|format(q.quote_id) }}</a></td>
-              <td style="color:var(--text2)">{{ q.address or '—' }}</td>
+              <td style="color:var(--text2)">{{ (q.address|full_address(q.city)) or '—' }}</td>
               <td>
                 <span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status in ('sent', 'complete') else 'blue' if q.status == 'draft' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span>
                 {% if q.quote_id in archived_ids %}

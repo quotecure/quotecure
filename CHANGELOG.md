@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Split city out of the single address field
+
+Jim: address should split out at least a city field — no state, since every job is in FL right now. New `city TEXT DEFAULT ''` column on both `customers` and `quotes` (mirroring how `address` itself is already duplicated across both — a repeat customer's own address/city can differ from a specific job's), added via the same `PRAGMA table_info` guard pattern every migration here uses.
+
+New shared `full_address` Jinja filter (`app.py`, next to the existing `usd` filter) is the one place every template formats a street address + city through: `"123 Main St, Tampa, FL"` when a city is on file, plain `"123 Main St"` for older quotes/customers with none — no dangling comma, nothing looks broken retroactively, and "FL" is a fixed display suffix, not stored data (matches Jim's "we don't need state, everything is FL"). Applied across every place an address renders: Quotes/Contracts/Customers lists, the customer detail page, the quote PDF/preview, Change Order and Quote Version previews, and the customer-facing live view.
+
+City is threaded through the same paths as address already was: New Quote's form, Edit Details, the Customer contact-info card, the quick "Add Customer" form, `_get_or_create_customer()`/`_get_or_create_customer_by_ghl_contact()` (so a brand-new customer created from either a quote or an inbound GHL lead gets a city too), and the GHL `ready_for_quote` webhook payload template (GHL's own Contact record already has a native `city` field). Never cascaded from a customer's own record to their quotes, same rule as address, for the same reason — a job site's city can differ from a repeat customer's own city on file.
+
+Verified: new test (`test_city_field.py`, 7 assertions) covers the filter's formatting (with/without city, with/without address), New Quote saving city on both the quote and the auto-created customer, Edit Details updating a quote's city, editing a customer's own city NOT cascading to their quotes, a quote with no city rendering cleanly (no dangling ", FL"), and the GHL webhook passing city through to a new lead. Full suite (22 files) passes. Live-verified in browser: New Quote's Address/City fields render side by side and save correctly, the quote header/list/customer page/PDF preview all show "789 Bayshore Blvd, Brandon, FL" consistently, and the quick Add Customer form (initially missed, caught on a re-check) now has City too.
+
 ## 2026-09-03 — New Quote: "assign to someone else" salesperson override
 
 Jim: Doug goes on-site and does the calls, but sometimes Jim ends up building the quote himself from Doug's notes — Doug should still get commission credit for those. `salesperson` was already free-text and decoupled from login accounts (commission already keys off whatever name is stored there — this needed no calculation changes), but New Quote silently hardcoded it to whoever's logged in via a hidden field, with no way to change it until after the fact via Edit Details.

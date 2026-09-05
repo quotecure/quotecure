@@ -198,7 +198,7 @@
       <div class="page-title">{{ quote.customer_name }}</div>
       <div class="page-subtitle" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:3px;">
         <span class="mono" style="color:var(--text3)">QT-{{ '%04d'|format(quote.quote_id) }}</span>
-        {% if quote.address %}<span>{{ quote.address }}</span>{% endif %}
+        {% if quote.address %}<span>{{ quote.address|full_address(quote.city) }}</span>{% endif %}
         {% if quote.salesperson %}<span>Rep: <strong>{{ quote.salesperson }}</strong></span>{% endif %}
         {% if quote.total_surface_sqft %}<span><strong>{{ quote.total_surface_sqft|int }} sqft</strong>{% if quote.has_spa %} Pool+Spa{% endif %}</span>{% endif %}
         {% if quote.pool_perimeter %}<span>{{ quote.pool_perimeter|int }} lf perimeter</span>{% endif %}

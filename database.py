@@ -3727,6 +3727,19 @@ def add_ghl_note_id(conn):
         conn.execute("ALTER TABLE customer_notes ADD COLUMN ghl_note_id TEXT DEFAULT ''")
 
 
+@migration
+def add_city_field(conn):
+    """Jim: split city out of the single free-text address field -- no state field, since
+    every job is in FL right now. Added to both customers and quotes, mirroring how address
+    itself is already stored separately on both (a quote's job-site address/city can differ
+    from a repeat customer's own address/city on file) -- city is never cascaded from
+    customers to quotes for the same reason address isn't (see _cascade_customer_contact)."""
+    for table in ('customers', 'quotes'):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if 'city' not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN city TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
