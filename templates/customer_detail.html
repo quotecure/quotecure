@@ -10,6 +10,9 @@
     <div style="display:flex;gap:8px;">
       <a href="/quotes/new?customer_id={{ customer.customer_id }}" class="btn btn-primary">+ New Quote</a>
       <a href="/customers" class="btn btn-secondary">← Customers</a>
+      {% if current_role and current_role.can_access_admin %}
+      <button type="button" class="btn btn-secondary" style="color:var(--red);" onclick="deleteCustomer()">Delete Customer</button>
+      {% endif %}
     </div>
   </div>
 
@@ -141,4 +144,19 @@
     </div>
   </div>
 </div>
+{% if current_role and current_role.can_access_admin %}
+<script>
+async function deleteCustomer() {
+  const name = {{ customer.name|tojson }};
+  if (!confirm('Delete ' + name + '? This removes their notes and photos too and cannot be undone.')) return;
+  const resp = await fetch('/customers/{{ customer.customer_id }}/delete', {method: 'POST'});
+  const data = await resp.json().catch(() => ({}));
+  if (resp.ok) {
+    window.location.href = '/customers';
+  } else {
+    alert(data.error || 'Could not delete this customer.');
+  }
+}
+</script>
+{% endif %}
 {% endblock %}

@@ -666,7 +666,20 @@ def customer_detail(customer_id):
     ).fetchall()}
     timeline = _customer_timeline(db, customer_id)
     return render_template('customer_detail.html', customer=customer, quotes=quotes,
-                           archived_ids=archived_ids, timeline=timeline)
+                           archived_ids=archived_ids, timeline=timeline, current_role=g.role)
+
+@app.route('/customers/<int:customer_id>/delete', methods=['POST'])
+@require_permission('can_access_admin')
+def delete_customer(customer_id):
+    db = get_db()
+    quote_count = db.execute("SELECT COUNT(*) FROM quotes WHERE customer_id=?", (customer_id,)).fetchone()[0]
+    if quote_count:
+        return jsonify({'error': f"This customer has {quote_count} quote{'s' if quote_count != 1 else ''} on file — remove or reassign those first."}), 409
+    db.execute("DELETE FROM customer_notes WHERE customer_id=?", (customer_id,))
+    db.execute("DELETE FROM customer_attachments WHERE customer_id=?", (customer_id,))
+    db.execute("DELETE FROM customers WHERE customer_id=?", (customer_id,))
+    db.commit()
+    return jsonify({'success': True})
 
 def _customer_timeline(db, customer_id):
     """Notes and attachments are two separate tables (plain text vs. base64 blob+mime) but

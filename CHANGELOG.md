@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Admin-only Customer delete
+
+Jim: needed a way to delete a customer record, admin-only. Confirmed design up front: blocked if the customer has any quotes on file (protects real business/contract history — deleting is only for empty or duplicate/test customer records), gated to `can_access_admin` (Owner/Coordinator today, not Sales).
+
+New `POST /customers/<id>/delete` route, permission-enforced server-side via the existing `@require_permission('can_access_admin')` decorator (the real boundary — the button is also hidden from non-admins in the template, but that's just UX, not the security check). Refuses with a 409 and a plain-English count ("This customer has 2 quotes on file...") if any quotes reference them; otherwise deletes their notes and photo attachments first, then the customer record itself, so nothing orphaned is left behind.
+
+Frontend: a red "Delete Customer" button on the customer page (visible only to admins), a `confirm()` naming the customer before it fires, then a `fetch()` POST — reload to the customer list on success, `alert()` the blocked-reason on failure. Same small fetch-based pattern used everywhere else in this app for a destructive action.
+
+Verified: new test (`test_delete_customer.py`, 5 assertions) covers a non-admin being denied (403, customer untouched), an admin successfully deleting a customer with no quotes, an admin being blocked from deleting one with quotes (customer and quote both left intact), notes getting cleaned up alongside the customer (no orphaned rows), and the button only rendering in admin's view of the page. Full suite (24 files) passes. One test-writing note for future sessions: an early version of the last test used a customer named "TEST Delete Customer D" and searched the page for the literal string "Delete Customer" — which matched the customer's own name in the `<title>` tag, not the button, and looked like a real permission bug until traced down. Fixed by searching for the button's `onclick` attribute instead of visible text.
+
 ## 2026-09-05 — Customer photo upload now accepts multiple files at once
 
 Jim: adding site-visit photos to a customer one at a time was "extremely tedious." The upload form (`customer_detail.html`'s History section) now has `multiple` on the file input, and `add_customer_attachment()` (app.py) loops over `request.files.getlist('file')` instead of taking just one. Each file is still validated independently through the existing `_validate_file_upload()` (extension allowlist, 15MB cap) — an invalid file mixed into a batch (wrong type, too big) is silently skipped without blocking the rest, the same silent-skip behavior the single-file path already had for one bad upload.
