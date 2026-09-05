@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Customer photo upload now accepts multiple files at once
+
+Jim: adding site-visit photos to a customer one at a time was "extremely tedious." The upload form (`customer_detail.html`'s History section) now has `multiple` on the file input, and `add_customer_attachment()` (app.py) loops over `request.files.getlist('file')` instead of taking just one. Each file is still validated independently through the existing `_validate_file_upload()` (extension allowlist, 15MB cap) — an invalid file mixed into a batch (wrong type, too big) is silently skipped without blocking the rest, the same silent-skip behavior the single-file path already had for one bad upload.
+
+Verified: new test (`test_multi_photo_upload.py`) covers three valid files in one request all saving, an invalid file in the same batch getting skipped while the valid ones still save, and an empty submit being a safe no-op. Full suite (23 files) passes. Live-verified in browser: set two real files on the file input via a genuine form submission (not a mocked request) and confirmed both landed in the customer's History timeline with working download links.
+
 ## 2026-09-05 — Split city out of the single address field
 
 Jim: address should split out at least a city field — no state, since every job is in FL right now. New `city TEXT DEFAULT ''` column on both `customers` and `quotes` (mirroring how `address` itself is already duplicated across both — a repeat customer's own address/city can differ from a specific job's), added via the same `PRAGMA table_info` guard pattern every migration here uses.

@@ -724,18 +724,26 @@ def delete_customer_note(customer_id, note_id):
 @login_required
 def add_customer_attachment(customer_id):
     db = get_db()
-    f = request.files.get('file')
-    if f and f.filename:
+    author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+    import base64
+    # getlist, not get -- the form's file input now accepts multiple selections at once
+    # (photos from a site visit are usually a batch, and adding them one at a time was
+    # "extremely tedious," Jim's words). Each file is validated independently, same as
+    # the single-file path always did -- one bad/oversized file in the batch is just
+    # silently skipped, same silent-skip behavior this route already had for a single
+    # invalid file, so the rest of the batch still uploads instead of the whole thing
+    # failing on one bad photo.
+    for f in request.files.getlist('file'):
+        if not f or not f.filename:
+            continue
         file_bytes = f.read()
         ext = _validate_file_upload(file_bytes, f.filename)
         if ext:
-            import base64
-            author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
             db.execute(
                 "INSERT INTO customer_attachments (customer_id, filename, mime_type, file_data, created_by) VALUES (?,?,?,?,?)",
                 (customer_id, f.filename, ATTACHMENT_MIME_TYPES[ext], base64.b64encode(file_bytes).decode('utf-8'), author)
             )
-            db.commit()
+    db.commit()
     return redirect(url_for('customer_detail', customer_id=customer_id))
 
 @app.route('/customers/attachments/<int:attachment_id>/download')
