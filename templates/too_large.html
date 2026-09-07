@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Upload Too Large — QuoteCure{% endblock %}
+{% block content %}
+<div class="page" style="max-width:500px; text-align:center; padding-top:80px;">
+  <div style="font-size:48px; margin-bottom:16px;">📦</div>
+  <div style="font-size:20px; font-weight:700; margin-bottom:8px;">That upload was too large</div>
+  <div style="color:var(--text2); margin-bottom:24px;">Try uploading fewer photos or files at once — around 10-15 typical phone photos per batch is a safe amount.</div>
+  <a href="{{ back_url }}" class="btn btn-secondary">← Go Back</a>
+</div>
+{% endblock %}

@@ -14,6 +14,19 @@ import secrets
 import ghl_client
 
 app = Flask(__name__)
+# Every upload route here already caps a single file at 10-15MB (_validate_pdf_upload /
+# _validate_file_upload) -- this is the ceiling on the whole REQUEST, which only matters for
+# multi-file uploads (customer photos). Uncapped, a big-enough batch (32 real phone photos
+# crashed production with a 502 -- each file gets read fully into memory and base64-encoded
+# before its INSERT, so a large batch can exhaust the worker's memory or just take too long)
+# had no guardrail at all; Werkzeug rejects anything over this with a clean 413 before the
+# request body is even fully read, instead of the whole worker dying partway through
+# processing. 45MB comfortably covers a batch of ~10-15 real phone photos in one go.
+app.config['MAX_CONTENT_LENGTH'] = 45 * 1024 * 1024
+
+@app.errorhandler(413)
+def request_too_large(e):
+    return render_template('too_large.html', back_url=request.referrer or '/customers'), 413
 
 @app.template_filter('usd')
 def _usd(value):

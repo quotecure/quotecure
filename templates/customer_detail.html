@@ -103,12 +103,28 @@
           <textarea class="form-control" name="note_text" rows="2" placeholder="e.g. Wants pebble finish instead of quartz, budget around $70k..." required></textarea>
           <button class="btn btn-secondary btn-sm" type="submit" style="margin-top:8px;">Add Note</button>
         </form>
-        <form method="POST" action="/customers/{{ customer.customer_id }}/attachments/add" enctype="multipart/form-data" style="min-width:220px;">
+        <form method="POST" action="/customers/{{ customer.customer_id }}/attachments/add" enctype="multipart/form-data" style="min-width:220px;" onsubmit="return checkUploadSize(this)">
           <label class="form-label">Upload Photos or Files</label>
           <input class="form-control" name="file" type="file" multiple required>
-          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Select multiple at once (ctrl/cmd-click or shift-click).</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Select multiple at once (ctrl/cmd-click or shift-click) — around 10-15 typical phone photos per batch.</div>
           <button class="btn btn-secondary btn-sm" type="submit" style="margin-top:8px;">Upload</button>
         </form>
+        <script>
+          // A batch that's too big in total crashes the server request rather than failing
+          // cleanly (each file gets read into memory + base64-encoded before saving) --
+          // catching it here, before the browser even starts uploading, is instant instead
+          // of waiting on a round-trip. 40MB, just under the server's own 45MB request cap,
+          // so this warning always fires first.
+          function checkUploadSize(form) {
+            const files = form.querySelector('[name=file]').files;
+            const totalBytes = Array.from(files).reduce((sum, f) => sum + f.size, 0);
+            if (totalBytes > 40 * 1024 * 1024) {
+              alert('That\'s ' + (totalBytes / (1024*1024)).toFixed(0) + 'MB total across ' + files.length + ' files -- too much for one upload. Try splitting it into 2-3 smaller batches.');
+              return false;
+            }
+            return true;
+          }
+        </script>
       </div>
 
       {% if timeline %}

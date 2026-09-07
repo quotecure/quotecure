@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Fixed 502 crash on a large bulk photo upload
+
+Jim: uploading 32 photos at once to a customer profile threw a 502 Bad Gateway. Root cause: the multi-file upload added earlier this week had no cap at all on total batch size — every file gets read fully into memory and base64-encoded before its `INSERT` (photos are stored as base64 text directly in Postgres, not on disk/cloud storage), so a big enough batch (32 real phone photos, easily 60-100MB+ raw) could exhaust the worker process's memory or just take long enough to trip a proxy timeout — either way, the whole gunicorn worker goes down mid-request, which surfaces as an opaque 502 instead of any usable error.
+
+Two layers: `app.config['MAX_CONTENT_LENGTH'] = 45MB` now makes Werkzeug reject an oversized request cleanly, before the body is even fully read, handled by a new `@app.errorhandler(413)` showing a friendly "that upload was too large, try fewer at once" page (new `too_large.html`, same style as `denied.html`) instead of crashing the process. Ahead of that, the upload form itself now sums the selected files' sizes client-side and blocks submission with an immediate alert if the batch is over ~40MB — catching it before the browser even starts uploading, not after a round-trip.
+
+Verified: new test (`test_upload_size_limit.py`) covers an oversized batch getting a clean 413 (not a crash) with nothing partially saved, and confirms a normal small batch still uploads fine. Full suite (12 files) passes. Live-verified in browser: simulated a 50MB/5-file selection and confirmed the client-side check blocks it with the right message before submit, and confirmed a normal small selection passes through untouched.
+
+Not addressed here, worth knowing: the underlying storage model (base64-in-Postgres, no image compression/resizing) is what makes a batch this expensive in the first place. A real fix for "unlimited photos, no crash risk" would mean moving to actual file/object storage and probably resizing images before storing — bigger change, not attempted under this bug-fix pass.
+
 ## 2026-09-05 — BACKLOG IDEA (not built): auto-audit sub invoices against the quote on the Job Ledger
 
 Jim, for a future session — not built, just recorded so it isn't lost. A quote's full lifecycle already runs sub→work-item pricing through Send → Sign → Contract → Scheduler → Job Ledger. The Ledger today (`job_ledger()`/`save_ledger_actual()`, app.py) is manual entry only — staff types in `actual_labor_cost`/`actual_material_cost` per line item, compared against the quoted numbers. There's no invoice attachment mechanism on the Ledger at all yet (unlike the customer-photo-style attachments customers already have).
