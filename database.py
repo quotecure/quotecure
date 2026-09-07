@@ -3790,6 +3790,27 @@ def fix_cap_tile_trim_work_type_id(conn):
     conn.execute("UPDATE materials SET work_type_id=5 WHERE category='Cap Tile Trim' AND work_type_id=4")
 
 
+@migration
+def merge_flagstone_pavers_into_paver_installation(conn):
+    """'Flagstone Pavers' (work_type_id 38) was a near-duplicate of 'Paver Installation'
+    (work_type_id 7) -- same cost_structure, same unit, and G&B Flooring had the identical
+    $2.50/sqft rate on both. It got deactivated at some point (presumably when the
+    duplication was noticed), but the Resort package's line item was never repointed to the
+    surviving work type -- since a package_item's own JOIN to work_types doesn't filter on
+    wt.active, that item kept firing silently on every new Resort-package quote, while being
+    completely unmanageable from the admin screens (Add Sub Rate's work-type dropdown only
+    lists active work types, so nobody could add another sub -- e.g. Finishing & Flooring
+    Pros -- to it). Jim's call once this was surfaced: retire the duplicate for good rather
+    than reactivate it. Repoints the Resort package's item to work_type_id=7 (its
+    default_material_id, 62, already lives under work_type_id=7 -- paver materials were never
+    split the way Cap Tile's were, so no material migration is needed here); drops the
+    now-orphaned duplicate sub_rate for G&B Flooring under the retired work type, since an
+    identical rate already exists under work_type_id=7. work_type_id 38 itself is left as-is
+    (already inactive) -- fully retired, referenced from nowhere."""
+    conn.execute("UPDATE package_items SET work_type_id=7 WHERE work_type_id=38")
+    conn.execute("DELETE FROM sub_rates WHERE work_type_id=38")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
