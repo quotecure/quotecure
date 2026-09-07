@@ -707,8 +707,13 @@ def _customer_timeline(db, customer_id):
         "SELECT id, 'note' as kind, note_text, NULL as filename, NULL as mime_type, NULL as file_data, "
         "created_by, created_at FROM customer_notes WHERE customer_id=?", (customer_id,)
     ).fetchall()
+    # file_data deliberately NOT selected here -- pulling every photo's full base64 blob
+    # into one query (then into one rendered HTML page as inline data: URIs) is exactly what
+    # produced the original 502 on a customer with a large batch of photos: one page load had
+    # to hold the customer's entire photo library in memory at once. Thumbnails now load via
+    # their own small per-photo request (see serve_customer_attachment_image) instead.
     files = db.execute(
-        "SELECT id, 'file' as kind, NULL as note_text, filename, mime_type, file_data, "
+        "SELECT id, 'file' as kind, NULL as note_text, filename, mime_type, NULL as file_data, "
         "created_by, created_at FROM customer_attachments WHERE customer_id=?", (customer_id,)
     ).fetchall()
     combined = [dict(r) for r in notes] + [dict(r) for r in files]
@@ -788,6 +793,22 @@ def download_customer_attachment(attachment_id):
     data = base64.b64decode(row['file_data'])
     return Response(data, mimetype=row['mime_type'],
                      headers={'Content-Disposition': f'attachment; filename="{row["filename"]}"'})
+
+@app.route('/customers/attachments/<int:attachment_id>/view')
+@login_required
+def serve_customer_attachment_image(attachment_id):
+    """One photo's raw bytes, served on its own request -- the thumbnail grid on Customer
+    Detail points <img> tags here instead of embedding base64 inline, so viewing a customer
+    with many photos loads them as small parallel requests instead of one giant HTML page
+    holding every photo's full base64 blob in memory at once (the original 502 cause)."""
+    db = get_db()
+    row = db.execute("SELECT mime_type, file_data FROM customer_attachments WHERE id=?", (attachment_id,)).fetchone()
+    if not row:
+        return '', 404
+    import base64
+    data = base64.b64decode(row['file_data'])
+    return Response(data, mimetype=row['mime_type'],
+                     headers={'Cache-Control': 'private, max-age=86400'})
 
 @app.route('/customers/<int:customer_id>/attachments/<int:attachment_id>/delete', methods=['POST'])
 @login_required

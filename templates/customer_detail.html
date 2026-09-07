@@ -139,7 +139,7 @@
             <div style="white-space:pre-wrap;">{{ item.note_text }}</div>
             {% else %}
               {% if item.mime_type in ['image/jpeg','image/png','image/gif','image/webp'] %}
-              <img src="data:{{ item.mime_type }};base64,{{ item.file_data }}" style="max-width:220px; max-height:220px; border-radius:8px; display:block; margin-bottom:6px; cursor:zoom-in;" onclick="enlargePhoto(this.src)">
+              <img src="/customers/attachments/{{ item.id }}/view" loading="lazy" style="max-width:220px; max-height:220px; border-radius:8px; display:block; margin-bottom:6px; cursor:zoom-in;" onclick="enlargePhoto(this.src)">
               {% endif %}
               <a href="/customers/attachments/{{ item.id }}/download" style="color:var(--blue-light);">📎 {{ item.filename }}</a>
             {% endif %}
