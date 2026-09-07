@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-07 — Customer name on the quote screen now links to their profile
+
+Jim: "on the quote screen, the customer's name should bring you directly to the customer's profile if clicked." The customer name in `edit_quote.html`'s page header was plain text. Made it a link to `/customers/<id>`, styled to match the existing plain-text-link convention already used elsewhere on this page (`color:inherit`, no underline until hovered) so it doesn't suddenly look like a random blue hyperlink -- just a bit of new affordance on something that was already sitting right at the top of the screen.
+
+Verified: `test_quote_customer_name_link.py` confirms the rendered page links the name to the right customer id. Full suite (17 files) passes.
+
+---
+
 ## 2026-09-07 — Retired duplicate "Flagstone Pavers" work type, merged into "Paver Installation"
 
 Jim: "I have Finishing & Flooring Pros, who does pavers, but i can't add them to do Flagstone Pavers, because the Flagstone Pavers work type is separate. how would I add Flagstone Pavers to something they can do?" Same shape of bug as the Cap Tile Trim fix earlier this session: "Flagstone Pavers" (work_type_id 38) was a near-duplicate of the real, active "Paver Installation" work type (id 7) — identical rate ($2.50/sqft), identical sub (G&B Flooring), same cost structure — that had been deactivated at some point, presumably once the duplication was noticed. But the Resort package's paver line item was never repointed to the surviving work type, and a package_item's join to work_types doesn't check `active` — so it kept firing silently on every new Resort-package quote, while being completely unmanageable from any admin screen, since "Add Sub Rate"'s work-type dropdown (correctly) only lists active work types. That's the wall Jim hit.

@@ -205,7 +205,13 @@
   <!-- Header -->
   <div class="page-header" style="margin-bottom:12px;">
     <div>
-      <div class="page-title">{{ quote.customer_name }}</div>
+      <div class="page-title">
+        {% if quote.customer_id %}
+        <a href="/customers/{{ quote.customer_id }}" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">{{ quote.customer_name }}</a>
+        {% else %}
+        {{ quote.customer_name }}
+        {% endif %}
+      </div>
       <div class="page-subtitle" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:3px;">
         <span class="mono" style="color:var(--text3)">QT-{{ '%04d'|format(quote.quote_id) }}</span>
         {% if quote.address %}<span>{{ quote.address|full_address(quote.city) }}</span>{% endif %}
