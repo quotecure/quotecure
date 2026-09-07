@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — BACKLOG IDEA (not built): auto-audit sub invoices against the quote on the Job Ledger
+
+Jim, for a future session — not built, just recorded so it isn't lost. A quote's full lifecycle already runs sub→work-item pricing through Send → Sign → Contract → Scheduler → Job Ledger. The Ledger today (`job_ledger()`/`save_ledger_actual()`, app.py) is manual entry only — staff types in `actual_labor_cost`/`actual_material_cost` per line item, compared against the quoted numbers. There's no invoice attachment mechanism on the Ledger at all yet (unlike the customer-photo-style attachments customers already have).
+
+The idea: when a sub's actual invoice gets attached to a Ledger line item, automatically cross-check it against what that sub is *supposed* to charge for that work type — i.e., the `sub_rates` row (rate, and `min_total_cost` floor) for that exact `(sub_id, work_type_id)` pair, the same source of truth `/api/rate` and the pricing engine already use — and flag it if the invoiced amount looks like an overcharge relative to the quoted rate × actual quantity. Jim's own framing: "Maybe a very very future build" — no immediate plan, no scope decided (how big a variance counts as flagging, what happens on a flag, whether it needs its own admin review queue). Revisit this entry when it's time to actually scope it.
+
 ## 2026-09-05 — Actually fixed Edit Details' salesperson dropdown (previous fix was a data red herring)
 
 Jim reported the picker "still only shows my name" even after the previous fix (unioning in every active login). Rather than guess a third time, added a temporary read-only diagnostic route so Jim could report back exactly what the database actually returns -- which confirmed `_known_salesperson_names()` was already correctly returning `["Coordinator", "Doug Walker", "Jim Finn"]`. The data was never the problem.
