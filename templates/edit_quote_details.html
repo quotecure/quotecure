@@ -56,7 +56,8 @@ input:checked + .slider:before { transform:translateX(16px); }
           </div>
           <div class="form-group">
             <label class="form-label">Salesperson</label>
-            <input class="form-control" name="salesperson" value="{{ quote.salesperson or '' }}" list="salesperson-list" autocomplete="off">
+            <input class="form-control" name="salesperson" id="salesperson-inp" value="{{ quote.salesperson or '' }}" list="salesperson-list" autocomplete="off"
+                   onfocus="salespersonInpFocus(this)" onblur="salespersonInpBlur(this)">
             <datalist id="salesperson-list">
               {% for name in salesperson_names %}
               <option value="{{ name }}">
@@ -212,6 +213,20 @@ input:checked + .slider:before { transform:translateX(16px); }
   </div>
 </div>
 <script>
+// Chrome (and some other browsers) filter a <input list=datalist>'s suggestions against
+// whatever text is ALREADY in the field -- since the field starts pre-filled with the
+// current salesperson (e.g. "Owner"), and none of the other names contain that as a
+// substring, the dropdown shows next to nothing. Clearing on focus (like New Quote's picker
+// already does) fixes that; restoring on blur if nothing was typed keeps a stray click from
+// silently blanking out a valid salesperson.
+function salespersonInpFocus(inp) {
+  inp.dataset.original = inp.value;
+  inp.value = '';
+}
+function salespersonInpBlur(inp) {
+  if (!inp.value.trim() && inp.dataset.original) inp.value = inp.dataset.original;
+}
+
 function recalc() {
   const perim = parseFloat(document.getElementById('pool_perimeter').value) || 0;
   const shallow = parseFloat(document.getElementById('pool_shallow').value) || 0;

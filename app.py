@@ -3731,21 +3731,6 @@ def merge_salespeople():
         db.commit()
     return redirect(url_for('admin_salespeople'))
 
-# TEMPORARY diagnostic for the salesperson-picker-only-shows-me bug -- read-only, shows
-# exactly what _known_salesperson_names() and its two raw ingredients return, so this can
-# get resolved from what Jim reports back instead of guessing again. Remove once fixed.
-@app.route('/admin/debug_salesperson_names')
-@require_permission('can_edit_commission_policy')
-def debug_salesperson_names():
-    db = get_db()
-    users_raw = db.execute("SELECT user_id, username, display_name, active FROM users ORDER BY user_id").fetchall()
-    quotes_raw = db.execute("SELECT DISTINCT TRIM(salesperson) as name FROM quotes WHERE TRIM(salesperson) != '' ORDER BY name").fetchall()
-    return jsonify({
-        'known_salesperson_names_result': _known_salesperson_names(db),
-        'all_users_raw': [dict(r) for r in users_raw],
-        'distinct_quote_salespeople': [r['name'] for r in quotes_raw],
-    })
-
 # ── ADMIN PERMISSIONS ─────────────────────────────────────────────────────────
 @app.route('/admin/permissions')
 @require_permission('can_edit_commission_policy')

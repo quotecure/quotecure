@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-05 — Actually fixed Edit Details' salesperson dropdown (previous fix was a data red herring)
+
+Jim reported the picker "still only shows my name" even after the previous fix (unioning in every active login). Rather than guess a third time, added a temporary read-only diagnostic route so Jim could report back exactly what the database actually returns -- which confirmed `_known_salesperson_names()` was already correctly returning `["Coordinator", "Doug Walker", "Jim Finn"]`. The data was never the problem.
+
+The real cause: Edit Details' salesperson field starts pre-filled with the quote's current salesperson (e.g. "Owner"), and Chrome filters a `<input list=datalist>`'s suggestions against whatever text is already sitting in the field -- since none of the other names contain "Owner" as a substring, the dropdown showed next to nothing. New Quote's version of this picker never had the bug because it deliberately starts blank. Fixed Edit Details the same way: clear the field on focus, and restore the original value on blur if nothing was typed (so a stray click into the field can't silently blank out a valid salesperson).
+
+Verified: new test confirms the field wires up the clear-on-focus/restore-on-blur handlers, and that the temporary diagnostic route is gone (removed once it had done its job). Full suite passes. Worth remembering for next time: when a fix doesn't land, get a read-only look at the actual production state before guessing again -- burned two guesses (a possibly-blank display name, then re-confirming the union query) before this one actually resolved it.
+
 ## 2026-09-05 — Salesperson picker was only showing Jim's own name
 
 Jim: the "assign to someone else" dropdown wasn't listing anyone but himself. Root cause: it only pulled distinct names already used on some existing quote's `salesperson` column -- so a salesperson who hasn't been assigned a quote yet (or whose only past quotes had all been merged into a teammate's canonical name, e.g. into "Doug Walker") never showed up at all. New shared `_known_salesperson_names(db)` helper (replacing the duplicated query in both `new_quote()` and `edit_quote_details()`) unions in every active login's `display_name` too, so any real staff account appears in the picker immediately, before their first quote.
