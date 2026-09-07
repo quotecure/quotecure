@@ -1848,8 +1848,6 @@ def email_change_order(quote_id, co_id):
 
 AIM_CATEGORY = 'Glass (Artistry In Mosaics)'
 
-CAP_TILE_CATEGORY = 'Cap Tile Trim'
-
 def _eligible_tiles_for_package(db, package_id, manufacturer='luv', cap_tile=False):
     """Waterline tile priced above the previous tier's threshold (by sort_order), at or
     below this tier's own threshold -- unbounded above if this tier has no threshold set.
@@ -1857,17 +1855,20 @@ def _eligible_tiles_for_package(db, package_id, manufacturer='luv', cap_tile=Fal
     manufacturers are shown as distinct sets, never mixed in one list -- pass 'aim' to
     see only that line instead.
 
-    cap_tile=True switches entirely to the Cap Tile Trim category and ignores both the
-    package price-tier banding and the luv/aim split -- Cap Tile Trim is a separate product
-    line from waterline tile (different pricing scale, no AIM equivalent), so package tiers
-    that band waterline tile by price don't mean anything for it. Without this, Cap Tile
-    Trim rows (added 2026-08-24) would otherwise get swept into the price-banded waterline
-    list by coincidence of cost_per_quote_unit falling in a tier's range."""
+    cap_tile=True switches entirely to Cap Tile Installation's own materials (work_type_id
+    5) and ignores both the package price-tier banding and the luv/aim split -- Cap Tile
+    Trim is a separate product line from waterline tile (different pricing scale, no AIM
+    equivalent), so package tiers that band waterline tile by price don't mean anything
+    for it. Cap Tile Trim materials used to be filed under Waterline's work_type_id (4),
+    distinguished only by a category flag -- fixed (see fix_cap_tile_trim_work_type_id
+    migration) because that convention wasn't discoverable from the admin UI at all: the
+    plain material dropdown (/api/materials_for_work_type) filters by work_type_id
+    literally, so a Cap Tile Installation package item's material picker came up either
+    empty or, worse, showing waterline tile mixed in -- Jim's exact bug report."""
     if cap_tile:
         return db.execute(
             "SELECT material_id, category, series, cost_per_quote_unit, product_url "
-            "FROM materials WHERE work_type_id=4 AND active='Y' AND category=? ORDER BY series",
-            (CAP_TILE_CATEGORY,)
+            "FROM materials WHERE work_type_id=5 AND active='Y' ORDER BY category, series"
         ).fetchall()
     pkg = db.execute("SELECT * FROM packages WHERE package_id=?", (package_id,)).fetchone()
     if not pkg:
@@ -1877,8 +1878,8 @@ def _eligible_tiles_for_package(db, package_id, manufacturer='luv', cap_tile=Fal
     ).fetchone()[0]
     upper = pkg['tile_price_threshold']
     tile_query = ("SELECT material_id, category, series, cost_per_quote_unit, product_url "
-                   "FROM materials WHERE work_type_id=4 AND active='Y' AND category != ?")
-    params = [CAP_TILE_CATEGORY]
+                   "FROM materials WHERE work_type_id=4 AND active='Y'")
+    params = []
     if manufacturer == 'aim':
         tile_query += " AND category = ?"
         params.append(AIM_CATEGORY)
@@ -4995,7 +4996,9 @@ def admin_packages():
         """, (pkg['package_id'],)).fetchall()
 
         eligible_tiles = _eligible_tiles_for_package(db, pkg['package_id'], manufacturer='all')
-        packages_with_items.append({'pkg': pkg, 'line_items': items, 'eligible_tiles': eligible_tiles})
+        eligible_cap_tiles = _eligible_tiles_for_package(db, pkg['package_id'], cap_tile=True)
+        packages_with_items.append({'pkg': pkg, 'line_items': items, 'eligible_tiles': eligible_tiles,
+                                    'eligible_cap_tiles': eligible_cap_tiles})
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
     return render_template('admin_packages.html', packages_with_items=packages_with_items, work_types=work_types)
 

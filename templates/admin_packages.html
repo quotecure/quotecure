@@ -153,6 +153,22 @@
         {% endif %}
       </div>
 
+      <!-- Eligible cap tile trim -- not price-tiered like waterline (see _eligible_tiles_for_package), same materials list regardless of package -->
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border2);">
+        <div class="section-label" style="margin:0 0 8px;">
+          Eligible Cap Tile Trim ({{ pw.eligible_cap_tiles|length }})
+        </div>
+        {% if pw.eligible_cap_tiles %}
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          {% for t in pw.eligible_cap_tiles %}
+          <span class="chip" style="font-size:11px;">{{ t.category }} – {{ t.series }} ({{ t.cost_per_quote_unit|usd }}/lf)</span>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div style="color:var(--text3);font-size:12px;">No Cap Tile Trim materials on file yet — add one in Admin → Materials, work type "Cap Tile Installation".</div>
+        {% endif %}
+      </div>
+
       <!-- Add item -->
       <form method="POST" action="/admin/packages/{{ pkg.package_id }}/items/add" class="pkg-add-form" data-pkg="{{ pkg.package_id }}">
         <div class="pp-grid">

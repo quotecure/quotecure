@@ -3772,6 +3772,24 @@ def fix_deck_drain_pool_perimeter_flag(conn):
         conn.execute("UPDATE work_types SET uses_pool_perimeter='N' WHERE work_type_id=?", (r[0],))
 
 
+@migration
+def fix_cap_tile_trim_work_type_id(conn):
+    """Cap Tile Trim materials (added 2026-08-24) were filed under Waterline Tile
+    Installation's work_type_id (4), distinguished only by category='Cap Tile Trim' --
+    Cap Tile Installation is its own real work type (id 5, its own sub_rates, used as its
+    own line item on quotes), so nothing about that modeling choice was obvious from the
+    admin UI. The practical result Jim hit: Admin -> Packages' material picker for a Cap
+    Tile Installation package item calls the generic /api/materials_for_work_type, which
+    filters by work_type_id literally -- asking it for work_type_id=5 found nothing (cap
+    tile materials were never actually stored there), and the only place that DID know
+    about the category-flag convention (_eligible_tiles_for_package) is a different,
+    package-price-tier-specific function that isn't what the plain material dropdown calls.
+    Moving these to their own real work_type_id fixes every picker that filters by
+    work_type_id at once, with no special-casing needed anywhere, and makes "pick Cap Tile
+    Installation, add a material" behave exactly as intuitive as it sounds."""
+    conn.execute("UPDATE materials SET work_type_id=5 WHERE category='Cap Tile Trim' AND work_type_id=4")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
@@ -3964,14 +3982,14 @@ def init_skimmer_material(conn):
 
 def init_cap_tile_trim_materials(conn):
     """Seed real Cap Tile trim products, sourced from LUV Tile's May 2026 price sheet
-    ('Specialty Trims' page). Cap Tile, Waterline Tile, and Coping have always shared one
-    tile catalog (materials.work_type_id=4) with no products actually scoped to Cap Tile --
-    picking a material for a Cap Tile line item showed the same waterline-only options as
-    Waterline Tile, because that's genuinely all that existed, not a filtering bug. These are
-    tagged category='Cap Tile Trim' so edit_quote.html's picker can scope Cap Tile items to
-    just this category while excluding it everywhere else. Quoted per linear foot like
-    Waterline Tile; conversion_factor=2.0 reflects 2 pieces per linear foot for these 6"-run
-    trim pieces (confirmed with Jim), applied to the per-piece supplier price to get
+    ('Specialty Trims' page). These are filed under Cap Tile Installation's own work_type_id
+    (5) -- originally seeded under Waterline's work_type_id (4), tagged only by
+    category='Cap Tile Trim', which is exactly what made "pick a material for a Cap Tile
+    line item" show the same waterline-only options in every picker that filters by
+    work_type_id literally (see the fix_cap_tile_trim_work_type_id migration, which moved
+    the ones already seeded before this fix). Quoted per linear foot like Waterline Tile;
+    conversion_factor=2.0 reflects 2 pieces per linear foot for these 6"-run trim pieces
+    (confirmed with Jim), applied to the per-piece supplier price to get
     cost_per_quote_unit. `series` holds the display name shown in the picker (matches how
     every other tile material in this table uses series, not item_code, for its label);
     item_code is just a short internal reference. Insert-if-missing by item_code, safe to
@@ -4029,7 +4047,7 @@ def init_cap_tile_trim_materials(conn):
     inserted = 0
     for item_code, series, raw_price, url in items:
         existing = c.execute(
-            "SELECT 1 FROM materials WHERE item_code=? AND work_type_id=4", (item_code,)
+            "SELECT 1 FROM materials WHERE item_code=? AND work_type_id=5", (item_code,)
         ).fetchone()
         if existing:
             continue
@@ -4037,7 +4055,7 @@ def init_cap_tile_trim_materials(conn):
         c.execute(
             "INSERT INTO materials (supplier_id, category, series, item_code, raw_price, price_unit, "
             "conversion_factor, quote_unit, cost_per_quote_unit, work_type_id, active, product_url) "
-            "VALUES (?, 'Cap Tile Trim', ?, ?, ?, 'per_piece', ?, 'lf', ?, 4, 'Y', ?)",
+            "VALUES (?, 'Cap Tile Trim', ?, ?, ?, 'per_piece', ?, 'lf', ?, 5, 'Y', ?)",
             (supplier_id, series, item_code, raw_price, conversion_factor, cost_per_quote_unit, url))
         inserted += 1
     conn.commit()
