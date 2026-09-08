@@ -1782,8 +1782,13 @@ async function onNrWorkType(section) {
   // blank for staff to fill in rather than silently showing a plausible-looking wrong
   // number -- new work types default to this flag off (see add_work_type).
   const usesPoolLf = !!wt?.poolLf;
+  // isDeck never falls back to POOL_SQFT -- same "leave it blank rather than show a
+  // plausible-looking wrong number" rule the lf branch below already follows for
+  // usesPoolLf. Deck sqft not yet entered on this quote used to silently fall through to
+  // the pool's own sqft instead, which is exactly Jim's bug report: "Paver Installation is
+  // STILL pulling the square footage of the pool."
   let qty = '';
-  if (unit === 'sqft' && isDeck && DECK_SQFT) qty = DECK_SQFT;
+  if (unit === 'sqft' && isDeck) qty = DECK_SQFT || '';
   else if (unit === 'sqft' && POOL_SQFT) qty = POOL_SQFT;
   else if (unit === 'lf' && usesPoolLf && POOL_LF) qty = POOL_LF;
   else if (unit !== 'lf') qty = 1;
@@ -1821,7 +1826,7 @@ async function onNrWorkType(section) {
       if (rd.unit) {
         [...unitSel.options].forEach(o => o.selected = o.value === rd.unit);
         if (rd.unit === 'each') document.getElementById('nr-qty-' + section).value = 1;
-        else if (rd.unit === 'sqft') document.getElementById('nr-qty-' + section).value = (isDeck && DECK_SQFT) ? DECK_SQFT : POOL_SQFT;
+        else if (rd.unit === 'sqft') document.getElementById('nr-qty-' + section).value = isDeck ? (DECK_SQFT || '') : POOL_SQFT;
         else if (rd.unit === 'lf') document.getElementById('nr-qty-' + section).value = usesPoolLf ? POOL_LF : '';
       }
     }
@@ -1848,7 +1853,7 @@ async function onNrSub(section) {
       const unitSel = document.getElementById('nr-unit-' + section);
       [...unitSel.options].forEach(o => o.selected = o.value === d.unit);
       if (d.unit === 'each') document.getElementById('nr-qty-' + section).value = 1;
-      else if (d.unit === 'sqft') document.getElementById('nr-qty-' + section).value = (isDeck && DECK_SQFT) ? DECK_SQFT : POOL_SQFT;
+      else if (d.unit === 'sqft') document.getElementById('nr-qty-' + section).value = isDeck ? (DECK_SQFT || '') : POOL_SQFT;
       else if (d.unit === 'lf') document.getElementById('nr-qty-' + section).value = usesPoolLf ? POOL_LF : '';
     }
   }

@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-07 — Fixed Paver Installation (and other deck-sqft work types) still pulling pool sqft
+
+Jim: "the paver installation is STILL pulling the square footage of the pool." A prior fix this session already caught one bug here (`wt.deck` rendering as a bare JS `0`/`1`, not the string `'1'`, which silently defeated an earlier `=== '1'` check). This was a second, separate bug in the same area: whenever a quote's deck sqft hadn't been filled in yet on Edit Details (0/blank -- the normal state before staff enters it), the deck-sqft branch's condition was falsy, so the code fell through to the very next branch and used the pool's own sqft instead. The linear-foot equivalent (`usesPoolLf`) never had this problem -- its fallback was always "leave it blank for staff to fill in," never "silently substitute a different, wrong measurement." Paver Installation, Paver Sealing, and both Textured Decking work types all share this logic, so all four were affected any time deck sqft wasn't filled in first.
+
+Fixed in all three places this logic appears in `edit_quote.html` (`onNrWorkType`'s initial fill, its rate-refill block, and `onNrSub`): a deck-sqft work type now always resolves to the deck sqft value (blank if not yet entered) and never falls back to the pool's own sqft.
+
+Verified: `test_paver_deck_sqft_fallback.py` seeds a quote with real pool sqft but deck sqft at 0 (the everyday pre-fill state) and confirms the served page's JS no longer contains the fallback pattern and does contain the fix. Full suite (15 files) passes. Live-verified in browser: on a quote with pool sqft 450 and deck sqft 0, picking "Paver Installation" now leaves Qty blank instead of auto-filling 450.
+
+---
+
 ## 2026-09-07 — Customer name on the quote screen now links to their profile
 
 Jim: "on the quote screen, the customer's name should bring you directly to the customer's profile if clicked." The customer name in `edit_quote.html`'s page header was plain text. Made it a link to `/customers/<id>`, styled to match the existing plain-text-link convention already used elsewhere on this page (`color:inherit`, no underline until hovered) so it doesn't suddenly look like a random blue hyperlink -- just a bit of new affordance on something that was already sitting right at the top of the screen.
