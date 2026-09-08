@@ -241,6 +241,7 @@
       <button class="btn btn-secondary" type="button" onclick="openEmailPanel()" id="email-quote-btn">✉️ Email Quote</button>
       <a href="/quotes/{{ quote.quote_id }}/visualize" class="btn btn-secondary">🎨 Visualize</a>
       <a href="/quotes/{{ quote.quote_id }}/edit_details" class="btn btn-secondary">Edit Details</a>
+      <button class="btn btn-secondary" type="button" onclick="duplicateQuote()">⧉ Duplicate</button>
       {% if not is_archived and quote.status in ('draft', 'sent') %}
       <button class="btn btn-secondary" type="button" onclick="openLostPanel()">Mark as Lost</button>
       {% endif %}
@@ -1337,6 +1338,17 @@ async function submitLostQuote() {
 async function restoreThisQuote() {
   const resp = await fetch('/quotes/' + QID + '/restore', {method: 'POST'});
   if (resp.ok) location.reload();
+}
+
+async function duplicateQuote() {
+  if (!confirm('Create a copy of this quote for the same customer? The copy starts as a draft you can freely edit -- this quote is untouched.')) return;
+  const resp = await fetch('/quotes/' + QID + '/duplicate', {method: 'POST'});
+  const data = await resp.json();
+  if (resp.ok && data.quote_id) {
+    location.href = '/quotes/' + data.quote_id;
+  } else {
+    alert(data.error || 'Could not duplicate this quote.');
+  }
 }
 
 async function updateOptionalCategory(id, value) {

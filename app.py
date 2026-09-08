@@ -640,6 +640,72 @@ def restore_quote(quote_id):
         _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_QUOTE_SENT, mark_status='open')
     return jsonify({'success': True})
 
+@app.route('/quotes/<int:quote_id>/duplicate', methods=['POST'])
+@login_required
+def duplicate_quote(quote_id):
+    """Jim: wants to build a second/third version of a quote for the same customer (e.g.
+    Resort vs. Refresh package) that he can freely add/remove items on, with the original
+    left completely untouched -- a real, independent quote_id, not a snapshot like
+    quote_versions (those just record history at send-time; they aren't separately editable).
+    Copies customer/dimension fields and every line item as-is, but deliberately resets
+    everything that represents something that already happened ON the original document
+    rather than a fact about the customer's pool: status always comes back 'draft' (even
+    duplicating a signed contract yields an editable draft, not a second contract), and
+    signature/archived/commission-giveup/ghl_opportunity_id are all cleared -- carrying a
+    real signature or a live CRM Opportunity id onto a second, independent quote would
+    misrepresent what actually happened on each one. Payment schedule is deliberately NOT
+    copied row-for-row -- _recalc_quote (called at the end here, same as every other route
+    that changes a quote's line items) always regenerates it from the standard formula
+    against the new total via generate_payment_schedule(), the same auto-then-hand-adjust
+    path every quote's schedule already goes through, so there's nothing for this route to
+    preserve that a plain copy wouldn't just get overwritten by anyway."""
+    db = get_db()
+    orig = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not orig:
+        return jsonify({'error': 'Quote not found'}), 404
+    cur = db.execute("""INSERT INTO quotes (customer_name,address,city,salesperson,
+                  pool_perimeter,pool_shallow,pool_deep,pool_sqft,
+                  has_spa,spa_perimeter,spa_depth,spa_sqft,
+                  has_shelf,shelf_sqft,total_surface_sqft,
+                  steps_lf,benches_lf,swimouts_lf,customer_email,water_surface_sqft,deck_sqft,
+                  terms_document_id,customer_id,include_terms,include_financing_link,
+                  discount_type,discount_value,status)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft') RETURNING quote_id""",
+                   (orig['customer_name'], orig['address'], orig['city'], orig['salesperson'],
+                    orig['pool_perimeter'], orig['pool_shallow'], orig['pool_deep'], orig['pool_sqft'],
+                    orig['has_spa'], orig['spa_perimeter'], orig['spa_depth'], orig['spa_sqft'],
+                    orig['has_shelf'], orig['shelf_sqft'], orig['total_surface_sqft'],
+                    orig['steps_lf'], orig['benches_lf'], orig['swimouts_lf'], orig['customer_email'],
+                    orig['water_surface_sqft'], orig['deck_sqft'],
+                    orig['terms_document_id'], orig['customer_id'], orig['include_terms'], orig['include_financing_link'],
+                    orig['discount_type'], orig['discount_value']))
+    new_id = cur.fetchone()[0]
+
+    items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
+    for it in items:
+        db.execute("""INSERT INTO quote_line_items (
+            quote_id, work_type_id, work_type_label, cost_structure, sub_id, sub_name,
+            labor_quantity, labor_unit, labor_cost_per_unit, labor_total_cost, labor_markup_pct,
+            labor_margin_pct, labor_total_price, labor_min_markup,
+            material_id, material_label, material_quantity, material_unit, material_cost_per_unit,
+            material_total_cost, material_markup_pct, material_margin_pct, material_total_price, material_min_markup,
+            product_id, product_label, total_cost, total_price, total_margin_pct, sort_order,
+            description, is_optional, is_declined, modifiers_json, modifiers_total_cost,
+            is_passthrough, is_calculated, notes, optional_category
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (new_id, it['work_type_id'], it['work_type_label'], it['cost_structure'], it['sub_id'], it['sub_name'],
+         it['labor_quantity'], it['labor_unit'], it['labor_cost_per_unit'], it['labor_total_cost'], it['labor_markup_pct'],
+         it['labor_margin_pct'], it['labor_total_price'], it['labor_min_markup'],
+         it['material_id'], it['material_label'], it['material_quantity'], it['material_unit'], it['material_cost_per_unit'],
+         it['material_total_cost'], it['material_markup_pct'], it['material_margin_pct'], it['material_total_price'], it['material_min_markup'],
+         it['product_id'], it['product_label'], it['total_cost'], it['total_price'], it['total_margin_pct'], it['sort_order'],
+         it['description'], it['is_optional'], it['is_declined'], it['modifiers_json'], it['modifiers_total_cost'],
+         it['is_passthrough'], it['is_calculated'], it['notes'], it['optional_category']))
+
+    db.commit()
+    _recalc_quote(db, new_id)
+    return jsonify({'success': True, 'quote_id': new_id})
+
 @app.route('/customers')
 @login_required
 def customers_list():
