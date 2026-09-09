@@ -2,6 +2,7 @@ import json
 import math
 import os
 from pathlib import Path
+from urllib.parse import urlencode
 from dotenv import load_dotenv
 load_dotenv()
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, g, Response
@@ -566,6 +567,21 @@ def _quote_counts_for(db, quotes):
     ).fetchall()
     return {r['customer_id']: r['c'] for r in rows}
 
+QUOTES_PAGE_SIZE = 25
+
+# Whitelisted so `sort` (a raw query param) can only ever select one of these literal SQL
+# fragments -- never interpolated as a column/direction the user typed themselves.
+_QUOTES_SORT_OPTIONS = {
+    'created_desc': 'created_at DESC',
+    'created_asc': 'created_at ASC',
+    'price_desc': 'total_price DESC',
+    'price_asc': 'total_price ASC',
+    'customer_asc': 'customer_name ASC',
+    'customer_desc': 'customer_name DESC',
+    'margin_desc': 'total_margin DESC',
+    'margin_asc': 'total_margin ASC',
+}
+
 @app.route('/quotes')
 @login_required
 def quotes_list():
@@ -578,23 +594,57 @@ def quotes_list():
         # Contracts moved to its own page -- redirect any stale bookmarks/links rather
         # than silently changing what this URL shows.
         return redirect(url_for('contracts_list'))
-    if tab == 'archive':
-        quotes = db.execute(
-            f"SELECT * FROM quotes WHERE (status='draft' OR status='sent') AND {_ARCHIVED_SQL} "
-            f"ORDER BY created_at DESC"
-        ).fetchall()
-    else:
+    if tab != 'archive':
         tab = 'quotes'
-        quotes = db.execute(
-            f"SELECT * FROM quotes WHERE (status='draft' OR status='sent') AND NOT {_ARCHIVED_SQL} "
-            f"ORDER BY created_at DESC"
-        ).fetchall()
+
+    search = request.args.get('q', '').strip()
+    salesperson_filter = request.args.get('salesperson', '').strip()
+    sort = request.args.get('sort', 'created_desc')
+    if sort not in _QUOTES_SORT_OPTIONS:
+        sort = 'created_desc'
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+
+    # Same query shape as before (status + archived-window), now with search/salesperson
+    # narrowing it further -- built as a WHERE clause + params list rather than two near-
+    # identical hardcoded queries, so the filter/sort/pagination logic below only has to be
+    # written once for both tabs.
+    where_parts = ["(status='draft' OR status='sent')",
+                   _ARCHIVED_SQL if tab == 'archive' else f"NOT {_ARCHIVED_SQL}"]
+    params = []
+    if search:
+        # Matches customer name, address, or "QT-0042"/"42" style quote-number lookups --
+        # covers the three things staff actually search a quote by.
+        like = f"%{search}%"
+        search_digits = search.upper().replace('QT-', '').lstrip('0') or '0'
+        where_parts.append("(customer_name ILIKE ? OR address ILIKE ? OR quote_id::text = ?)")
+        params.extend([like, like, search_digits])
+    if salesperson_filter:
+        where_parts.append("salesperson = ?")
+        params.append(salesperson_filter)
+    where_sql = " AND ".join(where_parts)
+
+    total_count = db.execute(f"SELECT COUNT(*) FROM quotes WHERE {where_sql}", tuple(params)).fetchone()[0]
+    total_pages = max(1, (total_count + QUOTES_PAGE_SIZE - 1) // QUOTES_PAGE_SIZE)
+    page = min(page, total_pages)
+    offset = (page - 1) * QUOTES_PAGE_SIZE
+
+    quotes = db.execute(
+        f"SELECT * FROM quotes WHERE {where_sql} ORDER BY {_QUOTES_SORT_OPTIONS[sort]} LIMIT ? OFFSET ?",
+        tuple(params) + (QUOTES_PAGE_SIZE, offset)
+    ).fetchall()
     stats = _quotes_stats(db, date_range)
     quote_counts = _quote_counts_for(db, quotes)
     net_commissions = {q['quote_id']: _net_commission(q) for q in quotes}
+    salesperson_names = _known_salesperson_names(db)
     return render_template('quotes.html', quotes=quotes,
                            active_tab=tab, quote_counts=quote_counts, current_role=g.role,
-                           net_commissions=net_commissions, stats=stats, date_range=date_range)
+                           net_commissions=net_commissions, stats=stats, date_range=date_range,
+                           search=search, salesperson_filter=salesperson_filter, sort=sort,
+                           salesperson_names=salesperson_names,
+                           page=page, total_pages=total_pages, total_count=total_count)
 
 @app.route('/contracts')
 @login_required
@@ -946,6 +996,19 @@ DECK_SQFT_WORK_TYPES = {
 # the manual Add Item form's work-type options) without duplicating this list a second
 # time -- one set, shared by the automatic pricing path below and any template that needs it.
 app.jinja_env.globals['DECK_SQFT_WORK_TYPES'] = DECK_SQFT_WORK_TYPES
+
+def _qs_with(**overrides):
+    """Current request's query string with the given params overridden (and `page` dropped
+    unless explicitly included) -- lets a sort/filter/tab link change exactly one thing
+    without silently discarding whatever else the user had set (search text, salesperson
+    filter, date range). Used by quotes.html's sortable headers, filter form, and pagination."""
+    params = request.args.to_dict()
+    params.update(overrides)
+    if 'page' not in overrides:
+        params.pop('page', None)
+    params = {k: v for k, v in params.items() if v not in (None, '')}
+    return urlencode(params)
+app.jinja_env.globals['qs_with'] = _qs_with
 
 # Coping Installation (work_type_id 6) used to just borrow Waterline Tile/Cap Tile's whole
 # shared catalog (work_type_id 4) via the same (4,5,6)-share-wt4 rule those two use for

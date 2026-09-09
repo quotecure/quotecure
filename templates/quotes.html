@@ -36,6 +36,9 @@
        when they were created; Converted is windowed by when it was actually signed. -->
   <form method="GET" style="margin-bottom:10px;" id="range-form">
     <input type="hidden" name="tab" value="{{ active_tab }}">
+    <input type="hidden" name="q" value="{{ search }}">
+    <input type="hidden" name="salesperson" value="{{ salesperson_filter }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
     <label class="form-label" style="display:inline;margin-right:8px;">Date range</label>
     <select name="range" class="form-control" style="display:inline-block;width:auto;" onchange="document.getElementById('range-form').submit()">
       <option value="all" {{ 'selected' if date_range == 'all' }}>All Time</option>
@@ -83,10 +86,42 @@
   {% endif %}
 
   <div class="qtabs">
-    <a href="/quotes?tab=quotes&range={{ date_range }}" class="qtab {{ 'active' if active_tab != 'archive' }}">Quotes</a>
-    <a href="/quotes?tab=archive&range={{ date_range }}" class="qtab {{ 'active' if active_tab == 'archive' }}">Archive</a>
+    <a href="/quotes?{{ qs_with(tab='quotes') }}" class="qtab {{ 'active' if active_tab != 'archive' }}">Quotes</a>
+    <a href="/quotes?{{ qs_with(tab='archive') }}" class="qtab {{ 'active' if active_tab == 'archive' }}">Archive</a>
   </div>
 
+  <form method="GET" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px;flex-wrap:wrap;">
+    <input type="hidden" name="tab" value="{{ active_tab }}">
+    <input type="hidden" name="range" value="{{ date_range }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <div>
+      <label class="form-label">Search</label>
+      <input type="text" name="q" value="{{ search }}" placeholder="Customer, address, or QT-####" class="form-control" style="width:220px;">
+    </div>
+    <div>
+      <label class="form-label">Salesperson</label>
+      <select name="salesperson" class="form-control" style="width:auto;">
+        <option value="">All</option>
+        {% for name in salesperson_names %}
+        <option value="{{ name }}" {{ 'selected' if salesperson_filter == name }}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-secondary">Filter</button>
+    {% if search or salesperson_filter %}
+    <a href="/quotes?{{ qs_with(q='', salesperson='') }}" class="btn btn-secondary">Clear</a>
+    {% endif %}
+  </form>
+
+  {% macro sort_th(label, asc_key, desc_key, extra_class='') %}
+  {% set is_active = sort in (asc_key, desc_key) %}
+  {% set next_sort = desc_key if sort == asc_key else asc_key %}
+  <th class="{{ extra_class }}">
+    <a href="/quotes?{{ qs_with(sort=next_sort) }}" style="color:inherit;text-decoration:none;white-space:nowrap;">
+      {{ label }}{% if is_active %} {{ '▲' if sort == asc_key else '▼' }}{% endif %}
+    </a>
+  </th>
+  {% endmacro %}
   <div class="card">
     {% if quotes %}
     <div class="table-wrap">
@@ -94,7 +129,7 @@
         <thead>
           <tr>
             <th>#</th>
-            <th>Customer</th>
+            {{ sort_th('Customer', 'customer_asc', 'customer_desc') }}
             <th>Address</th>
             <th>Salesperson</th>
             <th>Status</th>
@@ -102,12 +137,12 @@
             <th>Why</th>
             {% endif %}
             <th class="right">Total Cost</th>
-            <th class="right">Total Price</th>
-            <th class="right">Margin</th>
+            {{ sort_th('Total Price', 'price_asc', 'price_desc', 'right') }}
+            {{ sort_th('Margin', 'margin_asc', 'margin_desc', 'right') }}
             {% if current_role and current_role.show_commission %}
             <th class="right">Commission</th>
             {% endif %}
-            <th>Created</th>
+            {{ sort_th('Created', 'created_asc', 'created_desc') }}
             <th></th>
           </tr>
         </thead>
@@ -147,6 +182,21 @@
         </tbody>
       </table>
     </div>
+    {% if total_pages > 1 %}
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border2);">
+      <span style="font-size:12px;color:var(--text3);">
+        Page {{ page }} of {{ total_pages }} · {{ total_count }} quote{{ 's' if total_count != 1 }}
+      </span>
+      <div style="display:flex;gap:8px;">
+        {% if page > 1 %}
+        <a href="/quotes?{{ qs_with(page=page-1) }}" class="btn btn-secondary btn-sm">← Prev</a>
+        {% endif %}
+        {% if page < total_pages %}
+        <a href="/quotes?{{ qs_with(page=page+1) }}" class="btn btn-secondary btn-sm">Next →</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
     {% else %}
     <div class="empty-state">
       <div class="empty-state-icon">{{ '🗄' if active_tab == 'archive' else '📋' }}</div>
