@@ -765,20 +765,32 @@ def duplicate_quote(quote_id):
     _recalc_quote(db, new_id)
     return jsonify({'success': True, 'quote_id': new_id})
 
+_CUSTOMERS_SORT_OPTIONS = {
+    'created_desc': 'c.created_at DESC',
+    'created_asc': 'c.created_at ASC',
+    'name_asc': 'c.name ASC',
+    'name_desc': 'c.name DESC',
+}
+
 @app.route('/customers')
 @login_required
 def customers_list():
     db = get_db()
-    # Newest first (not alphabetical) -- a GHL-sourced lead needs to be spotted at a glance
-    # without hunting through the whole list; staff recognizes by date/name whether they've
-    # already called someone, no separate "contacted" flag needed (Jim's call: simpler than
-    # tracking an explicit handled state).
+    # Newest first by default (not alphabetical) -- a GHL-sourced lead needs to be spotted
+    # at a glance without hunting through the whole list; staff recognizes by date/name
+    # whether they've already called someone, no separate "contacted" flag needed (Jim's
+    # call: simpler than tracking an explicit handled state). Sortable via the same
+    # whitelisted-SQL-fragment pattern as the Quotes list, so a raw `sort` query param can
+    # never reach SQL as anything but one of these four fixed strings.
+    sort = request.args.get('sort', 'created_desc')
+    if sort not in _CUSTOMERS_SORT_OPTIONS:
+        sort = 'created_desc'
     customers = db.execute(
-        "SELECT c.*, COUNT(q.quote_id) as quote_count "
-        "FROM customers c LEFT JOIN quotes q ON q.customer_id=c.customer_id "
-        "GROUP BY c.customer_id ORDER BY c.created_at DESC"
+        f"SELECT c.*, COUNT(q.quote_id) as quote_count "
+        f"FROM customers c LEFT JOIN quotes q ON q.customer_id=c.customer_id "
+        f"GROUP BY c.customer_id ORDER BY {_CUSTOMERS_SORT_OPTIONS[sort]}"
     ).fetchall()
-    return render_template('customers.html', customers=customers)
+    return render_template('customers.html', customers=customers, sort=sort)
 
 @app.route('/customers/add', methods=['POST'])
 @login_required

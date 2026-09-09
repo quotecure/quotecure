@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-09 — Customers list is now sortable (Name, Created)
+
+Jim: "can we sort by created date or is that too difficult." Reused the exact pattern already built for the Quotes list: a whitelisted `sort` query param (`_CUSTOMERS_SORT_OPTIONS`, so the raw param can only ever select one of a fixed set of literal SQL fragments) and sortable Name/Created column headers using the same `qs_with()` Jinja helper. Default stays newest-first (matches the prior new-lead-visibility change); clicking a header toggles direction.
+
+Verified: `test_customers_sortable.py` (4 assertions) confirms the default and explicit created_asc/created_desc orderings, name_asc alphabetical ordering, and that a garbage sort value falls back to the default instead of reaching SQL. Full suite passes (existing `test_new_lead_badge_and_sort.py` updated for the header now being a link rather than a plain `<th>`).
+
+---
+
 ## 2026-09-09 — New-lead nav badge + Customers list sorted newest-first
 
 Jim, after getting the GHL "auto-create customer on Qualified" webhook actually working: "so a lead came in from GHL... I want [Doug] alerted in QuoteCure somehow, that way he doesn't need to mess with two systems, he's just in QuoteCure." Talked through a few shapes for this (a full separate "Leads" page, a per-salesperson assignment system) before landing on the simplest version that still solves the actual problem: no new "contacted" tracking state to manage, just make new leads impossible to miss on the page that already exists.
