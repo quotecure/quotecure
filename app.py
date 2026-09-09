@@ -264,6 +264,15 @@ def ghl_webhook(secret):
     if not settings or not settings['ghl_webhook_secret'] or secret != settings['ghl_webhook_secret']:
         return jsonify({'error': 'forbidden'}), 403
     data = request.get_json(silent=True) or {}
+    # GHL's "Custom Data" key/value webhook builder (as opposed to a raw JSON body) often
+    # nests everything defined there under a customData sub-object instead of sending it at
+    # the top level -- confirmed the hard way: Jim's real GHL account returned "unknown
+    # event" even though the workflow's Custom Data rows (event/contact_id/name/etc.) were
+    # all filled in and resolving correctly. Merging customData over the top level handles
+    # both shapes -- whichever GHL actually sends for a given trigger/action combination --
+    # without needing to see the exact raw payload to confirm which one it is.
+    if isinstance(data.get('customData'), dict):
+        data = {**data, **data['customData']}
     event = data.get('event')
     try:
         if event == 'ready_for_quote':

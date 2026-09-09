@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-09 — Fixed GHL inbound webhook rejecting real Workflow requests ("unknown event")
+
+Jim built his first real GHL Workflow off the instructions in Admin → Company Settings (trigger on Opportunity Changed → Pipeline Stage → Qualified, Webhook action posting to the inbound URL) and tested it against a real "Automation Test" opportunity. It failed: GHL's execution log showed `Webhook Action error: {"error":"unknown event"}` — meaning the request reached QuoteCure and passed the secret check, but the `event` field wasn't found even though every Custom Data row (event/contact_id/name/email/phone/address/city/lead_source) was filled in and resolving correctly in the workflow builder.
+
+Root cause: GHL's Workflow "Webhook" action, when its body is built with the Custom Data key/value UI (as opposed to typing a raw JSON body — which isn't an option this action offers), commonly nests everything defined there under a `customData` sub-object in the actual outgoing request, rather than sending it flat at the top level. `ghl_webhook()` was only ever looking for `data.get('event')` at the top level, so it silently saw `event=None` no matter how correctly the Workflow was configured. GHL's own execution log doesn't expose the raw outgoing payload for this action type, so there was no way to just look and confirm the exact shape — fixed defensively instead: if a `customData` object is present, its fields are merged over the top level before dispatching on `event`, so the route works whether GHL sends fields flat or nested, without needing to know which shape a given trigger/action combination actually uses.
+
+Verified: `test_ghl_webhook_customdata_shape.py` (4 assertions) directly reproduces Jim's real failure (a payload with the event only inside `customData`) and confirms it now succeeds, confirms the previously-assumed flat shape still works unchanged (backward compatible), and confirms a genuinely unrecognized event still correctly errors either way. Live next step: Jim re-tests the real GHL Workflow against this fix once deployed.
+
+---
+
 ## 2026-09-08 — Added pagination, sorting, and filtering to the Quotes list
 
 Jim: "we're going to need maybe pagination, filtering, sorting, on the page that lists the created quotes." `quotes_list()` loaded every draft/sent quote for the tab unconditionally, with a hardcoded `ORDER BY created_at DESC` and no limit — the same "load everything into one page" shape that caused the customer-photo 502 earlier this session, just with rows instead of images, and one that only gets worse as the quote count grows. Asked which approach was better (server-side query params vs. client-side JS filtering over the full loaded set) and went server-side: it stays fast regardless of how large the table gets, and the page already had this exact pattern for its `tab`/`range` params, so it's a consistent extension rather than a new one.
