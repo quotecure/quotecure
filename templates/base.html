@@ -63,7 +63,11 @@
   <div class="nav-links">
     <a href="/quotes" class="nav-link {% if request.path.startswith('/quotes') %}active{% endif %}">Quotes</a>
     <a href="/contracts" class="nav-link {% if request.path.startswith('/contracts') %}active{% endif %}">Contracts</a>
-    <a href="/customers" class="nav-link {% if request.path.startswith('/customers') %}active{% endif %}">Customers</a>
+    <a href="/customers" class="nav-link {% if request.path.startswith('/customers') %}active{% endif %}">Customers
+      {% if new_lead_count %}
+      <span class="badge badge-red" style="margin-left:3px;padding:1px 6px;" title="New leads from GoHighLevel in the last {{ NEW_LEAD_BADGE_WINDOW_DAYS }} days">{{ new_lead_count }}</span>
+      {% endif %}
+    </a>
     <a href="/schedule" class="nav-link {% if request.path == '/schedule' %}active{% endif %}">Schedule</a>
     {% if current_role and current_role.can_access_admin %}
     <div class="nav-dropdown">

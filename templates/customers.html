@@ -20,16 +20,23 @@
               <th>Address</th>
               <th>Phone</th>
               <th>Email</th>
+              <th>Created</th>
               <th class="right">Quotes</th>
             </tr>
           </thead>
           <tbody>
             {% for c in customers %}
             <tr>
-              <td><a href="/customers/{{ c.customer_id }}">{{ c.name }}</a></td>
+              <td>
+                <a href="/customers/{{ c.customer_id }}">{{ c.name }}</a>
+                {% if c.ghl_contact_id %}
+                <span class="badge badge-blue" style="margin-left:4px;" title="Came in from GoHighLevel">Lead</span>
+                {% endif %}
+              </td>
               <td style="color:var(--text2)">{{ (c.address|full_address(c.city)) or '—' }}</td>
               <td style="color:var(--text2)">{{ c.phone or '—' }}</td>
               <td style="color:var(--text2)">{{ c.email or '—' }}</td>
+              <td style="color:var(--text3);font-size:12px;">{{ (c.created_at[:10]) if c.created_at else '—' }}</td>
               <td class="right mono">{{ c.quote_count }}</td>
             </tr>
             {% endfor %}

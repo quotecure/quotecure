@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-09 — New-lead nav badge + Customers list sorted newest-first
+
+Jim, after getting the GHL "auto-create customer on Qualified" webhook actually working: "so a lead came in from GHL... I want [Doug] alerted in QuoteCure somehow, that way he doesn't need to mess with two systems, he's just in QuoteCure." Talked through a few shapes for this (a full separate "Leads" page, a per-salesperson assignment system) before landing on the simplest version that still solves the actual problem: no new "contacted" tracking state to manage, just make new leads impossible to miss on the page that already exists.
+
+**Customers list** (`customers_list()` in app.py) now orders by `created_at DESC` instead of alphabetically, and the table gained a **Created** column and a blue **"Lead"** tag next to any customer that has a `ghl_contact_id` (came in from GoHighLevel, as opposed to a walk-in staff typed in directly). Newest first + a visible date means staff recognizes by memory whether they've already called someone — Jim's explicit call, over adding a stored "handled" flag: "He'll know if he's called them or not."
+
+**Nav badge**: a new `inject_new_lead_count()` context processor (registered the same way `inject_user()` already injects role/user into every template) puts a red count badge on the **Customers** nav link — GHL-sourced customers created in the last `NEW_LEAD_BADGE_WINDOW_DAYS` (3) days. Deliberately just a time-based count, not an accurate "still needs a call" tracker — it can't tell a genuinely new lead from one already contacted within that window, but it's a real nudge to go check the list instead of Doug having to remember to open GHL, at zero added state to keep in sync.
+
+Verified: `test_new_lead_badge_and_sort.py` (4 assertions) seeds a recent GHL lead, a 10-day-old GHL lead (outside the badge window), and a plain walk-in customer (no `ghl_contact_id`) — confirms the badge counts only the recent GHL lead, the list sorts newest-first, the "Lead" tag shows only on GHL-sourced rows, and the Created column renders. Full suite passes. Live-verified in browser: seeded a real GHL-tagged test customer, confirmed the Customers nav tab shows a red "1," the test customer sits at the top of the list with the blue Lead tag and today's date.
+
+---
+
 ## 2026-09-09 — Fixed GHL inbound webhook rejecting real Workflow requests ("unknown event")
 
 Jim built his first real GHL Workflow off the instructions in Admin → Company Settings (trigger on Opportunity Changed → Pipeline Stage → Qualified, Webhook action posting to the inbound URL) and tested it against a real "Automation Test" opportunity. It failed: GHL's execution log showed `Webhook Action error: {"error":"unknown event"}` — meaning the request reached QuoteCure and passed the secret check, but the `event` field wasn't found even though every Custom Data row (event/contact_id/name/email/phone/address/city/lead_source) was filled in and resolving correctly in the workflow builder.

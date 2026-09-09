@@ -769,10 +769,14 @@ def duplicate_quote(quote_id):
 @login_required
 def customers_list():
     db = get_db()
+    # Newest first (not alphabetical) -- a GHL-sourced lead needs to be spotted at a glance
+    # without hunting through the whole list; staff recognizes by date/name whether they've
+    # already called someone, no separate "contacted" flag needed (Jim's call: simpler than
+    # tracking an explicit handled state).
     customers = db.execute(
         "SELECT c.*, COUNT(q.quote_id) as quote_count "
         "FROM customers c LEFT JOIN quotes q ON q.customer_id=c.customer_id "
-        "GROUP BY c.customer_id ORDER BY c.name"
+        "GROUP BY c.customer_id ORDER BY c.created_at DESC"
     ).fetchall()
     return render_template('customers.html', customers=customers)
 
@@ -3947,6 +3951,27 @@ def change_password():
 @app.context_processor
 def inject_user():
     return {'current_user': g.user, 'current_role': g.role}
+
+NEW_LEAD_BADGE_WINDOW_DAYS = 3
+app.jinja_env.globals['NEW_LEAD_BADGE_WINDOW_DAYS'] = NEW_LEAD_BADGE_WINDOW_DAYS
+
+@app.context_processor
+def inject_new_lead_count():
+    """Nav badge next to Customers -- a plain count of GHL-sourced leads created in the
+    last few days, not a real 'have I called this one yet' tracker (Jim's call: simpler
+    than adding a contacted/handled flag -- the Customers list is sorted newest-first with
+    a visible Created date, and staff uses their own memory for who's been called). Purely
+    time-based, so it can't tell a genuinely new lead from one that's already been handled --
+    a nudge to go check the list, not an accurate to-do count. Runs on every page load for a
+    logged-in user, so kept to one cheap indexed-by-created_at COUNT query."""
+    if not g.user:
+        return {'new_lead_count': 0}
+    db = get_db()
+    count = db.execute(
+        f"SELECT COUNT(*) FROM customers WHERE ghl_contact_id != '' "
+        f"AND created_at >= (now() - interval '{NEW_LEAD_BADGE_WINDOW_DAYS} days')::text"
+    ).fetchone()[0]
+    return {'new_lead_count': count}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MATERIALS
