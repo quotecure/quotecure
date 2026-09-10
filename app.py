@@ -562,40 +562,6 @@ def _sync_quote_to_ghl(db, quote_id, stage_id, note_text=None, pdf_bytes=None, p
     except Exception as e:
         print(f'[GHL] quote {quote_id} sync failed: {e}')
 
-@app.route('/admin/debug_ghl_outbound/<int:quote_id>')
-@require_permission('can_edit_commission_policy')
-def debug_ghl_outbound(quote_id):
-    """TEMPORARY -- Jim reports sending real quotes but their GHL Opportunity never moves
-    to "Quote sent", with no visible error (expected: _sync_quote_to_ghl swallows every
-    failure by design, so a real problem is currently invisible). Read-only: reports
-    config/customer state, and makes ONE safe read-only GHL API call (contact search, no
-    writes) to surface the actual error GHL returns, if any -- rather than guessing again.
-    Remove once the real cause is found."""
-    db = get_db()
-    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    if not quote:
-        return jsonify({'error': 'quote not found'}), 404
-    customer = db.execute("SELECT * FROM customers WHERE customer_id=?", (quote['customer_id'],)).fetchone() if quote['customer_id'] else None
-    settings = db.execute("SELECT ghl_api_token, ghl_location_id FROM company_settings WHERE id=1").fetchone()
-    result = {
-        'quote_id': quote_id,
-        'quote_status': quote['status'],
-        'quote_customer_id': quote['customer_id'],
-        'quote_ghl_opportunity_id': quote['ghl_opportunity_id'],
-        'customer_found': bool(customer),
-        'customer_email': customer['email'] if customer else None,
-        'customer_ghl_contact_id': customer['ghl_contact_id'] if customer else None,
-        'ghl_api_token_configured': bool(settings and settings['ghl_api_token']),
-        'ghl_location_id_configured': bool(settings and settings['ghl_location_id']),
-    }
-    if customer and customer['email']:
-        try:
-            found = ghl_client.find_contact_by_email(db, customer['email'])
-            result['find_contact_by_email_result'] = found
-        except Exception as e:
-            result['find_contact_by_email_error'] = str(e)
-    return jsonify(result)
-
 def _quote_counts_for(db, quotes):
     """Total quote count per customer, across every status -- not just whatever set of
     quotes is currently showing -- so a badge can point out "this customer has other
