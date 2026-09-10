@@ -1063,6 +1063,79 @@ def _is_coping_eligible(work_type_id, category, subcategory):
         return subcategory in STONE_PAVER_SUBCATEGORIES
     return False
 
+STONE_PAVER_TIER_COUNT = 4
+
+def _stone_paver_tiers(db):
+    """Jim: 'this dropdown list is outrageous' -- one supplier alone (Keystone Tile) has
+    ~356 individual stone paver SKUs across Travertine/Marble/Limestone/Granite/Porcelain,
+    spanning $3.59 to $23.99/sqft even within one stone type. Splits every active stone-
+    paver-eligible material (the exact same pool _is_coping_eligible's work_type_id==7
+    branch already draws from, so this fixes Coping's stone-paver-as-coping picker too, not
+    just Paver Installation's own) into STONE_PAVER_TIER_COUNT equal-COUNT price quartiles,
+    computed live off whatever's actually in the database right now -- a new supplier's
+    SKUs, or Keystone repricing something, just shifts where the quartile lines fall, no
+    admin upkeep required. Deliberately ONE combined ladder across all five stone types
+    (Jim's explicit call) rather than separate tiers per type, so a Tier 2 pick could be
+    either a Travertine or a Marble, whichever happens to land in that price band -- the
+    goal is a small dropdown, not a materials catalog. Each tier's charged rate is the
+    MEDIAN price of the stones in it (not the average), since a couple of $23.99 outliers
+    within one tier shouldn't drag the whole tier's price up. The underlying real SKUs are
+    untouched in the materials table -- this is purely a live view over them, never stored."""
+    placeholders = ','.join('?' * len(STONE_PAVER_SUBCATEGORIES))
+    rows = db.execute(
+        f"SELECT cost_per_quote_unit, quote_unit FROM materials "
+        f"WHERE work_type_id=7 AND active='Y' AND subcategory IN ({placeholders}) "
+        f"ORDER BY cost_per_quote_unit",
+        tuple(STONE_PAVER_SUBCATEGORIES)
+    ).fetchall()
+    if not rows:
+        return []
+    n = len(rows)
+    quote_unit = rows[0]['quote_unit'] or 'sqft'
+    tiers = []
+    for i in range(STONE_PAVER_TIER_COUNT):
+        lo_idx = (n * i) // STONE_PAVER_TIER_COUNT
+        hi_idx = (n * (i + 1)) // STONE_PAVER_TIER_COUNT
+        group = rows[lo_idx:hi_idx] or [rows[-1]]  # guard a tiny n (fewer SKUs than tiers)
+        prices = sorted(float(r['cost_per_quote_unit']) for r in group)
+        mid = len(prices) // 2
+        median = prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
+        tiers.append({
+            'tier': i + 1,
+            'count': len(group),
+            'min_price': prices[0],
+            'max_price': prices[-1],
+            'median_price': round(median, 2),
+            'quote_unit': quote_unit,
+        })
+    return tiers
+
+def _resolve_material_id(db, material_id):
+    """Resolves a material_id into (label, cost_per_quote_unit) for either a real materials
+    row or the negative stone-paver-tier sentinel (-1..-STONE_PAVER_TIER_COUNT, see
+    _stone_paver_tiers -- the Collection->Material picker hands these out exactly like a
+    real material_id, so every caller that lets staff pick a material goes through this one
+    place instead of two copies of 'look up a material' silently drifting apart on what a
+    negative id means. Returns ('', 0.0) for anything falsy or unresolvable."""
+    if not material_id:
+        return '', 0.0
+    material_id = int(material_id)
+    if material_id < 0:
+        tier_num = -material_id
+        tier_info = next((t for t in _stone_paver_tiers(db) if t['tier'] == tier_num), None)
+        if not tier_info:
+            return '', 0.0
+        label = (f"Stone Pavers — Tier {tier_num} "
+                 f"(~${tier_info['median_price']:.2f}/{tier_info['quote_unit']})")
+        return label, tier_info['median_price']
+    m = db.execute(
+        "SELECT m.series, m.cost_per_quote_unit, s.name as supplier_name FROM materials m "
+        "JOIN suppliers s ON m.supplier_id=s.supplier_id WHERE m.material_id=?", (material_id,)
+    ).fetchone()
+    if not m:
+        return '', 0.0
+    return f"{m['supplier_name']} — {m['series']}", float(m['cost_per_quote_unit'])
+
 SUNSHELF_WORK_TYPE_NAME = 'Sunshelf Construction'
 SUNSHELF_DEFAULT_DEPTH_FT = 2 + 7/12  # 2'7" -- the typical shallow-end reference Jim gave
 
@@ -2816,15 +2889,14 @@ def _price_catalog_item(db, quote, data):
     if str(work_type_id) == '1':
         data = {k: v for k, v in data.items() if not k.startswith('material_')}
 
-    material_label = ''
     material_id = data.get('material_id')
-    if material_id:
-        m = db.execute(
-            "SELECT m.series, s.name as supplier_name FROM materials m "
-            "JOIN suppliers s ON m.supplier_id=s.supplier_id "
-            "WHERE m.material_id=?", (material_id,)).fetchone()
-        if m:
-            material_label = m['supplier_name'] + ' \u2014 ' + m['series']
+    material_label, resolved_cost = _resolve_material_id(db, material_id)
+    if material_id and int(material_id) < 0:
+        # A stone-paver-tier pick (see _stone_paver_tiers) -- never store the negative
+        # sentinel itself on the line item; material_cost_per_unit/material_label carry
+        # everything pricing and the customer-facing quote actually need, and the real
+        # stones behind a tier can shift over time as SKUs are added/repriced.
+        data = {**data, 'material_cost_per_unit': resolved_cost, 'material_id': None}
 
     wt_dict = dict(wt) if wt else {}
     wt_label = wt_dict.get('work_type','')
@@ -4042,9 +4114,11 @@ def admin_materials():
         "FROM material_collections mc JOIN suppliers s ON mc.supplier_id=s.supplier_id "
         "ORDER BY s.name, mc.name"
     ).fetchall()
+    stone_paver_tiers = _stone_paver_tiers(db)
     return render_template('admin_materials.html', suppliers=suppliers, materials=materials,
                            categories=categories, work_types=work_types, collections=collections,
-                           selected_supplier=selected_supplier, selected_category=selected_category)
+                           selected_supplier=selected_supplier, selected_category=selected_category,
+                           stone_paver_tiers=stone_paver_tiers)
 
 @app.route('/admin/materials/add', methods=['POST'])
 @require_permission('can_edit_sub_rates')
@@ -4234,11 +4308,37 @@ def api_materials_in_collection():
             "WHERE collection_id=? AND work_type_id=? AND active='Y' ORDER BY COALESCE(subcategory, category), series",
             (collection_id, work_type_id)
         ).fetchall()
-    return jsonify([{
+    # Stone paver SKUs (Travertine/Marble/Limestone/Granite/Porcelain, see
+    # STONE_PAVER_SUBCATEGORIES) collapse into the 4 global price-tier options instead of
+    # listing every individual SKU -- see _stone_paver_tiers. Applies here rather than at
+    # the flat /api/materials_for_work_type picker since Paver Installation and Coping both
+    # route through this Collection->Material cascade (Keystone Tile being effectively the
+    # only stone-paver collection today). Non-stone materials in the same collection (e.g.
+    # Keystone's Bullnose Coping SKUs) are unaffected and still list individually.
+    # The coping branch's rows carry their own work_type_id (borrowed wt=7 stone pavers
+    # mixed in with real wt=6 materials); the non-coping branch's SELECT doesn't include
+    # that column at all, but every row in it shares the single requested work_type_id by
+    # construction of its WHERE clause -- fall back to that instead of indexing a column
+    # that isn't there.
+    def is_stone_paver_row(r):
+        r_wt = r['work_type_id'] if work_type_id == COPING_WORK_TYPE_ID else work_type_id
+        return r_wt == 7 and (r['subcategory'] or '') in STONE_PAVER_SUBCATEGORIES
+    stone_rows = [r for r in rows if is_stone_paver_row(r)]
+    other_rows = [r for r in rows if not is_stone_paver_row(r)]
+    result = [{
         'material_id': r['material_id'], 'category': r['category'], 'subcategory': r['subcategory'],
         'group_label': r['subcategory'] or r['category'], 'series': r['series'],
         'cost': r['cost_per_quote_unit'], 'quote_unit': r['quote_unit']
-    } for r in rows])
+    } for r in other_rows]
+    if stone_rows:
+        tier_options = [{
+            'material_id': -t['tier'], 'category': 'Stone Pavers', 'subcategory': None,
+            'group_label': 'Stone Pavers',
+            'series': f"Tier {t['tier']} (${t['min_price']:.2f}–${t['max_price']:.2f}/{t['quote_unit']})",
+            'cost': t['median_price'], 'quote_unit': t['quote_unit']
+        } for t in _stone_paver_tiers(db)]
+        result = tier_options + result
+    return jsonify(result)
 
 @app.route('/admin/materials/update_price/<int:mat_id>', methods=['POST'])
 @require_permission('can_edit_sub_rates')
@@ -5397,15 +5497,12 @@ def update_line_item(quote_id, item_id):
 
     elif field == 'material':
         material_id = int(value) if value else None
-        mat_cpu = 0.0
-        material_label = ''
-        if material_id:
-            m = db.execute("""SELECT m.series, m.cost_per_quote_unit, s.name as supplier_name FROM materials m
-                              JOIN suppliers s ON m.supplier_id=s.supplier_id
-                              WHERE m.material_id=?""", (material_id,)).fetchone()
-            if m:
-                material_label = f"{m['supplier_name']} — {m['series']}"
-                mat_cpu = float(m['cost_per_quote_unit'])
+        material_label, mat_cpu = _resolve_material_id(db, material_id)
+        # A stone-paver-tier pick (see _stone_paver_tiers) hands back a negative sentinel
+        # id from the Collection->Material picker -- never store it on the line item itself,
+        # the real stones behind a tier can shift over time as SKUs are added/repriced.
+        if material_id and material_id < 0:
+            material_id = None
         # Defaults material_quantity to match labor_quantity at the moment a material is
         # picked -- matches build_line_item's same fallback at creation time. Previously
         # this only used labor_quantity to compute the one-time cost/price and never
