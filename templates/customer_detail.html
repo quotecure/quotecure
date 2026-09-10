@@ -95,41 +95,68 @@
   </div>
 
   <div class="card" style="margin-top:24px;">
+    <div class="card-header"><div class="card-title">Photos ({{ photos|length }})</div></div>
+    <div class="card-body">
+      <form method="POST" action="/customers/{{ customer.customer_id }}/attachments/add" enctype="multipart/form-data" style="margin-bottom:16px;" onsubmit="return checkUploadSize(this)">
+        <label class="form-label">Upload Photos or Files</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input class="form-control" name="file" type="file" multiple required style="flex:1;min-width:220px;">
+          <button class="btn btn-secondary btn-sm" type="submit">Upload</button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;">Select multiple at once (ctrl/cmd-click or shift-click) — around 10-15 typical phone photos per batch. Non-photo files (PDFs, etc.) show up in History below instead of here.</div>
+      </form>
+      <script>
+        // A batch that's too big in total crashes the server request rather than failing
+        // cleanly (each file gets read into memory + base64-encoded before saving) --
+        // catching it here, before the browser even starts uploading, is instant instead
+        // of waiting on a round-trip. 40MB, just under the server's own 45MB request cap,
+        // so this warning always fires first.
+        function checkUploadSize(form) {
+          const files = form.querySelector('[name=file]').files;
+          const totalBytes = Array.from(files).reduce((sum, f) => sum + f.size, 0);
+          if (totalBytes > 40 * 1024 * 1024) {
+            alert('That\'s ' + (totalBytes / (1024*1024)).toFixed(0) + 'MB total across ' + files.length + ' files -- too much for one upload. Try splitting it into 2-3 smaller batches.');
+            return false;
+          }
+          return true;
+        }
+      </script>
+
+      {% if photos %}
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        {% for p in photos %}
+        <div style="position:relative;width:130px;height:130px;">
+          <img src="/customers/attachments/{{ p.id }}/view" loading="lazy"
+               style="width:100%;height:100%;object-fit:cover;border-radius:8px;cursor:zoom-in;display:block;"
+               onclick="openLightbox({{ loop.index0 }})" title="{{ p.created_at[:10] if p.created_at else '' }}">
+          <form method="POST" action="/customers/{{ customer.customer_id }}/attachments/{{ p.id }}/delete"
+                onsubmit="return confirm('Delete this photo?')" style="position:absolute;top:4px;right:4px;">
+            <button class="btn btn-secondary btn-sm" type="submit" style="color:var(--red);padding:1px 6px;font-size:11px;line-height:1.4;">✕</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <div class="empty-state-icon">📷</div>
+        <div class="empty-state-text">No photos yet.</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:24px;">
     <div class="card-header"><div class="card-title">History</div></div>
     <div class="card-body">
-      <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:20px;">
-        <form method="POST" action="/customers/{{ customer.customer_id }}/notes/add" style="flex:1; min-width:280px;">
-          <label class="form-label">Add a Note</label>
-          <textarea class="form-control" name="note_text" rows="2" placeholder="e.g. Wants pebble finish instead of quartz, budget around $70k..." required></textarea>
-          <button class="btn btn-secondary btn-sm" type="submit" style="margin-top:8px;">Add Note</button>
-        </form>
-        <form method="POST" action="/customers/{{ customer.customer_id }}/attachments/add" enctype="multipart/form-data" style="min-width:220px;" onsubmit="return checkUploadSize(this)">
-          <label class="form-label">Upload Photos or Files</label>
-          <input class="form-control" name="file" type="file" multiple required>
-          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Select multiple at once (ctrl/cmd-click or shift-click) — around 10-15 typical phone photos per batch.</div>
-          <button class="btn btn-secondary btn-sm" type="submit" style="margin-top:8px;">Upload</button>
-        </form>
-        <script>
-          // A batch that's too big in total crashes the server request rather than failing
-          // cleanly (each file gets read into memory + base64-encoded before saving) --
-          // catching it here, before the browser even starts uploading, is instant instead
-          // of waiting on a round-trip. 40MB, just under the server's own 45MB request cap,
-          // so this warning always fires first.
-          function checkUploadSize(form) {
-            const files = form.querySelector('[name=file]').files;
-            const totalBytes = Array.from(files).reduce((sum, f) => sum + f.size, 0);
-            if (totalBytes > 40 * 1024 * 1024) {
-              alert('That\'s ' + (totalBytes / (1024*1024)).toFixed(0) + 'MB total across ' + files.length + ' files -- too much for one upload. Try splitting it into 2-3 smaller batches.');
-              return false;
-            }
-            return true;
-          }
-        </script>
-      </div>
+      <form method="POST" action="/customers/{{ customer.customer_id }}/notes/add" style="margin-bottom:20px;">
+        <label class="form-label">Add a Note</label>
+        <textarea class="form-control" name="note_text" rows="2" placeholder="e.g. Wants pebble finish instead of quartz, budget around $70k..." required></textarea>
+        <button class="btn btn-secondary btn-sm" type="submit" style="margin-top:8px;">Add Note</button>
+      </form>
 
-      {% if timeline %}
+      {% if history %}
       <div style="display:flex; flex-direction:column; gap:14px;">
-        {% for item in timeline %}
+        {% for item in history %}
         <div style="display:flex; gap:12px; padding-top:14px; border-top:1px solid var(--border2);">
           <div style="flex:1;">
             <div style="font-size:11px; color:var(--text3); margin-bottom:4px;">
@@ -138,10 +165,7 @@
             {% if item.kind == 'note' %}
             <div style="white-space:pre-wrap;">{{ item.note_text }}</div>
             {% else %}
-              {% if item.mime_type in ['image/jpeg','image/png','image/gif','image/webp'] %}
-              <img src="/customers/attachments/{{ item.id }}/view" loading="lazy" style="max-width:220px; max-height:220px; border-radius:8px; display:block; margin-bottom:6px; cursor:zoom-in;" onclick="enlargePhoto(this.src)">
-              {% endif %}
-              <a href="/customers/attachments/{{ item.id }}/download" style="color:var(--blue-light);">📎 {{ item.filename }}</a>
+            <a href="/customers/attachments/{{ item.id }}/download" style="color:var(--blue-light);">📎 {{ item.filename }}</a>
             {% endif %}
           </div>
           <form method="POST" action="/customers/{{ customer.customer_id }}/{{ 'notes' if item.kind == 'note' else 'attachments' }}/{{ item.id }}/delete"
@@ -154,22 +178,49 @@
       {% else %}
       <div class="empty-state">
         <div class="empty-state-icon">📝</div>
-        <div class="empty-state-text">No notes or photos yet.</div>
+        <div class="empty-state-text">No notes yet.</div>
       </div>
       {% endif %}
     </div>
   </div>
 </div>
 
-<!-- Photo lightbox: one shared overlay, reused for every thumbnail -->
-<div id="photo-lightbox" onclick="this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;cursor:zoom-out;">
-  <img id="photo-lightbox-img" src="" style="max-width:90vw;max-height:90vh;border-radius:8px;">
+<!-- Photo lightbox: one shared overlay, reused for every thumbnail. Prev/Next cycle through
+     PHOTO_URLS (built from the Photos grid above, in the same order) rather than just
+     showing one photo at a time with no way to browse to the next. -->
+<div id="photo-lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;cursor:zoom-out;">
+  <span onclick="event.stopPropagation(); lightboxNav(-1)" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:36px;color:white;cursor:pointer;user-select:none;padding:8px;">‹</span>
+  <img id="photo-lightbox-img" src="" style="max-width:85vw;max-height:85vh;border-radius:8px;cursor:default;" onclick="event.stopPropagation()">
+  <span onclick="event.stopPropagation(); lightboxNav(1)" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:36px;color:white;cursor:pointer;user-select:none;padding:8px;">›</span>
+  <div id="photo-lightbox-count" style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:white;font-size:12px;"></div>
 </div>
 <script>
-function enlargePhoto(src) {
-  document.getElementById('photo-lightbox-img').src = src;
+const PHOTO_URLS = [{% for p in photos %}"/customers/attachments/{{ p.id }}/view"{{ ',' if not loop.last }}{% endfor %}];
+let lightboxIndex = 0;
+
+function openLightbox(index) {
+  lightboxIndex = index;
+  showLightboxPhoto();
   document.getElementById('photo-lightbox').style.display = 'flex';
 }
+function closeLightbox() {
+  document.getElementById('photo-lightbox').style.display = 'none';
+}
+function lightboxNav(delta) {
+  lightboxIndex = (lightboxIndex + delta + PHOTO_URLS.length) % PHOTO_URLS.length;
+  showLightboxPhoto();
+}
+function showLightboxPhoto() {
+  document.getElementById('photo-lightbox-img').src = PHOTO_URLS[lightboxIndex];
+  document.getElementById('photo-lightbox-count').textContent = (lightboxIndex + 1) + ' / ' + PHOTO_URLS.length;
+}
+document.getElementById('photo-lightbox').addEventListener('click', closeLightbox);
+document.addEventListener('keydown', function(e) {
+  if (document.getElementById('photo-lightbox').style.display !== 'flex') return;
+  if (e.key === 'ArrowLeft') lightboxNav(-1);
+  else if (e.key === 'ArrowRight') lightboxNav(1);
+  else if (e.key === 'Escape') closeLightbox();
+});
 </script>
 {% if current_role and current_role.can_access_admin %}
 <script>

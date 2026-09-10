@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-10 — Customer photos get their own grid gallery with a real lightbox
+
+Jim: "the images on customer profile; is there a better way we could display them instead of just a scrolling page?" Photos were mixed chronologically into the same feed as text notes, one full-width row apiece — exactly as tedious to browse as it sounds once a customer has more than a couple.
+
+Split `customer_detail()`'s combined timeline into two: a **Photos** card (a compact `flex-wrap` grid of square thumbnails, upload form moved up here since that's what it's almost always used for) and a **History** card (notes plus any non-image file, like a signed PDF, unchanged from before). The split happens server-side by `mime_type` (`INLINE_IMAGE_MIME_TYPES`, the same set the single-photo `/view` endpoint already used) so a PDF still shows correctly as a download link in History rather than a broken thumbnail in Photos.
+
+The lightbox got a real upgrade too, not just a new home: it now pages through every photo with ‹/› arrows and left/right arrow keys, with a "3 / 6" counter, instead of showing one photo with no way to see the next one without closing and reopening. **Caught a real bug while browser-testing this, not just eyeballing it**: clicking a nav arrow correctly advanced the photo, but the click then bubbled up to the overlay's own "click anywhere to close" handler and closed the lightbox immediately after — invisible from a plain code read, only showed up once I actually clicked the arrow in a live browser and checked the DOM state afterward. Fixed with `event.stopPropagation()` on both arrows (the same guard the enlarged image itself already had).
+
+Verified: `test_customer_photo_gallery.py` (6 assertions) confirms Photos shows the correct count and thumbnails, a non-image PDF is excluded from the photo grid's URL list while still appearing in History as a download link, notes still render in History, the lightbox nav JS is present and wired to each thumbnail, deleting a photo works and updates the count, and a customer with nothing yet shows correct separate empty states for each card. Full suite (6 files) passes. Live-verified in browser: seeded 6 photos + a note, confirmed the grid layout, opened the lightbox and paged through multiple photos with the arrows (checking DOM state after each real click, not just visually), and confirmed clicking outside the photo still closes it.
+
+---
+
 ## 2026-09-10 — Found why outbound GHL sync never fired; fixed a Chrome password-manager fight along the way
 
 Jim reported sending several real quotes with no GHL Opportunity ever moving. Since `_sync_quote_to_ghl` deliberately swallows every failure (a GHL outage must never block sending a quote), a real problem there is invisible from the UI by design. Ruled out the obvious guess first (missing customer email — confirmed present). Built the same kind of temporary read-only diagnostic that cracked the salesperson-picker bug earlier this project: reported config presence plus one safe read-only GHL API call. Root cause on the first real check: `ghl_api_token`/`ghl_location_id` had never actually been saved in production's Company Settings at all -- not a code bug, just a setup step that never got completed. Removed the diagnostic once confirmed.

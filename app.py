@@ -843,8 +843,16 @@ def customer_detail(customer_id):
         (customer_id,)
     ).fetchall()}
     timeline = _customer_timeline(db, customer_id)
+    # Photos get their own compact grid gallery instead of taking a full-width row apiece
+    # in a scrolling mixed feed (Jim: "is there a better way we could display them instead
+    # of just a scrolling page?") -- everything else (notes, non-image files like a signed
+    # PDF) stays in the chronological History list exactly as before.
+    def is_photo(item):
+        return item['kind'] == 'file' and item['mime_type'] in INLINE_IMAGE_MIME_TYPES
+    photos = [item for item in timeline if is_photo(item)]
+    history = [item for item in timeline if not is_photo(item)]
     return render_template('customer_detail.html', customer=customer, quotes=quotes,
-                           archived_ids=archived_ids, timeline=timeline, current_role=g.role)
+                           archived_ids=archived_ids, photos=photos, history=history, current_role=g.role)
 
 @app.route('/customers/<int:customer_id>/delete', methods=['POST'])
 @require_permission('can_access_admin')
