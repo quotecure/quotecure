@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-10 — Found why outbound GHL sync never fired; fixed a Chrome password-manager fight along the way
+
+Jim reported sending several real quotes with no GHL Opportunity ever moving. Since `_sync_quote_to_ghl` deliberately swallows every failure (a GHL outage must never block sending a quote), a real problem there is invisible from the UI by design. Ruled out the obvious guess first (missing customer email — confirmed present). Built the same kind of temporary read-only diagnostic that cracked the salesperson-picker bug earlier this project: reported config presence plus one safe read-only GHL API call. Root cause on the first real check: `ghl_api_token`/`ghl_location_id` had never actually been saved in production's Company Settings at all -- not a code bug, just a setup step that never got completed. Removed the diagnostic once confirmed.
+
+While walking Jim through re-entering the credentials, hit a second, smaller but genuinely blocking issue: the API Token field being `type="password"` (purely to show masked dots as a placeholder -- it never echoes a real stored value back into the field) was enough for Chrome's Google Password Manager to hijack it with its own save-password popup, interfering with actually submitting the form. Since the field is always blank on page load regardless of whether a token is saved, there was no real security reason for `type="password"` here -- switched to plain `type="text"` (`autocomplete="off"`), which stops Chrome from treating it as a credential field at all.
+
+Verified: confirmed via the diagnostic route (against Jim's real production data) that the missing-credentials theory was exactly right before touching anything. The `type="text"` fix verified by loading Admin → Company Settings and confirming the field renders correctly. Next step: Jim re-enters his regenerated "QuoteCure Sync" GHL token + Location ID and we test a real quote send end-to-end.
+
+---
+
 ## 2026-09-10 — Tiered Coping's own 173 natural-stone Bullnose SKUs too
 
 Jim, right after the Paver stone-tier fix shipped: "can we tier the coping-only stone list too." Investigating what was left in Coping's picker (the ~173 items not already covered by the paver-stone tiers) found it's **entirely** natural-stone Bullnose coping pieces -- Marble/Travertine/Limestone/Granite Bullnose, plus a flat-priced generic "Bullnose" line. A rounded coping profile is a physically different product from a flat paver even when it's the same stone type, so this got its **own** separate 4-tier ladder rather than merging into the paver tiers from the earlier fix.

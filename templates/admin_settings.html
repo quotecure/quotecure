@@ -120,7 +120,7 @@
         <form method="POST" action="/admin/settings/ghl_config">
           <div class="form-group">
             <label class="form-label">API Token</label>
-            <input class="form-control" name="ghl_api_token" type="password" placeholder="{{ '••••••••••••••••' if settings and settings.ghl_api_token else 'pit-...' }}" autocomplete="new-password">
+            <input class="form-control" name="ghl_api_token" type="text" placeholder="{{ '••••••••••••••••' if settings and settings.ghl_api_token else 'pit-...' }}" autocomplete="off" spellcheck="false">
             <div style="font-size:11px;color:var(--text3);margin-top:6px;">Leave blank to keep the current one.</div>
           </div>
           <div class="form-group">
