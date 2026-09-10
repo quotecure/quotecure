@@ -18,7 +18,7 @@
     </a>
   </th>
   {% endmacro %}
-  <div style="display:grid; grid-template-columns:2fr 1fr; gap:24px; align-items:start;">
+  <div style="display:grid; grid-template-columns:3fr 1fr; gap:24px; align-items:start;">
     <div class="card">
       {% if customers %}
       <div class="table-wrap">
@@ -45,7 +45,7 @@
               <td style="color:var(--text2)">{{ (c.address|full_address(c.city)) or '—' }}</td>
               <td style="color:var(--text2)">{{ c.phone or '—' }}</td>
               <td style="color:var(--text2)">{{ c.email or '—' }}</td>
-              <td style="color:var(--text3);font-size:12px;">{{ (c.created_at[:10]) if c.created_at else '—' }}</td>
+              <td style="color:var(--text3);font-size:12px;white-space:nowrap;">{{ (c.created_at[:10]) if c.created_at else '—' }}</td>
               <td class="right mono">{{ c.quote_count }}</td>
             </tr>
             {% endfor %}

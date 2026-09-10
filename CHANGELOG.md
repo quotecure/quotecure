@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-10 — Widened the Customers table so the Created date stops wrapping
+
+Jim: "can we make the customer table a little wider so the date doesn't break to the next line, looks funky." The Created column added a couple entries back squeezed the table into not quite enough room at the page's `2fr:1fr` (table vs. Add Customer sidebar) grid split. Widened the split to `3fr:1fr` and pinned the Created cell to `white-space:nowrap` so the date physically can't wrap again regardless of window width. Visual-only, no logic change -- verified by eye in the browser rather than an automated test.
+
+---
+
 ## 2026-09-09 — Customers list is now sortable (Name, Created)
 
 Jim: "can we sort by created date or is that too difficult." Reused the exact pattern already built for the Quotes list: a whitelisted `sort` query param (`_CUSTOMERS_SORT_OPTIONS`, so the raw param can only ever select one of a fixed set of literal SQL fragments) and sortable Name/Created column headers using the same `qs_with()` Jinja helper. Default stays newest-first (matches the prior new-lead-visibility change); clicking a header toggles direction.
