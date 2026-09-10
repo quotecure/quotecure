@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-10 — Tiered Coping's own 173 natural-stone Bullnose SKUs too
+
+Jim, right after the Paver stone-tier fix shipped: "can we tier the coping-only stone list too." Investigating what was left in Coping's picker (the ~173 items not already covered by the paver-stone tiers) found it's **entirely** natural-stone Bullnose coping pieces -- Marble/Travertine/Limestone/Granite Bullnose, plus a flat-priced generic "Bullnose" line. A rounded coping profile is a physically different product from a flat paver even when it's the same stone type, so this got its **own** separate 4-tier ladder rather than merging into the paver tiers from the earlier fix.
+
+Refactored the quartile-splitting math out of `_stone_paver_tiers` into a shared `_price_tier_quartiles(db, work_type_id, subcategories)`, now used by both `_stone_paver_tiers` (work_type_id 7) and the new `_stone_coping_tiers` (work_type_id 6, `STONE_COPING_SUBCATEGORIES`) -- one formula, two independent pools, not two copies of the same math. Coping's tier sentinels are offset by 10 from Paver's (-11..-14 vs. -1..-4) so `_resolve_material_id` can tell a Paver-tier pick apart from a Coping-tier pick from the id alone, since a material pick reaches it as just a bare number with no other context about which picker it came from.
+
+`/api/materials_in_collection` now shows both ladders on Coping's picker specifically (it borrows Paver's stone pavers *and* has its own Bullnose stones) -- 8 clean options total (4 "Stone Pavers" + 4 "Stone Coping", in their own labeled groups), down from what would otherwise be 529 individual SKUs. Paver Installation's own picker is unaffected -- still just its 4 Stone Pavers tiers.
+
+Verified: `test_stone_coping_tiers.py` (5 assertions) confirms the 4 Coping tiers cover all 173 real Bullnose SKUs in ascending order, that they're computed fully independently of the Paver tiers, that `_resolve_material_id` correctly disambiguates a Paver-tier id from a Coping-tier id, that Coping's picker now returns exactly 8 options split into the two correctly-labeled groups, and that adding a real Coping line item with a Coping-tier pick prices at that tier's real median (ignoring a bogus client-sent cost, same server-is-the-source-of-truth guarantee as the Paver fix). Full suite (5 files) passes -- including updating one now-outdated assertion in `test_stone_paver_tiers.py` that expected Coping's picker to show only 4 tier options (now correctly 8, since Coping shows both ladders). Live-verified in browser: added a real Coping Installation line item, confirmed the material dropdown shows 8 options in two labeled groups ("Stone Pavers" / "Stone Coping"), picked a Coping tier, and confirmed it priced correctly with the right label and a NULL `material_id`. Confirmed Admin → Materials now shows both reference panels ("Stone Paver Tiers" and "Stone Coping Tiers").
+
+---
+
 ## 2026-09-10 — Collapsed the 356-item stone paver/coping dropdown into 4 price tiers
 
 Jim: "for the pavers and coping, for the stone ones. instead of having these dozens+ of individual items, can we break them into like 3 or 4 tiers? ... keep the actual stones and their prices in the db somewhere and then tile them to their specific tier, but this dropdown list is outrageous and that's just one of 5 or 6 suppliers i use." Keystone Tile alone has 356 individual Travertine/Marble/Limestone/Granite/Porcelain paver SKUs, spanning $3.59 to $23.99/sqft even within one stone type -- and Coping's "lay a stone paver as coping" picker draws from that exact same pool, so it had the identical problem.

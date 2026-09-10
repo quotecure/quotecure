@@ -25,15 +25,16 @@
     </div>
   </details>
 
-  {% if stone_paver_tiers %}
+  {% macro tier_panel(title, tiers, blurb) %}
+  {% if tiers %}
   <details class="card" style="margin-bottom:20px;padding:16px 20px;">
-    <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text);">Stone Paver Tiers ({{ stone_paver_tiers|sum(attribute='count') }} SKUs across {{ stone_paver_tiers|length }} tiers)</summary>
+    <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text);">{{ title }} ({{ tiers|sum(attribute='count') }} SKUs across {{ tiers|length }} tiers)</summary>
     <div style="margin-top:12px;font-size:12px;color:var(--text2);line-height:1.6;max-width:760px;">
-      <p style="margin-bottom:10px;">Travertine/Marble/Limestone/Granite/Porcelain pavers (any supplier) collapse into these {{ stone_paver_tiers|length }} price tiers on a quote's Paver Installation and Coping pickers, instead of listing every individual stone. Recomputed live from whatever's actually in the materials table below — add a SKU, reprice one, or add a new stone supplier's collection, and these ranges shift on their own. Nothing to maintain here.</p>
+      <p style="margin-bottom:10px;">{{ blurb }} Recomputed live from whatever's actually in the materials table below — add a SKU, reprice one, or add a new supplier's collection, and these ranges shift on their own. Nothing to maintain here.</p>
       <table style="width:100%;">
         <thead><tr><th style="text-align:left;">Tier</th><th style="text-align:left;">Price Range</th><th style="text-align:left;">Charged Rate (median)</th><th class="right">SKUs in Tier</th></tr></thead>
         <tbody>
-          {% for t in stone_paver_tiers %}
+          {% for t in tiers %}
           <tr>
             <td>Tier {{ t.tier }}</td>
             <td class="mono">${{ '%.2f'|format(t.min_price) }}–${{ '%.2f'|format(t.max_price) }}/{{ t.quote_unit }}</td>
@@ -46,6 +47,11 @@
     </div>
   </details>
   {% endif %}
+  {% endmacro %}
+  {{ tier_panel('Stone Paver Tiers', stone_paver_tiers,
+      "Travertine/Marble/Limestone/Granite/Porcelain flat pavers (any supplier) collapse into these price tiers on a quote's Paver Installation and Coping pickers, instead of listing every individual stone.") }}
+  {{ tier_panel('Stone Coping Tiers', stone_coping_tiers,
+      "Natural-stone Bullnose coping pieces — a separate product line from the flat pavers above — collapse into their own price tiers on a quote's Coping picker.") }}
 
   <div style="display:grid; grid-template-columns:1fr 340px; gap:24px; align-items:start;">
 
