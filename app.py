@@ -562,6 +562,25 @@ def _sync_quote_to_ghl(db, quote_id, stage_id, note_text=None, pdf_bytes=None, p
     except Exception as e:
         print(f'[GHL] quote {quote_id} sync failed: {e}')
 
+@app.route('/admin/debug_ghl_config')
+@require_permission('can_edit_commission_policy')
+def debug_ghl_config():
+    """TEMPORARY -- Jim can't tell whether a Company Settings save actually took, since the
+    API Token field's masked placeholder looks identical whether nothing, an old broken
+    value, or a fresh one is stored. Never returns the real token -- only whether one
+    exists, its length, and its first 4 chars (GHL tokens are always prefixed 'pit-', not
+    sensitive on their own) -- enough to confirm a save worked without redisplaying a
+    secret. Remove once Jim confirms the save worked."""
+    db = get_db()
+    settings = db.execute("SELECT ghl_api_token, ghl_location_id FROM company_settings WHERE id=1").fetchone()
+    token = (settings['ghl_api_token'] if settings else '') or ''
+    return jsonify({
+        'ghl_api_token_configured': bool(token),
+        'ghl_api_token_length': len(token),
+        'ghl_api_token_starts_with': token[:4] if token else '',
+        'ghl_location_id': (settings['ghl_location_id'] if settings else '') or '(not set)',
+    })
+
 def _quote_counts_for(db, quotes):
     """Total quote count per customer, across every status -- not just whatever set of
     quotes is currently showing -- so a badge can point out "this customer has other
