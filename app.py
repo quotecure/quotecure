@@ -600,11 +600,11 @@ def debug_ghl_config():
 @app.route('/admin/debug_ghl_outbound/<int:quote_id>')
 @require_permission('can_edit_commission_policy')
 def debug_ghl_outbound(quote_id):
-    """TEMPORARY, round 2 -- credentials are now confirmed saved correctly
-    (debug_ghl_config), but Jim's real send of QT-0024 still didn't move the GHL
-    Opportunity. Same read-only approach as before: report state, make ONE safe read-only
-    GHL API call (contact search, no writes) to see the actual error GHL returns now that
-    credentials are in play, rather than guessing again. Remove once the real cause is found."""
+    """TEMPORARY -- diagnosed a real customer/GHL-contact email mismatch (not a
+    credentials or code bug) for QT-0024's customer, and now offers a safe, direct way to
+    link her to her real GHL contact_id once Jim looked it up by hand, with no email search
+    or contact-creation involved (so no risk of duplicating her real GHL card). Remove once
+    confirmed working."""
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if not quote:
@@ -628,34 +628,20 @@ def debug_ghl_outbound(quote_id):
     else:
         result['note'] = 'customer has no email on file -- _ensure_ghl_contact bails out here'
 
-    # The read-only search above came back clean (credentials work), but nothing downstream
-    # of it succeeded -- ghl_contact_id and ghl_opportunity_id are both still blank, meaning
-    # the actual CREATE calls are where this is really failing. Those aren't read-only, so
-    # only attempted with an explicit ?create=1 -- and this is exactly what a real send is
-    # supposed to do anyway (create this customer's real Contact/Opportunity in GHL), not an
-    # extra side effect beyond what Jim's already trying to accomplish.
-    if request.args.get('create') == '1' and customer:
-        try:
-            contact_id = _ensure_ghl_contact(db, customer['customer_id'])
-            result['ensure_contact_result'] = contact_id
-        except Exception as e:
-            result['ensure_contact_error'] = f'{type(e).__name__}: {e}'
-        # Calling ghl_client.create_opportunity directly here, NOT _sync_quote_to_ghl --
-        # that function wraps its own body in try/except and only print()s a failure
-        # (by design, so a real send is never blocked by a GHL problem), which would
-        # silently hide the real error from this diagnostic too. This bypasses that on
-        # purpose, just for this one investigative call.
-        if result.get('ensure_contact_result'):
-            try:
-                opp_id = ghl_client.create_opportunity(
-                    db, result['ensure_contact_result'], _GHL_PIPELINE_ID, _GHL_STAGE_QUOTE_SENT,
-                    quote['customer_name'] or f"QT-{quote_id:04d}", float(quote['total_price'] or 0), status='open'
-                )
-                db.execute("UPDATE quotes SET ghl_opportunity_id=? WHERE quote_id=?", (opp_id, quote_id))
-                db.commit()
-                result['create_opportunity_result'] = opp_id
-            except Exception as e:
-                result['create_opportunity_error'] = f'{type(e).__name__}: {e}'
+    # Root cause turned out to be neither credentials nor code: the email search came back
+    # clean but correctly found nothing, because this customer's QuoteCure email
+    # (hallnancy325@gmail.com) doesn't match her real GHL contact's email (hallnancy@gmail.com
+    # -- she has more than one, and whichever one QuoteCure has isn't the one on her GHL card).
+    # She predates/wasn't captured by the inbound webhook (which sets ghl_contact_id directly
+    # from GHL's own immutable contact.id, sidestepping this exact class of problem for any
+    # NEW lead going forward) -- so her ghl_contact_id was never set at all. Jim found her
+    # real GHL contact_id by hand; ?set_contact_id=<id> links it directly, no email search or
+    # contact-creation involved at all, so there's no risk of duplicating her real card.
+    set_contact_id = request.args.get('set_contact_id')
+    if set_contact_id and customer:
+        db.execute("UPDATE customers SET ghl_contact_id=? WHERE customer_id=?", (set_contact_id, customer['customer_id']))
+        db.commit()
+        result['linked_ghl_contact_id'] = set_contact_id
     return jsonify(result)
 
 def _quote_counts_for(db, quotes):
