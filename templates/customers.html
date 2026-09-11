@@ -44,7 +44,7 @@
               </td>
               <td style="color:var(--text2)">
                 {% if c.address %}
-                <a href="{{ c.address|maps_url(c.city) }}" target="_blank" style="color:var(--text2);">🧭 {{ c.address|full_address(c.city) }}</a>
+                <a href="{{ c.address|maps_url(c.city) }}" target="_blank" style="color:var(--blue-light);">{{ c.address|full_address(c.city) }}</a>
                 {% else %}
                 —
                 {% endif %}

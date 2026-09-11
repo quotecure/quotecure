@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-11 — Scoped the maps link to just the Customers list; reverted the detail page entirely
+
+After a few rounds of back-and-forth, Jim's actual ask turned out narrower than what got built: "we just want the address clickable on the main Customer list page" -- not the individual customer detail page. The detail-page version (address displays as a link, with a small "Edit address" toggle to get back to the real input) also had a real problem of its own: since the address field there is meant to stay editable, clicking it to fix a typo instead fired up the map, with no obvious way in to actually type -- exactly the kind of thing that's worse than not having the feature at all.
+
+**Reverted** `customer_detail.html`'s Address field completely back to a plain, always-editable input -- no link, no toggle, nothing clickable. It's not needed there anyway: staff edit a customer's address on that page, they don't need directions to it.
+
+**Kept and polished** the Customers list version (the one Jim actually wanted): dropped the 🧭 compass emoji prefix ("can we get rid of these compass emojies?") and switched its color from the muted gray it inherited from the surrounding column to the same blue every other link in the app uses (`var(--blue-light)`), so it actually reads as clickable ("can we make the address blue like a hyperlink too").
+
+Verified: removed the now-obsolete `test_customer_maps_directions.py` (tested the reverted detail-page behavior); added an explicit check confirming the detail page's address field is a plain, ordinary input with no link/toggle markup and no `maps.apple.com` reference anywhere on the page. `test_customers_list_maps_link.py` updated for the no-emoji/blue-color change and still passes. Full suite (7 files) passes.
+
+---
+
 ## 2026-09-11 — Address on the Customers list is also a maps link now
 
 Jim: "ahhh, we're so close. I meant on the main customer page where the list of customers is. That address is clickable." (The prior two fixes covered the individual customer detail page.) Simpler here since the Customers list shows address as plain display text, not an editable input -- no edit-toggle needed, just wraps it directly in the same `maps_url` link.
