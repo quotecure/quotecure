@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-11 — "Get Directions" link on a customer's address
+
+Jim: "i'm driving and I'm on customer page. address is a hyperlink that opens my default phone/mac map so i can get directions." A customer's Address is an editable text input on that page, not a static display, so the link couldn't just replace it -- added a small "🧭 Get Directions" link underneath it instead.
+
+New `maps_url` Jinja filter builds a `maps.apple.com/?address=...` link -- the one URL Apple's OS itself treats as a deep link straight into Maps.app on both iPhone and Mac (a real app handoff, not just opening a webpage), while still degrading gracefully to a normal map page on Android/Windows. Chose it over a Google Maps link specifically because it's the one that reliably does the "hand off to the native app" trick Jim described on his own devices. Reuses the existing `full_address` filter (address + city + FL) so the link always searches the same fully-qualified address already shown elsewhere.
+
+Verified: `test_customer_maps_directions.py` (5 assertions) confirms the filter URL-encodes correctly, handles a blank address by returning an empty string rather than a broken link, handles a city-only address (no street on file yet) gracefully, and that the link renders correctly on a real customer's page when an address exists and is absent entirely when one doesn't. Full suite (7 files) passes.
+
+---
+
 ## 2026-09-10 — Customer photos get their own grid gallery with a real lightbox
 
 Jim: "the images on customer profile; is there a better way we could display them instead of just a scrolling page?" Photos were mixed chronologically into the same feed as text notes, one full-width row apiece — exactly as tedious to browse as it sounds once a customer has more than a couple.

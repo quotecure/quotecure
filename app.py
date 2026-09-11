@@ -48,6 +48,22 @@ def _full_address(address, city=None):
         return address
     return f"{address}, {city}, FL" if address else f"{city}, FL"
 
+@app.template_filter('maps_url')
+def _maps_url(address, city=None):
+    """A tap/click-to-navigate link for a street address -- Jim: driving, on a customer's
+    page, wants one tap into his phone/Mac's own default map app for directions, not a
+    address he has to copy/paste. maps.apple.com is the one link Apple's OS itself treats as
+    a deep link into Maps.app (iPhone and Mac both honor it as a native-app handoff, not just
+    a webpage) while still degrading gracefully to a normal map page on Android/Windows --
+    the one URL that works everywhere without picking a single map provider that only some
+    of his devices prefer. Returns '' for a blank address so callers can skip rendering a
+    link entirely rather than linking to an empty map."""
+    full = _full_address(address, city)
+    if not full:
+        return ''
+    from urllib.parse import quote
+    return f"https://maps.apple.com/?address={quote(full)}"
+
 # Local secrets folder (used only for local-dev file fallbacks — production sets SECRET_KEY via env var)
 _secrets_dir = Path.home() / 'Documents' / 'quotecure_data'
 
