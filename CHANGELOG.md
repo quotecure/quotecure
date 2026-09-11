@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-11 — Quick Add Work Type: fixed a wrong-supplier bug, added the ability to type a brand-new one
+
+Jim: added a new work type "Ladder Installation" via Quick Add, entered labor/rate, and a "Saftron" product -- but it showed up as "Flagstone- Saftron Ladder." Root cause: leaving Supplier on its default with no Collection picked silently fell back to "whichever supplier happens to be alphabetically first" (Flagstone) -- a fallback with zero relation to what was actually typed, and Saftron (a real ladder/rail brand, just not one already in the system) had no way to be added as a supplier at all, since Quick Add's Supplier field was a plain dropdown of existing ones only.
+
+Two fixes: **(1)** the silent "first active supplier" fallback is gone entirely -- a product now needs an explicit supplier (pick one, type a brand-new one, or pick a Collection), validated *before* anything is created, so a real mistake fails loudly with a clear error and nothing half-created, instead of quietly picking a wrong one. **(2)** added a "…or a brand-new supplier" field next to the dropdown -- typing a name that doesn't exist yet creates it inline (find-or-create, case-insensitive, so typing an existing one's name just reuses it), the same way the Sub field already lets you type a brand-new sub on the spot.
+
+Verified: `test_quick_add_work_type_supplier.py` (5 assertions) confirms typing a new supplier name creates and correctly assigns it (not Flagstone or anything else arbitrary), typing the same name again (different case) reuses it rather than duplicating, a product with no resolvable supplier fails loudly with nothing half-created (no orphan work type/sub rate), a pure-labor work type with no product still works with zero supplier info needed, and explicitly picking a real supplier from the dropdown still works exactly as before. Full suite (9 files) passes. Live-verified in browser: submitted the exact real scenario (a "Saftron Ladder" product with "Saftron" typed as a brand-new supplier) and confirmed the material's supplier is genuinely "Saftron," not Flagstone; confirmed the error banner renders clearly when supplier info is missing entirely.
+
+Jim's existing wrong "Ladder Installation" work type still needs deleting and redoing by hand (Saftron didn't exist as a supplier before this fix, so there's no clean way to just repoint the old material) -- but redoing it now will correctly create Saftron as its own supplier.
+
+---
+
 ## 2026-09-11 — Named exactly where to pick the sub in the new "no sub picked" error
 
 Jim, live-testing the previous fix: "there's no place to pick the applicator" -- turned out it does exist (the Subcontractor column cell is its own click-to-edit dropdown, listing both regular subs and surface applicators like Pebble Pros), just tucked somewhere he didn't immediately spot, separate from the finish-picker panel itself. Found it a moment later ("never mind, i see it") but called the error message itself "not the greatest" for not saying so. Reworded it to name the exact spot: "click the Subcontractor cell on this row."

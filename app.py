@@ -3792,6 +3792,18 @@ def edit_work_type(wt_id):
     db.commit()
     return redirect(url_for('admin_work_types'))
 
+def _find_or_create_supplier(db, name):
+    """Same idea as _find_or_create_sub, for suppliers -- exact case-insensitive name match
+    against an existing supplier; otherwise create one. suppliers.supplier_id is a plain
+    integer with no auto-increment default (unlike subs' string S-prefix ids), so a new one
+    needs its own next-number computed here."""
+    existing = db.execute("SELECT supplier_id FROM suppliers WHERE LOWER(name)=LOWER(?)", (name,)).fetchone()
+    if existing:
+        return existing['supplier_id']
+    next_id = db.execute("SELECT COALESCE(MAX(supplier_id),0)+1 FROM suppliers").fetchone()[0]
+    db.execute("INSERT INTO suppliers (supplier_id,name,active) VALUES (?,?,'Y')", (next_id, name))
+    return next_id
+
 def _find_or_create_sub(db, name):
     """Exact case-insensitive name match against an existing sub; otherwise create one,
     same auto-increment S-prefix logic as add_sub(). Used by the Quick Add wizard so typing
@@ -3835,7 +3847,8 @@ def quick_add_work_type():
         "JOIN suppliers s ON mc.supplier_id=s.supplier_id WHERE mc.active='Y' ORDER BY mc.name"
     ).fetchall()
     suppliers = db.execute("SELECT supplier_id, name FROM suppliers WHERE active='Y' ORDER BY name").fetchall()
-    return render_template('admin_quick_add_work_type.html', subs=subs, collections=collections, suppliers=suppliers)
+    return render_template('admin_quick_add_work_type.html', subs=subs, collections=collections, suppliers=suppliers,
+                           error=request.args.get('error', ''))
 
 @app.route('/admin/work_types/quick_add', methods=['POST'])
 @require_permission('can_edit_work_types')
@@ -3858,6 +3871,32 @@ def quick_add_work_type_submit():
     # separately (asking for both invites them going out of sync).
     margin = round((markup / (100 + markup)) * 100, 1) if markup else 0
 
+    product_name = request.form.get('product_name', '').strip()
+    product_price = request.form.get('product_price', '').strip()
+    supplier_id = None
+    if product_name and product_price:
+        # Jim hit this the hard way: leaving Supplier on its default with no Collection
+        # picked used to silently fall back to "whichever supplier is alphabetically
+        # first" -- produced "Flagstone -- Saftron Ladder" for a Saftron ladder that has
+        # nothing to do with Flagstone. Resolved BEFORE anything is created (not after),
+        # so a missing supplier fails loudly with nothing half-created, instead of quietly
+        # picking a wrong one. new_supplier_name (typed) takes priority over the dropdown,
+        # matching how sub_name already lets you type a brand-new sub inline -- Saftron
+        # not existing yet as a supplier was exactly Jim's situation.
+        new_supplier_name = request.form.get('new_supplier_name', '').strip()
+        if new_supplier_name:
+            supplier_id = _find_or_create_supplier(db, new_supplier_name)
+        else:
+            supplier_id = request.form.get('supplier_id') or None
+            if not supplier_id:
+                collection_id = request.form.get('collection_id') or None
+                if collection_id:
+                    col = db.execute("SELECT supplier_id FROM material_collections WHERE collection_id=?", (collection_id,)).fetchone()
+                    supplier_id = col['supplier_id'] if col else None
+            if not supplier_id:
+                return redirect(url_for('quick_add_work_type',
+                                         error='Pick a supplier for the product (or type a new one), or pick a Collection instead.'))
+
     cur = db.execute(
         "INSERT INTO work_types (work_type,unit,cost_structure,default_markup,min_markup,min_margin,"
         "show_on_quote,active,description) VALUES (?,?,?,?,?,?,?,?,?) RETURNING work_type_id",
@@ -3872,20 +3911,7 @@ def quick_add_work_type_submit():
         db.execute("INSERT INTO sub_rates (sub_id,work_type_id,rate,unit,notes) VALUES (?,?,?,?,?)",
                    (sub_id, wt_id, float(rate), unit, ''))
 
-    product_name = request.form.get('product_name', '').strip()
-    product_price = request.form.get('product_price', '').strip()
     if product_name and product_price:
-        supplier_id = request.form.get('supplier_id') or None
-        if not supplier_id:
-            # A material needs a supplier -- fall back to whichever supplier the chosen
-            # Collection belongs to, since picking a collection already implies one.
-            collection_id = request.form.get('collection_id') or None
-            if collection_id:
-                col = db.execute("SELECT supplier_id FROM material_collections WHERE collection_id=?", (collection_id,)).fetchone()
-                supplier_id = col['supplier_id'] if col else None
-            if not supplier_id:
-                first_supplier = db.execute("SELECT supplier_id FROM suppliers WHERE active='Y' ORDER BY name LIMIT 1").fetchone()
-                supplier_id = first_supplier['supplier_id'] if first_supplier else None
         price = float(product_price)
         mat_cur = db.execute(
             "INSERT INTO materials (supplier_id,category,series,item_code,raw_price,price_unit,"

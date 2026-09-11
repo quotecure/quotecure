@@ -11,6 +11,9 @@
   </div>
 
   <div style="max-width:640px;">
+    {% if error %}
+    <div class="card" style="padding:12px 16px;margin-bottom:16px;border-color:var(--red);color:var(--red);font-size:13px;">{{ error }}</div>
+    {% endif %}
     <form method="POST" action="/admin/work_types/quick_add">
 
       <!-- Work type -->
@@ -87,14 +90,20 @@
             </select>
           </div>
         </div>
-        <div class="form-group" style="margin-top:12px;">
-          <label class="form-label">Supplier <span style="font-weight:400;color:var(--text3);">(only if no Collection picked above)</span></label>
-          <select class="form-control" name="supplier_id" id="qa-supplier">
-            <option value="">— Use Collection's supplier, or first active supplier —</option>
-            {% for s in suppliers %}
-            <option value="{{ s.supplier_id }}">{{ s.name }}</option>
-            {% endfor %}
-          </select>
+        <div class="form-row form-row-2" style="margin-top:12px;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Supplier <span style="font-weight:400;color:var(--text3);">(required unless a Collection is picked above)</span></label>
+            <select class="form-control" name="supplier_id" id="qa-supplier">
+              <option value="">— Select supplier —</option>
+              {% for s in suppliers %}
+              <option value="{{ s.supplier_id }}">{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">…or a brand-new supplier</label>
+            <input class="form-control" name="new_supplier_name" placeholder="e.g. Saftron">
+          </div>
         </div>
       </div>
 
