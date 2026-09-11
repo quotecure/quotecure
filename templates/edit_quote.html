@@ -1598,6 +1598,12 @@ async function ppSaveSurface(id) {
     if (qtyEl && d.labor_quantity !== undefined) qtyEl.textContent = d.labor_quantity;
     updateSummaryCards(d);
     toggleProductPicker(id);
+  } else {
+    // Previously silent -- a missing sub or a sub+finish combo with no rate on file used to
+    // just leave the row looking permanently blank with the picker closing anyway, no
+    // explanation (Jim: "it doesn't actually hold it... it just keeps showing blank").
+    const d = await resp.json().catch(() => ({}));
+    alert(d.error || 'Could not save this finish.');
   }
 }
 

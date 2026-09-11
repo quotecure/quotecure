@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-11 — Fixed Surface Application's finish picker silently doing nothing
+
+Jim: "when i make a new quote, the surface material is blank, which is fine, but when i select a material, it doesn't actually hold it and make the price, it just keeps showing blank." Not a regression from anything else this session touched -- a real, pre-existing bug in `update_line_item`'s `surface_product` branch.
+
+Root cause: pricing a Surface Application finish needs BOTH a sub/applicator picked on the row AND an actual rate on file for that specific sub+finish combination (`surface_applicator_rates`). If either was missing -- most commonly, staff picking the finish before picking a sub, since nothing enforced or even suggested that order -- the lookup found nothing and the whole branch silently did nothing: 200 OK, but `product_label`/price never actually changed. The client made it worse: seeing `resp.ok`, it unconditionally cleared the row's "empty" styling and closed the picker anyway, leaving a permanently-blank-looking row with zero explanation of what went wrong.
+
+Fixed both failure paths to return a clear, specific error instead of silently succeeding: "Pick a sub/applicator first, then the finish" when no sub is selected yet, or "{sub name} has no rate on file for this finish -- add one in Admin → Surface Products" when a sub is picked but that combination has no rate. The client now shows the real error via `alert()` and leaves the picker open to fix it, instead of closing it on a failure it didn't know was one.
+
+Verified: `test_surface_product_error_feedback.py` (3 assertions) confirms both failure paths return a clear 400 with the right message and leave the line item's product/price genuinely untouched (not silently mutated to something wrong), and that a real sub+finish combination with a rate on file still prices correctly, completely unaffected by the new error handling. Full suite (8 files) passes. Live-verified in browser: reproduced the exact silent-failure with no sub selected, confirmed the fix surfaces a real, actionable alert instead.
+
+---
+
 ## 2026-09-11 — Stopped the browser's address autofill from visually shifting text in Address/City fields
 
 Jim: "when i first click in it, it like defaults to being like indented, like if I hit the Tab button, but it does this as soon as I click in the field for both of those" -- Address and City specifically, not Name/Phone/Email. Same root cause as the GHL token field fighting Chrome's password manager earlier: browsers recognize `name="address"`/`name="city"` as semantic autofill fields and show their own icon/suggestion UI inside them, which shifts the text over.

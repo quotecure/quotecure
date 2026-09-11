@@ -5618,50 +5618,62 @@ def update_line_item(quote_id, item_id):
     elif field == 'surface_product':
         product_id = value
         sub_id = data.get('sub_id') or row['sub_id']
+        # A rate needs BOTH a sub/applicator and a finish -- if either is missing (no sub
+        # picked yet) or that specific sub+finish combination has no rate on file, this used
+        # to silently do nothing: 200 OK, but product_label/price never actually changed, so
+        # the row just looked permanently blank with no explanation (Jim's exact report: "it
+        # doesn't actually hold it... it just keeps showing blank"). Now tells the user why.
+        if not sub_id:
+            return jsonify({'error': 'Pick a sub/applicator first, then the finish.'}), 400
         p = db.execute("""SELECT sar.rate, sar.min_sqft, sp.finish, sm.manufacturer_name, sp.product_line
                           FROM surface_applicator_rates sar
                           JOIN surface_products sp ON sar.product_id=sp.product_id
                           JOIN surface_manufacturers sm ON sp.manufacturer_id=sm.manufacturer_id
                           WHERE sar.product_id=? AND sar.sub_id=?""", (product_id, sub_id)).fetchone()
+        if not p:
+            applicator_name = db.execute(
+                "SELECT name FROM surface_applicators WHERE sub_id=?", (sub_id,)
+            ).fetchone()
+            name = applicator_name['name'] if applicator_name else sub_id
+            return jsonify({'error': f'{name} has no rate on file for this finish -- add one in Admin → Surface Products.'}), 400
         applicator = db.execute("SELECT * FROM surface_applicators WHERE sub_id=?", (sub_id,)).fetchone()
-        if p:
-            # Most applicators price off the wetted/expanded area already stored on the line
-            # item (labor_quantity). A few (e.g. Southwest Pool Finishers) price off the flat
-            # water surface area instead, entered separately on the quote.
-            if applicator and applicator['uses_water_surface_area']:
-                quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-                actual_qty = float(quote['water_surface_sqft'] or 0)
-            else:
-                actual_qty = float(row['labor_quantity'])
+        # Most applicators price off the wetted/expanded area already stored on the line
+        # item (labor_quantity). A few (e.g. Southwest Pool Finishers) price off the flat
+        # water surface area instead, entered separately on the quote.
+        if applicator and applicator['uses_water_surface_area']:
+            quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+            actual_qty = float(quote['water_surface_sqft'] or 0)
+        else:
+            actual_qty = float(row['labor_quantity'])
 
-            min_sqft = float(p['min_sqft'] or 0)
-            effective_qty = max(actual_qty, min_sqft) if min_sqft else actual_qty
-            base_cost = effective_qty * float(p['rate'])
+        min_sqft = float(p['min_sqft'] or 0)
+        effective_qty = max(actual_qty, min_sqft) if min_sqft else actual_qty
+        base_cost = effective_qty * float(p['rate'])
 
-            depth_surcharge_cost = 0.0
-            if applicator and applicator['depth_surcharge_per_sqft_per_ft']:
-                quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-                threshold = float(applicator['depth_surcharge_threshold_ft'] or 0)
-                depth_over = max(0.0, float(quote['pool_deep'] or 0) - threshold)
-                depth_surcharge_cost = actual_qty * float(applicator['depth_surcharge_per_sqft_per_ft']) * depth_over
+        depth_surcharge_cost = 0.0
+        if applicator and applicator['depth_surcharge_per_sqft_per_ft']:
+            quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+            threshold = float(applicator['depth_surcharge_threshold_ft'] or 0)
+            depth_over = max(0.0, float(quote['pool_deep'] or 0) - threshold)
+            depth_surcharge_cost = actual_qty * float(applicator['depth_surcharge_per_sqft_per_ft']) * depth_over
 
-            combined_cost = base_cost + depth_surcharge_cost
-            cpu = round(combined_cost / actual_qty, 4) if actual_qty else float(p['rate'])
+        combined_cost = base_cost + depth_surcharge_cost
+        cpu = round(combined_cost / actual_qty, 4) if actual_qty else float(p['rate'])
 
-            # Surface Application is never pass-through in practice, but nothing in the
-            # schema prevents that combination -- price_component (not calc_component
-            # directly) closes the same gap every other branch in this route already has.
-            markup = float(row['labor_markup_pct'])
-            min_m = float(row['labor_min_markup'])
-            l_cost, l_price, l_margin, markup, min_m = price_component(cpu, actual_qty, markup, min_m, can_override, is_passthrough)
-            label = f"{p['manufacturer_name']} {p['product_line']} – {p['finish']}"
-            additive_label = data.get('additive_label', '')
-            if additive_label:
-                label += f" with {additive_label}"
-            db.execute("""UPDATE quote_line_items SET product_id=?,product_label=?,
-                          labor_quantity=?,labor_cost_per_unit=?,labor_total_cost=?,labor_total_price=?,
-                          labor_margin_pct=? WHERE id=?""",
-                       (product_id, label, actual_qty, cpu, l_cost, l_price, l_margin, item_id))
+        # Surface Application is never pass-through in practice, but nothing in the
+        # schema prevents that combination -- price_component (not calc_component
+        # directly) closes the same gap every other branch in this route already has.
+        markup = float(row['labor_markup_pct'])
+        min_m = float(row['labor_min_markup'])
+        l_cost, l_price, l_margin, markup, min_m = price_component(cpu, actual_qty, markup, min_m, can_override, is_passthrough)
+        label = f"{p['manufacturer_name']} {p['product_line']} – {p['finish']}"
+        additive_label = data.get('additive_label', '')
+        if additive_label:
+            label += f" with {additive_label}"
+        db.execute("""UPDATE quote_line_items SET product_id=?,product_label=?,
+                      labor_quantity=?,labor_cost_per_unit=?,labor_total_cost=?,labor_total_price=?,
+                      labor_margin_pct=? WHERE id=?""",
+                   (product_id, label, actual_qty, cpu, l_cost, l_price, l_margin, item_id))
 
     if field not in ('description', 'optional_category'):
         _rollup_item_totals(db, item_id)
