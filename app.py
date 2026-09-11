@@ -597,6 +597,38 @@ def debug_ghl_config():
         'ghl_location_id': (settings['ghl_location_id'] if settings else '') or '(not set)',
     })
 
+@app.route('/admin/debug_ghl_outbound/<int:quote_id>')
+@require_permission('can_edit_commission_policy')
+def debug_ghl_outbound(quote_id):
+    """TEMPORARY, round 2 -- credentials are now confirmed saved correctly
+    (debug_ghl_config), but Jim's real send of QT-0024 still didn't move the GHL
+    Opportunity. Same read-only approach as before: report state, make ONE safe read-only
+    GHL API call (contact search, no writes) to see the actual error GHL returns now that
+    credentials are in play, rather than guessing again. Remove once the real cause is found."""
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return jsonify({'error': 'quote not found'}), 404
+    customer = db.execute("SELECT * FROM customers WHERE customer_id=?", (quote['customer_id'],)).fetchone() if quote['customer_id'] else None
+    result = {
+        'quote_id': quote_id,
+        'quote_status': quote['status'],
+        'quote_customer_id': quote['customer_id'],
+        'quote_ghl_opportunity_id': quote['ghl_opportunity_id'],
+        'customer_found': bool(customer),
+        'customer_email': customer['email'] if customer else None,
+        'customer_ghl_contact_id': customer['ghl_contact_id'] if customer else None,
+    }
+    if customer and customer['email']:
+        try:
+            found = ghl_client.find_contact_by_email(db, customer['email'])
+            result['find_contact_by_email_result'] = found
+        except Exception as e:
+            result['find_contact_by_email_error'] = str(e)
+    else:
+        result['note'] = 'customer has no email on file -- _ensure_ghl_contact bails out here'
+    return jsonify(result)
+
 def _quote_counts_for(db, quotes):
     """Total quote count per customer, across every status -- not just whatever set of
     quotes is currently showing -- so a badge can point out "this customer has other
