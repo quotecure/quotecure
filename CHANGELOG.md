@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-11 — Address on the Customers list is also a maps link now
+
+Jim: "ahhh, we're so close. I meant on the main customer page where the list of customers is. That address is clickable." (The prior two fixes covered the individual customer detail page.) Simpler here since the Customers list shows address as plain display text, not an editable input -- no edit-toggle needed, just wraps it directly in the same `maps_url` link.
+
+Verified: `test_customers_list_maps_link.py` (2 assertions) confirms a customer with an address shows it as a clickable maps link with the correct URL, and a customer with no address on file still shows the plain "—" placeholder rather than a broken link. Full suite (8 files) passes.
+
+---
+
 ## 2026-09-11 — Corrected the address link: the address itself is now clickable, not a separate button
 
 Jim, right after the "Get Directions" link shipped: "no, i want to click on the address and doing that opens the map app... not a separate link below." The address is an editable `<input>`, which can't both open a map on click and let you type into it -- so it now displays as the clickable maps link by default (the address text itself, prefixed 🧭), with a small "Edit address" toggle underneath that swaps in the real input (pre-filled, auto-focused) for the rare times it needs correcting. Saving still goes through the exact same form/route as before -- purely a display toggle, no backend change. A customer with no address on file yet just shows the plain input, same as always, since there's nothing to link to.
