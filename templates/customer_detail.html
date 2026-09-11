@@ -27,11 +27,14 @@
           </div>
           <div class="form-group">
             <label class="form-label">Address</label>
-            <input class="form-control" name="address" value="{{ customer.address or '' }}">
-            <div style="font-size:11px;color:var(--text3);margin-top:4px;">Just this customer's own record — doesn't change the address on any of their existing quotes below.</div>
             {% if customer.address %}
-            <a href="{{ customer.address|maps_url(customer.city) }}" target="_blank" style="display:inline-block;margin-top:8px;font-size:12px;color:var(--blue-light);">🧭 Get Directions</a>
+            <div id="address-display">
+              <a href="{{ customer.address|maps_url(customer.city) }}" target="_blank" class="form-control" style="display:block;text-decoration:none;color:var(--blue-light);">🧭 {{ customer.address }}</a>
+              <a href="#" onclick="document.getElementById('address-display').style.display='none';document.getElementById('address-input').style.display='block';document.getElementById('address-input').focus();return false;" style="font-size:11px;color:var(--text3);display:inline-block;margin-top:4px;">Edit address</a>
+            </div>
             {% endif %}
+            <input class="form-control" name="address" value="{{ customer.address or '' }}" id="address-input" {% if customer.address %}style="display:none;"{% endif %}>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px;">Just this customer's own record — doesn't change the address on any of their existing quotes below.</div>
           </div>
           <div class="form-group">
             <label class="form-label">City</label>

@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-11 — Corrected the address link: the address itself is now clickable, not a separate button
+
+Jim, right after the "Get Directions" link shipped: "no, i want to click on the address and doing that opens the map app... not a separate link below." The address is an editable `<input>`, which can't both open a map on click and let you type into it -- so it now displays as the clickable maps link by default (the address text itself, prefixed 🧭), with a small "Edit address" toggle underneath that swaps in the real input (pre-filled, auto-focused) for the rare times it needs correcting. Saving still goes through the exact same form/route as before -- purely a display toggle, no backend change. A customer with no address on file yet just shows the plain input, same as always, since there's nothing to link to.
+
+Verified: `test_customer_maps_directions.py` updated to match -- confirms the address text itself is the link (not a separate button), the raw input starts hidden, and the Edit toggle is present when an address exists (and both are entirely absent when one doesn't). Full suite (7 files) passes. Live-verified in browser: clicking the address link shows the correct `maps.apple.com` URL; clicking "Edit address" correctly swaps to the focused, pre-filled input.
+
+---
+
 ## 2026-09-11 — "Get Directions" link on a customer's address
 
 Jim: "i'm driving and I'm on customer page. address is a hyperlink that opens my default phone/mac map so i can get directions." A customer's Address is an editable text input on that page, not a static display, so the link couldn't just replace it -- added a small "🧭 Get Directions" link underneath it instead.
