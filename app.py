@@ -5624,7 +5624,12 @@ def update_line_item(quote_id, item_id):
         # the row just looked permanently blank with no explanation (Jim's exact report: "it
         # doesn't actually hold it... it just keeps showing blank"). Now tells the user why.
         if not sub_id:
-            return jsonify({'error': 'Pick a sub/applicator first, then the finish.'}), 400
+            # Jim, live-testing this fix: found the Subcontractor cell exists but "not the
+            # greatest" to discover, tucked in its own table column rather than inside this
+            # same finish-picker panel. Not restructuring the picker for that right now --
+            # just naming where to click, since the whole point of this error is to stop
+            # staff from being stuck with no idea what to do next.
+            return jsonify({'error': 'Pick a sub/applicator first -- click the Subcontractor cell on this row -- then the finish.'}), 400
         p = db.execute("""SELECT sar.rate, sar.min_sqft, sp.finish, sm.manufacturer_name, sp.product_line
                           FROM surface_applicator_rates sar
                           JOIN surface_products sp ON sar.product_id=sp.product_id

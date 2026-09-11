@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-11 — Named exactly where to pick the sub in the new "no sub picked" error
+
+Jim, live-testing the previous fix: "there's no place to pick the applicator" -- turned out it does exist (the Subcontractor column cell is its own click-to-edit dropdown, listing both regular subs and surface applicators like Pebble Pros), just tucked somewhere he didn't immediately spot, separate from the finish-picker panel itself. Found it a moment later ("never mind, i see it") but called the error message itself "not the greatest" for not saying so. Reworded it to name the exact spot: "click the Subcontractor cell on this row."
+
+Verified: `test_surface_product_error_feedback.py` updated to check for the specific "Subcontractor cell" wording; full suite (8 files) passes.
+
+---
+
 ## 2026-09-11 — Fixed Surface Application's finish picker silently doing nothing
 
 Jim: "when i make a new quote, the surface material is blank, which is fine, but when i select a material, it doesn't actually hold it and make the price, it just keeps showing blank." Not a regression from anything else this session touched -- a real, pre-existing bug in `update_line_item`'s `surface_product` branch.
