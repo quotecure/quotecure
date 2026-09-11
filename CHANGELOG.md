@@ -4,7 +4,13 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
-## 2026-09-11 — Scoped the maps link to just the Customers list; reverted the detail page entirely
+## 2026-09-11 — Stopped the browser's address autofill from visually shifting text in Address/City fields
+
+Jim: "when i first click in it, it like defaults to being like indented, like if I hit the Tab button, but it does this as soon as I click in the field for both of those" -- Address and City specifically, not Name/Phone/Email. Same root cause as the GHL token field fighting Chrome's password manager earlier: browsers recognize `name="address"`/`name="city"` as semantic autofill fields and show their own icon/suggestion UI inside them, which shifts the text over.
+
+Added `autocomplete="off"` to every Address/City input in the app, not just the one Jim was looking at -- the same browser behavior would hit identically on any of them: `customer_detail.html`, the Add Customer form and New Quote's customer fields, Edit Quote Details, and Company Settings.
+
+Verified: full suite (7 files) passes; confirmed each affected page still renders correctly with the new attribute in place.
 
 After a few rounds of back-and-forth, Jim's actual ask turned out narrower than what got built: "we just want the address clickable on the main Customer list page" -- not the individual customer detail page. The detail-page version (address displays as a link, with a small "Edit address" toggle to get back to the real input) also had a real problem of its own: since the address field there is meant to stay editable, clicking it to fix a typo instead fired up the map, with no obvious way in to actually type -- exactly the kind of thing that's worse than not having the feature at all.
 

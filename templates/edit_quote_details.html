@@ -72,11 +72,11 @@ input:checked + .slider:before { transform:translateX(16px); }
         <div class="form-row form-row-2">
           <div class="form-group">
             <label class="form-label">Address</label>
-            <input class="form-control" name="address" value="{{ quote.address or '' }}">
+            <input class="form-control" name="address" value="{{ quote.address or '' }}" autocomplete="off">
           </div>
           <div class="form-group">
             <label class="form-label">City</label>
-            <input class="form-control" name="city" value="{{ quote.city or '' }}" placeholder="Tampa">
+            <input class="form-control" name="city" value="{{ quote.city or '' }}" placeholder="Tampa" autocomplete="off">
           </div>
         </div>
 

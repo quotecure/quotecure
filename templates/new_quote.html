@@ -132,11 +132,11 @@ input:checked + .slider:before { transform:translateX(16px); }
         <div class="form-row form-row-2">
           <div class="form-group">
             <label class="form-label">Address</label>
-            <input class="form-control" name="address" id="customer-address-inp" placeholder="1234 Palm Dr" value="{{ prefill_customer.address if prefill_customer else '' }}">
+            <input class="form-control" name="address" id="customer-address-inp" placeholder="1234 Palm Dr" value="{{ prefill_customer.address if prefill_customer else '' }}" autocomplete="off">
           </div>
           <div class="form-group">
             <label class="form-label">City</label>
-            <input class="form-control" name="city" id="customer-city-inp" placeholder="Tampa" value="{{ prefill_customer.city if prefill_customer else '' }}">
+            <input class="form-control" name="city" id="customer-city-inp" placeholder="Tampa" value="{{ prefill_customer.city if prefill_customer else '' }}" autocomplete="off">
           </div>
         </div>
 

@@ -27,12 +27,12 @@
           </div>
           <div class="form-group">
             <label class="form-label">Address</label>
-            <input class="form-control" name="address" value="{{ customer.address or '' }}">
+            <input class="form-control" name="address" value="{{ customer.address or '' }}" autocomplete="off">
             <div style="font-size:11px;color:var(--text3);margin-top:4px;">Just this customer's own record — doesn't change the address on any of their existing quotes below.</div>
           </div>
           <div class="form-group">
             <label class="form-label">City</label>
-            <input class="form-control" name="city" value="{{ customer.city or '' }}" placeholder="Tampa">
+            <input class="form-control" name="city" value="{{ customer.city or '' }}" placeholder="Tampa" autocomplete="off">
           </div>
           <div class="form-group">
             <label class="form-label">Phone</label>
