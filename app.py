@@ -627,6 +627,35 @@ def debug_ghl_outbound(quote_id):
             result['find_contact_by_email_error'] = str(e)
     else:
         result['note'] = 'customer has no email on file -- _ensure_ghl_contact bails out here'
+
+    # The read-only search above came back clean (credentials work), but nothing downstream
+    # of it succeeded -- ghl_contact_id and ghl_opportunity_id are both still blank, meaning
+    # the actual CREATE calls are where this is really failing. Those aren't read-only, so
+    # only attempted with an explicit ?create=1 -- and this is exactly what a real send is
+    # supposed to do anyway (create this customer's real Contact/Opportunity in GHL), not an
+    # extra side effect beyond what Jim's already trying to accomplish.
+    if request.args.get('create') == '1' and customer:
+        try:
+            contact_id = _ensure_ghl_contact(db, customer['customer_id'])
+            result['ensure_contact_result'] = contact_id
+        except Exception as e:
+            result['ensure_contact_error'] = f'{type(e).__name__}: {e}'
+        # Calling ghl_client.create_opportunity directly here, NOT _sync_quote_to_ghl --
+        # that function wraps its own body in try/except and only print()s a failure
+        # (by design, so a real send is never blocked by a GHL problem), which would
+        # silently hide the real error from this diagnostic too. This bypasses that on
+        # purpose, just for this one investigative call.
+        if result.get('ensure_contact_result'):
+            try:
+                opp_id = ghl_client.create_opportunity(
+                    db, result['ensure_contact_result'], _GHL_PIPELINE_ID, _GHL_STAGE_QUOTE_SENT,
+                    quote['customer_name'] or f"QT-{quote_id:04d}", float(quote['total_price'] or 0), status='open'
+                )
+                db.execute("UPDATE quotes SET ghl_opportunity_id=? WHERE quote_id=?", (opp_id, quote_id))
+                db.commit()
+                result['create_opportunity_result'] = opp_id
+            except Exception as e:
+                result['create_opportunity_error'] = f'{type(e).__name__}: {e}'
     return jsonify(result)
 
 def _quote_counts_for(db, quotes):
