@@ -1084,7 +1084,7 @@ def _dims_totals(dims):
     total_sqft = dims.get('total_surface_sqft') or dims.get('pool_sqft') or 0
     return total_lf, total_sqft
 
-def _apply_min_job_price(db, work_type_id, total_cost, total_price):
+def _apply_min_job_price(db, work_type_id, total_cost, total_price, line_item_is_passthrough=False):
     """Enforce a work type's flat-dollar minimum job price, if one is set -- keeps a
     deliberately thin-margin work type (e.g. a loss-leader) from pricing an individual job
     below what it costs to run, regardless of markup. Returns (total_cost, total_price, total_margin).
@@ -1093,9 +1093,13 @@ def _apply_min_job_price(db, work_type_id, total_cost, total_price):
     positive number, silently destroying the credit. Also skipped for pass-through work
     types -- a min_job_price floor bumping price above cost injects a margin, which
     contradicts the whole point of pass-through: billed at exactly what the sub charges,
-    zero margin, no exceptions (build_line_item already locks markup at 0% the same way)."""
+    zero margin, no exceptions (build_line_item already locks markup at 0% the same way).
+    line_item_is_passthrough covers a line item manually moved into Pass-Through (see
+    move_line_item_section) whose work type isn't normally pass-through -- the floor has to
+    respect that per-row override too, not just the work type's own default."""
     wt = db.execute("SELECT min_job_price, is_passthrough FROM work_types WHERE work_type_id=?", (work_type_id,)).fetchone()
-    floor = float(wt['min_job_price']) if wt and wt['min_job_price'] and wt['is_passthrough'] != 'Y' else 0
+    wt_is_passthrough = bool(wt and wt['is_passthrough'] == 'Y')
+    floor = float(wt['min_job_price']) if wt and wt['min_job_price'] and not wt_is_passthrough and not line_item_is_passthrough else 0
     if floor and total_price >= 0 and total_price < floor:
         total_price = floor
     total_margin = round((total_price - total_cost) / total_price * 100 if total_price else 0, 1)
@@ -3417,7 +3421,8 @@ def _rollup_item_totals(db, item_id):
 
     total_cost = round(float(row['labor_total_cost'] or 0) + float(row['material_total_cost'] or 0) + q_cost, 2)
     total_price = round(float(row['labor_total_price'] or 0) + float(row['material_total_price'] or 0) + q_price, 2)
-    total_cost, total_price, total_margin = _apply_min_job_price(db, row['work_type_id'], total_cost, total_price)
+    total_cost, total_price, total_margin = _apply_min_job_price(
+        db, row['work_type_id'], total_cost, total_price, line_item_is_passthrough=bool(row['is_passthrough']))
     db.execute("UPDATE quote_line_items SET total_cost=?,total_price=?,total_margin_pct=? WHERE id=?",
                (total_cost, total_price, total_margin, item_id))
     return total_cost, total_price, total_margin
@@ -5282,6 +5287,69 @@ def include_optional_item(quote_id, item_id):
     if not row or not row['is_optional']:
         return jsonify({'error': 'Not found'}), 404
     db.execute("UPDATE quote_line_items SET is_optional=0,is_declined=0 WHERE id=?", (item_id,))
+    db.commit()
+    _recalc_quote(db, quote_id)
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/move_section', methods=['POST'])
+@login_required
+def move_line_item_section(quote_id, item_id):
+    """Moves a line item between the three quote sections -- Main (totaled), Pass-Through
+    (billed at cost, no markup, excluded from the total), and Optional/Recommended/
+    Contingent (priced but excluded from the total, customer decides). Jim: sometimes wants
+    e.g. Surface Removal moved out of Main into Pass-Through or Optional, and back -- before
+    this, the only way was deleting the line item and re-adding it from scratch.
+
+    Moving INTO Pass-Through zeroes markup, billing at exactly cost -- same rule
+    price_component enforces everywhere else. Moving OUT of Pass-Through restores the work
+    type's own default markup (the old markup was zeroed and isn't recoverable). Moving
+    between Main and Optional is a pure flag flip -- neither changes pricing, so no
+    repricing happens unless Pass-Through is on one side of the move."""
+    db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
+    data = request.json or {}
+    to = data.get('to')
+    if to not in ('main', 'passthrough', 'optional'):
+        return jsonify({'error': 'Invalid section'}), 400
+    row = db.execute("SELECT * FROM quote_line_items WHERE id=? AND quote_id=?", (item_id, quote_id)).fetchone()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+
+    was_passthrough = bool(row['is_passthrough'])
+    will_be_passthrough = (to == 'passthrough')
+    if was_passthrough != will_be_passthrough:
+        wt = db.execute("SELECT default_markup, min_markup FROM work_types WHERE work_type_id=?",
+                        (row['work_type_id'],)).fetchone()
+        if will_be_passthrough:
+            new_markup, new_min = 0.0, 0.0
+        else:
+            new_markup = float(wt['default_markup']) if wt and wt['default_markup'] is not None else 30.0
+            new_min = float(wt['min_markup']) if wt and wt['min_markup'] is not None else 10.0
+        new_margin = round((new_markup / (100 + new_markup)) * 100, 1) if new_markup else 0
+
+        l_cost = float(row['labor_total_cost'] or 0)
+        l_price = round(l_cost * (1 + new_markup / 100), 2)
+        updates = {'labor_markup_pct': new_markup, 'labor_min_markup': new_min,
+                   'labor_total_price': l_price, 'labor_margin_pct': new_margin}
+
+        m_cost = float(row['material_total_cost'] or 0)
+        if m_cost:
+            m_price = round(m_cost * (1 + new_markup / 100), 2)
+            updates.update({'material_markup_pct': new_markup, 'material_min_markup': new_min,
+                             'material_total_price': m_price, 'material_margin_pct': new_margin})
+
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        db.execute(f"UPDATE quote_line_items SET {set_clause} WHERE id=?", tuple(updates.values()) + (item_id,))
+
+    category = data.get('category') or 'Optional'
+    if category not in ('Optional', 'Recommended', 'Contingent'):
+        category = 'Optional'
+    db.execute("""UPDATE quote_line_items SET is_optional=?, is_passthrough=?, is_declined=0,
+                  optional_category=? WHERE id=?""",
+               (1 if to == 'optional' else 0, 1 if to == 'passthrough' else 0,
+                category if to == 'optional' else row['optional_category'], item_id))
+    _rollup_item_totals(db, item_id)
     db.commit()
     _recalc_quote(db, quote_id)
     return jsonify({'success': True})

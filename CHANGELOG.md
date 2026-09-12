@@ -4,6 +4,22 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-12 — Move a line item between Main / Pass-Through / Optional sections
+
+Jim: "sometimes i want to move surface removal out of the regular section that gets totaled, and into passthrough or more commonly the Optional/Cont/Rec section. And vice versa." Previously the only way was deleting the line item and re-adding it from scratch under a different section, retyping everything.
+
+Added a small "Main / Pass-Through / Optional" dropdown to each line item's Actions column on the quote editor. Picking a different value calls a new route, `/quotes/<id>/line_items/<item_id>/move_section`, and reloads. The three sections have real pricing differences, not just display differences, so the route isn't a pure flag flip in every direction:
+
+- **Into Pass-Through**: markup is zeroed on both labor and material (billed at exactly cost, matching every other pass-through item), and it's excluded from the quote's totaled price.
+- **Out of Pass-Through**: the old markup was zeroed and isn't recoverable, so it's restored to the work type's own default markup (e.g. Surface Removal's normal 15%).
+- **Main ↔ Optional**: a pure flag flip -- pricing is untouched either way, since neither side zeroes markup.
+
+Also fixed a real bug this surfaced: a work type's flat-dollar minimum job price (e.g. Surface Removal's $2,800 floor) was only ever checked against the *work type's own* pass-through setting, not a line item's own manually-set flag -- so a Surface Removal item moved into Pass-Through would have gotten its floor reapplied on the next recalc, silently re-injecting a margin into something that's supposed to be billed at exactly cost. `_apply_min_job_price` now takes the line item's actual pass-through state into account too.
+
+Verified: `test_move_line_item_section.py` (10 assertions) covers every pairwise move (including skipping straight from Optional to Pass-Through), markup zeroing/restoring on both labor and material components, the $2,800 floor correctly disappearing in Pass-Through and reappearing back in Main, quote-total exclusion, `is_declined` getting cleared on any move, an invalid destination being rejected, and a locked contract refusing the move. Full suite (12 files) passes. Live-verified in browser: moved a real Surface Removal item Main → Pass-Through → Optional → Main and watched the price, markup display, and quote totals update correctly at each step.
+
+---
+
 ## 2026-09-12 — Surface Products: added Edit to Applicator Rates, capped the Minimum Sqft field
 
 Jim, adding a gel-coat rate for Aquatic Surfaces at $10/sqft: misread "Minimum Sqft" as a dollar minimum and entered 6500 -- which made every job on that rate price as if the pool were 6,500 sqft (a real pool surface is typically 300-900 sqft), badly inflating the quote. Then found there was no way to fix it: the Applicator Rates table on Admin → Surface Products never had an Edit button, or even a visible Delete button, in the UI at all -- only Sub Rates (a different, similar-looking table) has that.

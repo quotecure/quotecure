@@ -415,13 +415,13 @@
           <th style="width:22%">Service</th>
           <th style="width:14%">Subcontractor</th>
           <th class="r" style="width:8%">Qty</th>
-          <th class="r" style="width:6%">Unit</th>
+          <th class="r" style="width:4%">Unit</th>
           <th class="r" style="width:9%">Cost/Unit</th>
           <th class="r" style="width:9%">Total Cost</th>
           <th class="r" style="width:10%">Markup</th>
-          <th class="r" style="width:7%">Margin</th>
+          <th class="r" style="width:6%">Margin</th>
           <th class="r" style="width:9%">Price</th>
-          <th style="width:6%"></th>
+          <th style="width:9%"></th>
         </tr>
       </thead>
   {% endmacro %}
@@ -537,9 +537,17 @@
         </td>
 
         <!-- Actions -->
-        <td style="text-align:right;white-space:nowrap;">
-          <span class="drag-handle" data-id="{{ item.id }}" title="Drag to reorder" style="cursor:grab;touch-action:none;user-select:none;padding:2px 6px;color:var(--text3);font-size:13px;display:inline-block;">⋮⋮</span>
-          <button onclick="deleteItem({{ item.id }})" style="background:none;border:none;color:var(--red);cursor:pointer;padding:2px 6px;font-size:12px;">✕</button>
+        <td style="text-align:right;">
+          {% set current_section = 'passthrough' if item.is_passthrough else ('optional' if item.is_optional else 'main') %}
+          <select class="move-section-select" title="Move to a different section" onchange="moveItemSection({{ item.id }}, this.value)" style="display:block;width:100%;max-width:110px;margin:0 0 4px auto;font-size:11px;padding:2px 4px;background:var(--bg2);color:var(--text2);border:1px solid var(--border2);border-radius:4px;">
+            <option value="main" {{ 'selected' if current_section == 'main' }}>Main</option>
+            <option value="passthrough" {{ 'selected' if current_section == 'passthrough' }}>Pass-Through</option>
+            <option value="optional" {{ 'selected' if current_section == 'optional' }}>Optional</option>
+          </select>
+          <span style="white-space:nowrap;">
+            <span class="drag-handle" data-id="{{ item.id }}" title="Drag to reorder" style="cursor:grab;touch-action:none;user-select:none;padding:2px 6px;color:var(--text3);font-size:13px;display:inline-block;">⋮⋮</span>
+            <button onclick="deleteItem({{ item.id }})" style="background:none;border:none;color:var(--red);cursor:pointer;padding:2px 6px;font-size:12px;">✕</button>
+          </span>
         </td>
       </tr>
 
@@ -1728,6 +1736,18 @@ async function deleteItem(id) {
   if (!confirm('Remove this line item?')) return;
   const resp = await fetch('/quotes/' + QID + '/line_items/' + id, {method: 'DELETE'});
   if (resp.ok) location.reload();
+}
+
+async function moveItemSection(id, to) {
+  if (LOCKED) { lockedAlert(); location.reload(); return; }
+  const resp = await fetch('/quotes/' + QID + '/line_items/' + id + '/move_section', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({to: to})
+  });
+  if (resp.ok) { location.reload(); return; }
+  const d = await resp.json().catch(() => ({}));
+  alert(d.error || 'Could not move this item.');
+  location.reload();
 }
 
 // ── Add new row ───────────────────────────────────────────────────
