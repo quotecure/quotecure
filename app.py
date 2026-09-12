@@ -867,12 +867,21 @@ def customers_list():
     sort = request.args.get('sort', 'created_desc')
     if sort not in _CUSTOMERS_SORT_OPTIONS:
         sort = 'created_desc'
+    search = request.args.get('q', '').strip()
+    where_sql = "1=1"
+    params = []
+    if search:
+        like = f"%{search}%"
+        where_sql = "(c.name ILIKE ? OR c.address ILIKE ? OR c.city ILIKE ? OR c.phone ILIKE ? OR c.email ILIKE ?)"
+        params = [like, like, like, like, like]
     customers = db.execute(
         f"SELECT c.*, COUNT(q.quote_id) as quote_count "
         f"FROM customers c LEFT JOIN quotes q ON q.customer_id=c.customer_id "
-        f"GROUP BY c.customer_id ORDER BY {_CUSTOMERS_SORT_OPTIONS[sort]}"
+        f"WHERE {where_sql} "
+        f"GROUP BY c.customer_id ORDER BY {_CUSTOMERS_SORT_OPTIONS[sort]}",
+        tuple(params)
     ).fetchall()
-    return render_template('customers.html', customers=customers, sort=sort)
+    return render_template('customers.html', customers=customers, sort=sort, search=search)
 
 @app.route('/customers/add', methods=['POST'])
 @login_required

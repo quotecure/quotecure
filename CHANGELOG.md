@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-12 — Reordered top nav; added Search to the Customers list and widened its layout
+
+Jim: "Let's make the top nav Customers, Quotes, Contracts, Schedule, and then Admin" and "Let's add Search to the Customer List page and let's make that grid wider, i don't like how some things are breaking to the next line."
+
+**Nav**: reordered `base.html`'s nav links to Customers, Quotes, Contracts, Schedule, then the (still permission-gated) Admin dropdown -- no behavior change, just link order. Customers keeps its GHL "new lead" red badge in its new position.
+
+**Customers list**: added a Search box (name/address/city/phone/email, case-insensitive `ILIKE`, same whitelisted-params style as the Quotes list's search) with a "Clear" link and a distinct "No customers match ..." empty state when a search comes up empty. Widened the page's grid from a 3:1 to a 5:1 table-to-form ratio and added `white-space:nowrap` to the Phone/Email columns (Address and Created already had it) so normal-length values stop wrapping onto a second line.
+
+Verified: `test_customers_search.py` (7 assertions) covers matching on each of the five fields, an unmatched search showing the empty state without erroring, combining `q` with the existing `sort` param, and the no-search-param case staying backward compatible. Full suite (10 files) passes. Live-verified in browser: nav order, search box, filtering down to 2 of 8 test customers, the "Clear" link, and the no-match empty state all work as expected.
+
+---
+
 ## 2026-09-11 — Quick Add Work Type: fixed a wrong-supplier bug, added the ability to type a brand-new one
 
 Jim: added a new work type "Ladder Installation" via Quick Add, entered labor/rate, and a "Saftron" product -- but it showed up as "Flagstone- Saftron Ladder." Root cause: leaving Supplier on its default with no Collection picked silently fell back to "whichever supplier happens to be alphabetically first" (Flagstone) -- a fallback with zero relation to what was actually typed, and Saftron (a real ladder/rail brand, just not one already in the system) had no way to be added as a supplier at all, since Quick Add's Supplier field was a plain dropdown of existing ones only.

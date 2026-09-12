@@ -18,8 +18,21 @@
     </a>
   </th>
   {% endmacro %}
-  <div style="display:grid; grid-template-columns:3fr 1fr; gap:24px; align-items:start;">
+  <div style="display:grid; grid-template-columns:5fr 1fr; gap:24px; align-items:start;">
     <div class="card">
+      <div style="padding:16px 16px 0;">
+        <form method="GET" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+          <input type="hidden" name="sort" value="{{ sort }}">
+          <div style="flex:1;min-width:220px;">
+            <label class="form-label">Search</label>
+            <input type="text" name="q" value="{{ search }}" placeholder="Name, address, phone, or email" class="form-control">
+          </div>
+          <button type="submit" class="btn btn-secondary">Search</button>
+          {% if search %}
+          <a href="/customers?{{ qs_with(q='') }}" class="btn btn-secondary">Clear</a>
+          {% endif %}
+        </form>
+      </div>
       {% if customers %}
       <div class="table-wrap">
         <table>
@@ -49,8 +62,8 @@
                 —
                 {% endif %}
               </td>
-              <td style="color:var(--text2)">{{ c.phone or '—' }}</td>
-              <td style="color:var(--text2)">{{ c.email or '—' }}</td>
+              <td style="color:var(--text2);white-space:nowrap;">{{ c.phone or '—' }}</td>
+              <td style="color:var(--text2);white-space:nowrap;">{{ c.email or '—' }}</td>
               <td style="color:var(--text3);font-size:12px;white-space:nowrap;">{{ (c.created_at[:10]) if c.created_at else '—' }}</td>
               <td class="right mono">{{ c.quote_count }}</td>
             </tr>
@@ -61,7 +74,11 @@
       {% else %}
       <div class="empty-state">
         <div class="empty-state-icon">👥</div>
+        {% if search %}
+        <div class="empty-state-text">No customers match "{{ search }}". <a href="/customers?{{ qs_with(q='') }}">Clear search</a>.</div>
+        {% else %}
         <div class="empty-state-text">No customers yet. <a href="/quotes/new">Create a quote</a> or add one directly.</div>
+        {% endif %}
       </div>
       {% endif %}
     </div>
