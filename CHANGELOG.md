@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-12 — Fixed the Customers list layout regression from earlier today
+
+Jim: "this customer list page got worse." Earlier today's "utilize the space" fix widened the table:form-card ratio to 5fr:1fr -- but this page's container caps at 1200px wide (`.page`'s max-width, same as every other page), so at that real width a *ratio* backfired: the Add Customer form's column shrank to ~185px, squeezing its labels and inputs down to nearly unusable. A relative fr:fr split just isn't the right tool here since one side (the form) needs a fixed comfortable width, not a proportional one.
+
+Fixed by switching to `grid-template-columns: 1fr 300px` -- the Add Customer form always gets a fixed, comfortable 300px regardless of window width, and the table gets whatever's left over (still more than it had before this morning's change, so "utilize the space" still holds). Verified visually at 1440px and 1280px widths: form fields are back to normal size, table columns aren't wrapping, search still works.
+
+---
+
 ## 2026-09-12 — Reordered top nav; added Search to the Customers list and widened its layout
 
 Jim: "Let's make the top nav Customers, Quotes, Contracts, Schedule, and then Admin" and "Let's add Search to the Customer List page and let's make that grid wider, i don't like how some things are breaking to the next line."
