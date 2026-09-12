@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-12 — Surface Products: added Edit to Applicator Rates, capped the Minimum Sqft field
+
+Jim, adding a gel-coat rate for Aquatic Surfaces at $10/sqft: misread "Minimum Sqft" as a dollar minimum and entered 6500 -- which made every job on that rate price as if the pool were 6,500 sqft (a real pool surface is typically 300-900 sqft), badly inflating the quote. Then found there was no way to fix it: the Applicator Rates table on Admin → Surface Products never had an Edit button, or even a visible Delete button, in the UI at all -- only Sub Rates (a different, similar-looking table) has that.
+
+Two fixes: **(1)** added a proper Edit control to Applicator Rates -- an inline edit row (same toggle pattern as Sub Rates) for Rate/Minimum Sqft/Minimum Spa Price/Notes, plus wired the Delete button (the route already existed, just wasn't in the template) -- so a bad rate can be corrected or removed without touching the database directly. **(2)** added a sanity cap (2,500 sqft) on the Minimum Sqft field, enforced on both Add and Edit, both in the browser (the field's `max` attribute) and on the server (so it can't be bypassed) -- a value like 6,500 now gets rejected with a clear explanation of what the field actually means, instead of silently wrecking every future quote on that rate. Also reworded the field's helper text to state the real-world range (300-900 sqft) up front.
+
+Verified: `test_surface_rate_edit_and_min_sqft_cap.py` (5 assertions) covers rejecting Jim's exact 6,500 mistake on both Add and Edit (with the existing row left untouched on a rejected edit), a normal edit actually saving, and the page rendering the new controls. Full suite (11 files) passes. Live-verified in browser: Edit opens the inline form, entering 6,500 shows the browser's own "must be ≤ 2500" validation and blocks the save, and a normal edit (450) saves and shows correctly.
+
+Still needed from Jim: go to Admin → Surface Products, find the Aquatic Surfaces gel-coat rate, click Edit, and set Minimum Sqft to 0 (or whatever real minimum makes sense). Then open the affected quote's line item, re-pick the same finish in the picker to force it to recompute with the corrected rate -- the stored line-item price won't fix itself just from fixing the rate.
+
+---
+
 ## 2026-09-12 — Fixed the Customers list layout regression from earlier today
 
 Jim: "this customer list page got worse." Earlier today's "utilize the space" fix widened the table:form-card ratio to 5fr:1fr -- but this page's container caps at 1200px wide (`.page`'s max-width, same as every other page), so at that real width a *ratio* backfired: the Add Customer form's column shrank to ~185px, squeezing its labels and inputs down to nearly unusable. A relative fr:fr split just isn't the right tool here since one side (the form) needs a fixed comfortable width, not a proportional one.

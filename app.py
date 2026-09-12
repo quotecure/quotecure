@@ -4043,7 +4043,8 @@ def admin_surfaces():
     applicators = db.execute("SELECT * FROM surface_applicators WHERE active='Y' ORDER BY name").fetchall()
     additives = db.execute("SELECT * FROM surface_additives WHERE active='Y' ORDER BY label").fetchall()
     return render_template('admin_surfaces.html', manufacturers=manufacturers, products=products,
-                           rates=rates, applicators=applicators, additives=additives)
+                           rates=rates, applicators=applicators, additives=additives,
+                           error=request.args.get('error', ''))
 
 @app.route('/admin/surfaces/add_manufacturer', methods=['POST'])
 @require_permission('can_edit_surfaces')
@@ -4062,16 +4063,52 @@ def add_product():
     db.commit()
     return redirect(url_for('admin_surfaces'))
 
+# Jim, entering a gel-coat rate: misread "Minimum Sqft" as a dollar minimum and put 6500
+# there, which made every job on that rate price as if the pool were 6,500 sqft (a real
+# residential pool surface is typically 300-900 sqft). This is a sanity ceiling on the field
+# itself -- generous enough to cover any real single pool surface -- so a mistake like that
+# fails loudly instead of silently wrecking a quote.
+MAX_APPLICATOR_MIN_SQFT = 2500
+app.jinja_env.globals['MAX_APPLICATOR_MIN_SQFT'] = MAX_APPLICATOR_MIN_SQFT
+
+def _validate_applicator_rate_form(form):
+    """Returns an error string, or None if the min_sqft entry is sane."""
+    min_sqft = float(form.get('min_sqft', 0) or 0)
+    if min_sqft > MAX_APPLICATOR_MIN_SQFT:
+        return (f"Minimum Sqft of {min_sqft:g} is way above any real pool surface "
+                f"(cap is {MAX_APPLICATOR_MIN_SQFT:g}) -- this field means \"treat the job as "
+                f"at least this many sqft,\" not a dollar minimum. Leave it at 0 unless you "
+                f"specifically need a small-job floor.")
+    return None
+
 @app.route('/admin/surfaces/add_rate', methods=['POST'])
 @require_permission('can_edit_surfaces')
 def add_applicator_rate():
     db = get_db()
+    error = _validate_applicator_rate_form(request.form)
+    if error:
+        return redirect(url_for('admin_surfaces', error=error))
     db.execute("""INSERT INTO surface_applicator_rates (sub_id,product_id,rate,notes,min_sqft,min_spa_price)
                   VALUES (?,?,?,?,?,?)""",
                (request.form['sub_id'], request.form['product_id'],
                 float(request.form['rate']), request.form.get('notes',''),
                 float(request.form.get('min_sqft', 0) or 0),
                 float(request.form.get('min_spa_price', 0) or 0)))
+    db.commit()
+    return redirect(url_for('admin_surfaces'))
+
+@app.route('/admin/surfaces/edit_rate/<int:rate_id>', methods=['POST'])
+@require_permission('can_edit_surfaces')
+def edit_applicator_rate(rate_id):
+    db = get_db()
+    error = _validate_applicator_rate_form(request.form)
+    if error:
+        return redirect(url_for('admin_surfaces', error=error))
+    db.execute("""UPDATE surface_applicator_rates SET rate=?, notes=?, min_sqft=?, min_spa_price=?
+                  WHERE id=?""",
+               (float(request.form['rate']), request.form.get('notes', ''),
+                float(request.form.get('min_sqft', 0) or 0),
+                float(request.form.get('min_spa_price', 0) or 0), rate_id))
     db.commit()
     return redirect(url_for('admin_surfaces'))
 
