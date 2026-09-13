@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block title %}Competitors — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Competitors</div>
+      <div class="page-subtitle">Companies whose quotes get logged against a customer</div>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:2fr 1fr; gap:24px; align-items:start;">
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {% for c in competitors %}
+            <tr>
+              <td style="font-weight:500">{{ c.name }}</td>
+              <td><span class="badge badge-{{ 'green' if c.active == 'Y' else 'red' }}">{{ 'Active' if c.active == 'Y' else 'Off' }}</span></td>
+              <td style="text-align:right;">
+                <form method="POST" action="/admin/competitors/toggle" style="display:inline">
+                  <input type="hidden" name="competitor_id" value="{{ c.competitor_id }}">
+                  <button class="btn btn-secondary btn-sm">{{ 'Deactivate' if c.active == 'Y' else 'Activate' }}</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not competitors %}
+            <tr><td colspan="3" style="text-align:center;padding:24px;color:var(--text3)">No competitors logged yet.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Add Competitor</div></div>
+      <div class="card-body">
+        <form method="POST" action="/admin/competitors/add">
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input class="form-control" name="name" required placeholder="e.g. Blue Haven Pools">
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Add</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

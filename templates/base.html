@@ -84,6 +84,7 @@
         <a href="/admin/modifiers" class="nav-dropdown-item {% if '/admin/modifiers' in request.path %}active{% endif %}">Modifiers</a>
         <a href="/admin/sunshelf_components" class="nav-dropdown-item {% if '/admin/sunshelf_components' in request.path %}active{% endif %}">Sunshelf Components</a>
         <a href="/admin/locked_accounts" class="nav-dropdown-item {% if '/admin/locked_accounts' in request.path %}active{% endif %}">Locked Accounts</a>
+        <a href="/admin/competitors" class="nav-dropdown-item {% if '/admin/competitors' in request.path %}active{% endif %}">Competitors</a>
         <hr class="nav-dropdown-divider">
         <a href="/admin/quote_template" class="nav-dropdown-item {% if '/admin/quote_template' in request.path %}active{% endif %}">Quote Template</a>
         <a href="/admin/packages" class="nav-dropdown-item {% if '/admin/packages' in request.path %}active{% endif %}">Packages</a>
@@ -93,6 +94,7 @@
         <a href="/admin/commission" class="nav-dropdown-item {% if '/admin/commission' in request.path %}active{% endif %}">Commission Policy</a>
         <a href="/admin/salespeople" class="nav-dropdown-item {% if '/admin/salespeople' in request.path %}active{% endif %}">Salespeople</a>
         {% if current_role and current_role.can_edit_commission_policy %}
+        <a href="/admin/competitor_rates" class="nav-dropdown-item {% if '/admin/competitor_rates' in request.path %}active{% endif %}">Competitor Rates</a>
         <a href="/admin/permissions" class="nav-dropdown-item {% if '/admin/permissions' in request.path %}active{% endif %}">Roles &amp; Permissions</a>
         {% endif %}
         </div>

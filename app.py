@@ -923,8 +923,33 @@ def customer_detail(customer_id):
         return item['kind'] == 'file' and item['mime_type'] in INLINE_IMAGE_MIME_TYPES
     photos = [item for item in timeline if is_photo(item)]
     history = [item for item in timeline if not is_photo(item)]
+
+    competitor_quotes = [dict(r) for r in db.execute(
+        "SELECT cq.*, c.name as competitor_name FROM competitor_quotes cq "
+        "JOIN competitors c ON cq.competitor_id=c.competitor_id "
+        "WHERE cq.customer_id=? ORDER BY cq.created_at DESC", (customer_id,)
+    ).fetchall()]
+    if competitor_quotes:
+        cq_ids = [cq['id'] for cq in competitor_quotes]
+        placeholders = ','.join('?' * len(cq_ids))
+        item_rows = db.execute(
+            f"SELECT cqi.*, wt.work_type as work_type_label FROM competitor_quote_items cqi "
+            f"LEFT JOIN work_types wt ON cqi.work_type_id=wt.work_type_id "
+            f"WHERE cqi.competitor_quote_id IN ({placeholders}) ORDER BY cqi.id",
+            tuple(cq_ids)
+        ).fetchall()
+        items_by_cq = {}
+        for r in item_rows:
+            items_by_cq.setdefault(r['competitor_quote_id'], []).append(dict(r))
+        for cq in competitor_quotes:
+            cq['line_items'] = items_by_cq.get(cq['id'], [])
+    competitors = db.execute("SELECT * FROM competitors WHERE active='Y' ORDER BY name").fetchall()
+    competitor_work_types = db.execute("SELECT work_type_id, work_type, unit FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
+
     return render_template('customer_detail.html', customer=customer, quotes=quotes,
-                           archived_ids=archived_ids, photos=photos, history=history, current_role=g.role)
+                           archived_ids=archived_ids, photos=photos, history=history, current_role=g.role,
+                           competitor_quotes=competitor_quotes, competitors=competitors,
+                           competitor_work_types=competitor_work_types, error=request.args.get('error', ''))
 
 @app.route('/customers/<int:customer_id>/delete', methods=['POST'])
 @require_permission('can_access_admin')
@@ -935,6 +960,9 @@ def delete_customer(customer_id):
         return jsonify({'error': f"This customer has {quote_count} quote{'s' if quote_count != 1 else ''} on file — remove or reassign those first."}), 409
     db.execute("DELETE FROM customer_notes WHERE customer_id=?", (customer_id,))
     db.execute("DELETE FROM customer_attachments WHERE customer_id=?", (customer_id,))
+    db.execute("DELETE FROM competitor_quote_items WHERE competitor_quote_id IN "
+              "(SELECT id FROM competitor_quotes WHERE customer_id=?)", (customer_id,))
+    db.execute("DELETE FROM competitor_quotes WHERE customer_id=?", (customer_id,))
     db.execute("DELETE FROM customers WHERE customer_id=?", (customer_id,))
     db.commit()
     return jsonify({'success': True})
@@ -995,6 +1023,68 @@ def delete_customer_note(customer_id, note_id):
     db.execute("DELETE FROM customer_notes WHERE id=? AND customer_id=?", (note_id, customer_id))
     db.commit()
     return redirect(url_for('customer_detail', customer_id=customer_id))
+
+@app.route('/customers/<int:customer_id>/competitor_quotes/add', methods=['POST'])
+@login_required
+def add_competitor_quote(customer_id):
+    db = get_db()
+    competitor_id = request.form.get('competitor_id', '').strip()
+    new_competitor_name = request.form.get('new_competitor_name', '').strip()
+    if new_competitor_name:
+        competitor_id = _find_or_create_competitor(db, new_competitor_name)
+    if not competitor_id:
+        return redirect(url_for('customer_detail', customer_id=customer_id))
+
+    quote_id = request.form.get('quote_id', '').strip() or None
+    saw_quote = 'Y' if request.form.get('saw_quote') else 'N'
+    notes = request.form.get('notes', '').strip()
+    author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+
+    items = []
+    if saw_quote == 'Y':
+        work_type_ids = request.form.getlist('work_type_id[]')
+        custom_labels = request.form.getlist('custom_label[]')
+        quantities = request.form.getlist('quantity[]')
+        units = request.form.getlist('unit[]')
+        prices = request.form.getlist('price[]')
+        for wt_id, label, qty, unit, price in zip(work_type_ids, custom_labels, quantities, units, prices):
+            price = price.strip()
+            if not price:
+                # A row with no price is just an unused blank template row -- skip it
+                # rather than creating a $0 item nobody meant to add.
+                continue
+            items.append((int(wt_id) if wt_id else None, label.strip(), float(qty) if qty.strip() else 0.0,
+                          unit.strip(), float(price)))
+        if not items:
+            # "Saw it" but nothing was actually filled in -- fail loudly instead of quietly
+            # creating an empty $0 entry that looks like real data later.
+            return redirect(url_for('customer_detail', customer_id=customer_id,
+                                    error='Check "I saw their quote" but add at least one priced item -- or uncheck it if you only know the competitor\'s name.') + '#competitor-quotes')
+
+    cur = db.execute(
+        "INSERT INTO competitor_quotes (customer_id, competitor_id, quote_id, saw_quote, notes, created_by) "
+        "VALUES (?,?,?,?,?,?) RETURNING id",
+        (customer_id, competitor_id, quote_id, saw_quote, notes, author)
+    )
+    cq_id = cur.fetchone()[0]
+    for wt_id, label, qty, unit, price in items:
+        db.execute(
+            "INSERT INTO competitor_quote_items (competitor_quote_id, work_type_id, label, quantity, unit, price) "
+            "VALUES (?,?,?,?,?,?)",
+            (cq_id, wt_id, label, qty, unit, price)
+        )
+    _recalc_competitor_quote_total(db, cq_id)
+    db.commit()
+    return redirect(url_for('customer_detail', customer_id=customer_id) + '#competitor-quotes')
+
+@app.route('/customers/<int:customer_id>/competitor_quotes/<int:cq_id>/delete', methods=['POST'])
+@login_required
+def delete_competitor_quote(customer_id, cq_id):
+    db = get_db()
+    db.execute("DELETE FROM competitor_quote_items WHERE competitor_quote_id=?", (cq_id,))
+    db.execute("DELETE FROM competitor_quotes WHERE id=? AND customer_id=?", (cq_id, customer_id))
+    db.commit()
+    return redirect(url_for('customer_detail', customer_id=customer_id) + '#competitor-quotes')
 
 @app.route('/customers/<int:customer_id>/attachments/add', methods=['POST'])
 @login_required
@@ -3882,6 +3972,54 @@ def _find_or_create_sub(db, name):
     db.execute("INSERT INTO subs (sub_id,name,active,phone,poc_name,email) VALUES (?,?,'Y','','','')", (next_id, name))
     return next_id
 
+def _find_or_create_competitor(db, name):
+    """Same idea as _find_or_create_sub/_find_or_create_supplier -- exact case-insensitive
+    name match against an existing competitor; otherwise create one. competitor_id is a real
+    identity column (unlike subs' app-generated S-prefix ids), so no next-number math needed."""
+    existing = db.execute("SELECT competitor_id FROM competitors WHERE LOWER(name)=LOWER(?)", (name,)).fetchone()
+    if existing:
+        return existing['competitor_id']
+    row = db.execute("INSERT INTO competitors (name) VALUES (?) RETURNING competitor_id", (name,)).fetchone()
+    return row['competitor_id']
+
+def _recalc_competitor_quote_total(db, competitor_quote_id):
+    """Rolls up competitor_quotes.total_price from its items -- same cached-total convention
+    as _recalc_quote(), so displaying the total never needs a JOIN."""
+    total = db.execute(
+        "SELECT COALESCE(SUM(price),0) FROM competitor_quote_items WHERE competitor_quote_id=?",
+        (competitor_quote_id,)
+    ).fetchone()[0]
+    db.execute("UPDATE competitor_quotes SET total_price=? WHERE id=?", (float(total), competitor_quote_id))
+
+@app.route('/admin/competitors')
+@require_permission('can_access_admin')
+def admin_competitors():
+    db = get_db()
+    competitors = db.execute("SELECT * FROM competitors ORDER BY name").fetchall()
+    return render_template('admin_competitors.html', competitors=competitors)
+
+@app.route('/admin/competitors/add', methods=['POST'])
+@require_permission('can_access_admin')
+def add_competitor():
+    db = get_db()
+    name = request.form.get('name', '').strip()
+    if name:
+        _find_or_create_competitor(db, name)
+        db.commit()
+    return redirect(url_for('admin_competitors'))
+
+@app.route('/admin/competitors/toggle', methods=['POST'])
+@require_permission('can_access_admin')
+def toggle_competitor():
+    db = get_db()
+    competitor_id = request.form['competitor_id']
+    current = db.execute("SELECT active FROM competitors WHERE competitor_id=?", (competitor_id,)).fetchone()
+    if current:
+        new_val = 'N' if current['active'] == 'Y' else 'Y'
+        db.execute("UPDATE competitors SET active=? WHERE competitor_id=?", (new_val, competitor_id))
+        db.commit()
+    return redirect(url_for('admin_competitors'))
+
 @app.route('/api/work_type_name_check')
 @login_required
 def work_type_name_check():
@@ -4124,6 +4262,64 @@ def delete_applicator_rate(rate_id):
     db.execute("DELETE FROM surface_applicator_rates WHERE id=?", (rate_id,))
     db.commit()
     return redirect(url_for('admin_surfaces'))
+
+@app.route('/admin/competitor_rates')
+@require_permission('can_edit_commission_policy')
+def admin_competitor_rates():
+    """Reverse-engineered competitor pricing, grouped by competitor + work type. Gated
+    behind the same permission tier as Commission Policy -- competitive pricing intel is
+    exactly the kind of sensitive business data that tier already exists to protect.
+
+    The blended rate is SUM(price)/SUM(quantity) across every logged item in the group, not
+    an average of each item's own price/quantity rate -- that weights a competitor's bigger
+    jobs proportionally instead of letting one small job's rate skew the group average as
+    much as one large job's. Raw data points are returned alongside each group so a
+    surprising number can be sanity-checked against what actually produced it."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT c.competitor_id, c.name as competitor_name,
+               wt.work_type_id, wt.work_type as work_type_label, wt.unit,
+               cqi.quantity, cqi.price, cqi.label,
+               cust.name as customer_name, cq.created_at
+        FROM competitor_quote_items cqi
+        JOIN competitor_quotes cq ON cqi.competitor_quote_id=cq.id
+        JOIN competitors c ON cq.competitor_id=c.competitor_id
+        JOIN customers cust ON cq.customer_id=cust.customer_id
+        LEFT JOIN work_types wt ON cqi.work_type_id=wt.work_type_id
+        WHERE cqi.quantity > 0
+        ORDER BY c.name, wt.work_type, cq.created_at DESC
+    """).fetchall()
+
+    groups = {}
+    for r in rows:
+        key = (r['competitor_id'], r['work_type_id'])
+        if key not in groups:
+            groups[key] = {
+                'competitor_name': r['competitor_name'],
+                'work_type_label': r['work_type_label'] or (r['label'] or 'Other'),
+                'unit': r['unit'] or '',
+                'points': [],
+            }
+        groups[key]['points'].append({
+            'customer_name': r['customer_name'], 'created_at': r['created_at'],
+            'quantity': float(r['quantity']), 'price': float(r['price']),
+            'rate': float(r['price']) / float(r['quantity']),
+        })
+
+    rate_groups = []
+    for g_data in groups.values():
+        points = g_data['points']
+        total_qty = sum(p['quantity'] for p in points)
+        total_price = sum(p['price'] for p in points)
+        rates = [p['rate'] for p in points]
+        rate_groups.append({
+            **g_data,
+            'count': len(points),
+            'blended_rate': total_price / total_qty if total_qty else 0,
+            'min_rate': min(rates), 'max_rate': max(rates),
+        })
+    rate_groups.sort(key=lambda g: (g['competitor_name'], g['work_type_label']))
+    return render_template('admin_competitor_rates.html', rate_groups=rate_groups)
 
 @app.route('/admin/commission')
 @require_permission('can_edit_commission_policy')

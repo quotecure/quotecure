@@ -4,6 +4,20 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-13 — Competitor quote tracking, with real per-category rates
+
+Jim: he sometimes sees a competitor's quote for the same pool he's measuring, and wants to log their price, broken down by category, so he can reverse-engineer each competitor's actual per-sqft/per-lf/per-each rate over time -- even for customers who won't show him the quote (just name who else they're getting quotes from). He explicitly chose line-item detail over a single total: "Let's do line items so we get real per-category rates."
+
+New tables (`competitors`, `competitor_quotes`, `competitor_quote_items`) map a competitor's line items onto the exact same `work_types` categories QuoteCure already uses (Surface Removal, Paver Installation, etc.), so their rates are directly comparable to Jim's own -- not just a vague bottom-line number.
+
+**Logging a quote** happens from a customer's own page (new "Competitor Quotes" card): pick a competitor or type a new one inline (mirrors the Quick Add Work Type supplier pattern), optionally link one of Jim's own quotes for measurement context, and either check "I saw their actual quote" and fill in a few line-item rows (category, quantity, unit, price -- picking a category auto-fills its usual unit), or leave it unchecked to just log that the customer named them, no quote shown. A "saw it" submission with every row left blank is rejected with a clear message instead of silently creating an empty $0 entry.
+
+**Admin → Competitors** manages the competitor list (add/deactivate, mirrors Subs & Applicators). **Admin → Competitor Rates** (gated behind the same permission tier as Commission Policy, since this is exactly the kind of sensitive business data that tier already protects) is the actual payoff: grouped by competitor + category, showing a blended $/unit rate computed as `SUM(price)/SUM(quantity)` across every logged data point -- weighting bigger jobs proportionally rather than letting one small job's rate skew things as much as a big one -- plus the individual sightings underneath so a surprising number can be sanity-checked against what actually produced it.
+
+Verified: `test_competitor_tracking.py` (7 assertions) covers find-or-create (case-insensitive reuse), a full logged quote computing the right cached total, a "mentioned only" entry needing no items, a "saw it" submission with nothing filled in being rejected, cascading deletes (single quote, and via `delete_customer`), and the blended-rate math against a hand-built two-competitor dataset. Full suite (13 files) passes. Caught and fixed a real bug during browser verification: a competitor quote's items were stored under a dict key called `items`, which collided with Python's own `dict.items()` method -- Jinja's `.` accessor found the built-in method before the dict key, so the customer page crashed (`TypeError: 'builtin_function_or_method' object is not iterable`) the moment a quote with line items was ever displayed. Renamed the key to `line_items`.
+
+---
+
 ## 2026-09-12 — Move a line item between Main / Pass-Through / Optional sections
 
 Jim: "sometimes i want to move surface removal out of the regular section that gets totaled, and into passthrough or more commonly the Optional/Cont/Rec section. And vice versa." Previously the only way was deleting the line item and re-adding it from scratch under a different section, retyping everything.

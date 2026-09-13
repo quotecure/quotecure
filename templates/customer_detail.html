@@ -145,6 +145,160 @@
     </div>
   </div>
 
+  <div class="card" style="margin-top:24px;" id="competitor-quotes">
+    <div class="card-header"><div class="card-title">Competitor Quotes ({{ competitor_quotes|length }})</div></div>
+    <div class="card-body">
+      {% if error %}
+      <div class="card" style="padding:12px 16px;margin-bottom:16px;border-color:var(--red);color:var(--red);font-size:13px;">{{ error }}</div>
+      {% endif %}
+      <form method="POST" action="/customers/{{ customer.customer_id }}/competitor_quotes/add">
+        <div class="form-row form-row-2">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Competitor</label>
+            <select class="form-control" name="competitor_id">
+              <option value="">— Select —</option>
+              {% for c in competitors %}
+              <option value="{{ c.competitor_id }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">…or a brand-new competitor</label>
+            <input class="form-control" name="new_competitor_name" placeholder="e.g. Blue Haven Pools">
+          </div>
+        </div>
+
+        {% if quotes %}
+        <div class="form-group">
+          <label class="form-label">Which of your quotes was this for? <span style="font-weight:400;color:var(--text3);">(optional)</span></label>
+          <select class="form-control" name="quote_id">
+            <option value="">— Not linked —</option>
+            {% for q in quotes %}
+            <option value="{{ q.quote_id }}">QT-{{ '%04d'|format(q.quote_id) }}{% if q.address %} — {{ q.address }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:12px 0;">
+          <input type="checkbox" id="cq-saw-quote" name="saw_quote" value="1" checked onchange="cqToggleSawQuote()">
+          I saw their actual quote <span style="font-weight:400;color:var(--text3);">(uncheck if the customer just named them, no quote shown)</span>
+        </label>
+
+        <div id="cq-items-section">
+          <label class="form-label">Their line items</label>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Pick the matching category where you can — that's what makes their rate comparable to yours. Leave a row blank to skip it.</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th style="width:26%;">Category</th><th style="width:24%;">Detail</th><th class="right" style="width:14%;">Qty</th><th style="width:12%;">Unit</th><th class="right" style="width:16%;">Price</th></tr></thead>
+              <tbody id="cq-items-body">
+                {% for _ in range(4) %}
+                <tr class="cq-item-row">
+                  <td>
+                    <select name="work_type_id[]" class="form-control" style="font-size:12px;padding:4px 6px;" onchange="cqAutofillUnit(this)">
+                      <option value="">— Other —</option>
+                      {% for wt in competitor_work_types %}
+                      <option value="{{ wt.work_type_id }}" data-unit="{{ wt.unit }}">{{ wt.work_type }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td><input class="form-control" name="custom_label[]" style="font-size:12px;padding:4px 6px;" placeholder="optional detail"></td>
+                  <td><input class="form-control" name="quantity[]" type="number" step="0.01" style="font-size:12px;padding:4px 6px;"></td>
+                  <td><input class="form-control" name="unit[]" style="font-size:12px;padding:4px 6px;"></td>
+                  <td><input class="form-control" name="price[]" type="number" step="0.01" style="font-size:12px;padding:4px 6px;" placeholder="0.00"></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <a href="#" onclick="cqAddItemRow(); return false;" style="font-size:12px;color:var(--blue-light);display:inline-block;margin-top:6px;">+ Add another item</a>
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label class="form-label">Notes <span style="font-weight:400;color:var(--text3);">(optional)</span></label>
+          <input class="form-control" name="notes" placeholder="e.g. quoted verbally, no paperwork">
+        </div>
+
+        <button class="btn btn-secondary btn-sm" type="submit" style="margin-top:4px;">Log Competitor Quote</button>
+      </form>
+      <script>
+        function cqAutofillUnit(sel) {
+          const row = sel.closest('tr');
+          const opt = sel.selectedOptions[0];
+          row.querySelector('[name="unit[]"]').value = (opt && opt.dataset.unit) || '';
+        }
+        function cqAddItemRow() {
+          const body = document.getElementById('cq-items-body');
+          const rows = body.querySelectorAll('.cq-item-row');
+          const clone = rows[rows.length - 1].cloneNode(true);
+          clone.querySelectorAll('input').forEach(i => i.value = '');
+          clone.querySelector('select').selectedIndex = 0;
+          body.appendChild(clone);
+        }
+        function cqToggleSawQuote() {
+          document.getElementById('cq-items-section').style.display =
+            document.getElementById('cq-saw-quote').checked ? '' : 'none';
+        }
+      </script>
+
+      {% if competitor_quotes %}
+      <div style="display:flex;flex-direction:column;gap:14px;margin-top:20px;">
+        {% for cq in competitor_quotes %}
+        <div style="padding-top:14px;border-top:1px solid var(--border2);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+            <div>
+              <span style="font-weight:600;">{{ cq.competitor_name }}</span>
+              {% if cq.saw_quote == 'Y' %}
+              <span class="badge badge-green" style="margin-left:6px;">Seen</span>
+              {% else %}
+              <span class="badge badge-amber" style="margin-left:6px;">Mentioned only</span>
+              {% endif %}
+              {% if cq.quote_id %}
+              <a href="/quotes/{{ cq.quote_id }}" class="mono" style="margin-left:8px;font-size:12px;color:var(--blue-light);">QT-{{ '%04d'|format(cq.quote_id) }}</a>
+              {% endif %}
+              <div style="font-size:11px;color:var(--text3);margin-top:2px;">{{ cq.created_at[:10] if cq.created_at else '' }}{% if cq.created_by %} · {{ cq.created_by }}{% endif %}</div>
+              {% if cq.notes %}
+              <div style="font-size:12px;color:var(--text2);margin-top:4px;">{{ cq.notes }}</div>
+              {% endif %}
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              {% if cq.saw_quote == 'Y' %}
+              <span class="mono" style="font-weight:700;">{{ cq.total_price|usd }}</span>
+              {% endif %}
+              <form method="POST" action="/customers/{{ customer.customer_id }}/competitor_quotes/{{ cq.id }}/delete" onsubmit="return confirm('Delete this competitor quote?')">
+                <button class="btn btn-secondary btn-sm" type="submit" style="color:var(--red);">✕</button>
+              </form>
+            </div>
+          </div>
+          {% if cq.line_items %}
+          <div class="table-wrap" style="margin-top:8px;">
+            <table>
+              <thead><tr><th>Category</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Rate</th></tr></thead>
+              <tbody>
+                {% for it in cq.line_items %}
+                <tr>
+                  <td style="font-size:12px;">{{ it.work_type_label or it.label or 'Other' }}{% if it.work_type_label and it.label %} <span style="color:var(--text3);">({{ it.label }})</span>{% endif %}</td>
+                  <td class="right mono" style="font-size:12px;">{{ it.quantity|round(1) }} {{ it.unit }}</td>
+                  <td class="right mono" style="font-size:12px;">{{ it.price|usd }}</td>
+                  <td class="right mono" style="font-size:12px;">{% if it.quantity %}{{ (it.price / it.quantity)|usd }}/{{ it.unit or 'unit' }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <div class="empty-state-icon">🏷️</div>
+        <div class="empty-state-text">No competitor quotes logged yet.</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
   <div class="card" style="margin-top:24px;">
     <div class="card-header"><div class="card-title">History</div></div>
     <div class="card-body">
