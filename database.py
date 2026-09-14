@@ -3848,6 +3848,21 @@ def add_competitor_tracking(conn):
     )''')
 
 
+@migration
+def add_payment_schedule_customized_flag(conn):
+    """Jim: edits a payment schedule row (retitles a milestone, front-loads a deposit for a
+    customer who seems shady) and it 'doesn't save' -- root cause is that _recalc_quote()
+    unconditionally regenerates the whole payment schedule from the standard formula on
+    every single quote edit (any line item change, markup tweak, modifier toggle...), so a
+    hand-edit survives only until the next totally unrelated edit silently wipes it back to
+    the default split. This flag lets _recalc_quote() skip regeneration once a schedule has
+    been hand-edited; clicking the existing Regenerate button explicitly goes back to 'auto'
+    mode and clears the flag."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'payment_schedule_customized' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN payment_schedule_customized INTEGER DEFAULT 0")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

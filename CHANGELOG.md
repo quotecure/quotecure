@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-14 — Fixed the Payment Schedule silently wiping hand-edits, added Add/Delete Milestone
+
+Jim: "i can change it, but it doesn't save" -- referring to the Payment Schedule panel on a quote. It wasn't a save bug: `_recalc_quote()` (called at the end of literally every quote edit -- any line item's qty/cost/markup, a modifier toggle, a section move) unconditionally deleted and regenerated the entire payment schedule from the standard formula every time. So a hand-edit (retitling a milestone, front-loading a deposit for a customer who seems shady) would genuinely save in the moment, then get silently wiped the next time anything else on the quote changed -- with zero warning. He also had no way to add a real new milestone row, only edit the label/amount of whatever rows the last auto-generation happened to create. The ↺ button next to "Payment Schedule" is "Regenerate" -- it's the same reset-to-standard-formula logic, just triggered manually.
+
+Added `quotes.payment_schedule_customized`, set the moment a schedule is hand-edited (or a milestone is added/deleted), and checked by `_recalc_quote()` to skip regeneration once it's set -- a customized schedule now survives every future line-item edit. Regenerate still works exactly as before: it resets to the standard split *and* explicitly clears the flag, going back to "auto" mode. Added real **+ Add Milestone** / per-row delete controls instead of the fixed 2-4 slot count. Also fixed a smaller bug in the same code: editing one draw's amount never recomputed that row's `pct` on save (it kept whatever percentage the last auto-generation gave it) -- `pct` is now recomputed server-side from the real quote total on every save, not trusted from the client.
+
+Since a customized schedule no longer auto-tracks the quote total, nothing else kept them in sync -- added a visible warning (the total turns red, with "Over/Under by $X vs. quote total") that updates live as amounts are typed and again on page load, so a mismatch is obvious instead of silently wrong.
+
+Verified: `test_payment_schedule_customization.py` (9 assertions) covers the exact original bug (a hand-edited schedule surviving an unrelated line-item add), pct being recomputed server-side, Add/Delete Milestone, Regenerate resetting the split and clearing the flag, auto-mode genuinely resuming after Regenerate, the mismatch warning rendering, and a locked contract refusing all three mutations. Full suite (11 files) passes. Live-verified in browser: renamed and front-loaded a deposit, confirmed it survived adding another line item (the exact repro), watched the mismatch warning track the math live, and confirmed Add/Delete Milestone and Regenerate all work end-to-end.
+
+---
+
 ## 2026-09-13 — Competitor quote tracking, with real per-category rates
 
 Jim: he sometimes sees a competitor's quote for the same pool he's measuring, and wants to log their price, broken down by category, so he can reverse-engineer each competitor's actual per-sqft/per-lf/per-each rate over time -- even for customers who won't show him the quote (just name who else they're getting quotes from). He explicitly chose line-item detail over a single total: "Let's do line items so we get real per-category rates."

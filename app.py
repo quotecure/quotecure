@@ -2745,6 +2745,12 @@ def edit_quote(quote_id):
     settings = db.execute("SELECT financing_link_url FROM company_settings WHERE id=1").fetchone()
     schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     schedule_json = json.dumps([{'id':s['id'],'label':s['label'],'amount':s['amount'],'pct':s['pct']} for s in schedule])
+    # Once a hand-edited schedule stops auto-regenerating against the quote total (see
+    # _recalc_quote), nothing else keeps the two in sync -- surfaced here instead so a
+    # mismatch is visible instead of silently wrong.
+    schedule_total = round(sum(float(s['amount'] or 0) for s in schedule), 2)
+    schedule_diff = round(schedule_total - float(quote['total_price'] or 0), 2)
+    schedule_mismatch = abs(schedule_diff) > 0.01
     signed_co_net = float(db.execute(
         "SELECT COALESCE(SUM(total_price),0) FROM change_orders WHERE quote_id=? AND status='signed'", (quote_id,)
     ).fetchone()[0] or 0)
@@ -2881,6 +2887,7 @@ def edit_quote(quote_id):
                            sunshelf_surface_modifier_id=sunshelf_surface_modifier['modifier_id'] if sunshelf_surface_modifier else None,
                            subs=subs, commission_policy=commission_policy,
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
+                           schedule_total=schedule_total, schedule_mismatch=schedule_mismatch, schedule_diff=schedule_diff,
                            contract_total=contract_total, change_orders=change_orders, versions=versions,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            collection_work_type_ids=collection_work_type_ids, collections_by_wt=collections_by_wt,
@@ -3655,7 +3662,7 @@ def _recalc_quote(db, quote_id):
 
     # End-of-quote discount ($ or %), resolved against the fresh subtotal every time this
     # runs -- so it stays correct as line items change, same as everything else here.
-    dq = db.execute("SELECT discount_type, discount_value FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    dq = db.execute("SELECT discount_type, discount_value, payment_schedule_customized FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     discount_type = dq['discount_type'] if dq else ''
     discount_value = float(dq['discount_value'] or 0) if dq else 0.0
     if discount_type == 'pct':
@@ -3679,7 +3686,12 @@ def _recalc_quote(db, quote_id):
         (round(total_cost,2), round(subtotal_price,2), round(discount_amount,2), round(total_price,2),
          round(margin,1), round(commission,2), quote_id))
     db.commit()
-    generate_payment_schedule(db, quote_id, round(total_price,2))
+    # A hand-edited schedule (retitled milestone, front-loaded deposit, ...) must survive an
+    # unrelated line-item edit made afterward -- regenerating from the standard formula here
+    # unconditionally was exactly what silently wiped Jim's customizations before. Regenerate
+    # (the UI's own reset button) is the explicit way back to 'auto' mode.
+    if not (dq and dq['payment_schedule_customized']):
+        generate_payment_schedule(db, quote_id, round(total_price,2))
 
 # ── API ───────────────────────────────────────────────────────────────────────
 @app.route('/api/subs_for_work_type')
@@ -4806,10 +4818,44 @@ def update_payment_schedule(quote_id):
     db = get_db()
     if _is_locked_contract(db, quote_id):
         return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
+    quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    total_price = float(quote['total_price']) if quote and quote['total_price'] else 0.0
     data = request.json
     for item in data.get('items', []):
+        amount = float(item['amount'])
+        # Recomputed from the real quote total, not trusted from the client -- an
+        # amount-only edit never updated the OTHER rows' cached pct client-side, so a
+        # client-supplied pct here would just persist a stale display percentage.
+        pct = round(amount / total_price * 100, 1) if total_price else 0.0
         db.execute("UPDATE payment_schedules SET label=?,amount=?,pct=? WHERE id=? AND quote_id=?",
-                   (item['label'], float(item['amount']), float(item['pct']), item['id'], quote_id))
+                   (item['label'], amount, pct, item['id'], quote_id))
+    # Marks this schedule hand-edited so _recalc_quote() stops silently regenerating it on
+    # the next unrelated line-item change -- see add_payment_schedule_customized_flag.
+    db.execute("UPDATE quotes SET payment_schedule_customized=1 WHERE quote_id=?", (quote_id,))
+    db.commit()
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/payment_schedule/add', methods=['POST'])
+@login_required
+def add_payment_schedule_item(quote_id):
+    db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
+    next_sort = db.execute("SELECT COALESCE(MAX(sort_order),-1)+1 FROM payment_schedules WHERE quote_id=?", (quote_id,)).fetchone()[0]
+    db.execute("INSERT INTO payment_schedules (quote_id,label,amount,pct,sort_order) VALUES (?,?,?,?,?)",
+               (quote_id, 'New Milestone', 0, 0, next_sort))
+    db.execute("UPDATE quotes SET payment_schedule_customized=1 WHERE quote_id=?", (quote_id,))
+    db.commit()
+    return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/payment_schedule/<int:schedule_id>/delete', methods=['POST'])
+@login_required
+def delete_payment_schedule_item(quote_id, schedule_id):
+    db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote is a signed contract — changes go through a Change Order.'}), 409
+    db.execute("DELETE FROM payment_schedules WHERE id=? AND quote_id=?", (schedule_id, quote_id))
+    db.execute("UPDATE quotes SET payment_schedule_customized=1 WHERE quote_id=?", (quote_id,))
     db.commit()
     return jsonify({'success': True})
 
@@ -4866,6 +4912,10 @@ def regenerate_payment_schedule(quote_id):
     quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if quote:
         generate_payment_schedule(db, quote_id, quote['total_price'])
+    # Explicit opt back into 'auto' mode -- future line-item edits will regenerate this
+    # schedule again until it's hand-edited (or Regenerate is clicked) again.
+    db.execute("UPDATE quotes SET payment_schedule_customized=0 WHERE quote_id=?", (quote_id,))
+    db.commit()
     schedule = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
     return jsonify([dict(s) for s in schedule])
 

@@ -1018,19 +1018,31 @@
   </div>
   <div class="sched-body" id="sched-body">
     {% if schedule %}
+    <div id="sched-rows">
     {% for draw in schedule %}
-    <div style="display:grid;grid-template-columns:1fr 140px 60px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border2);">
+    <div class="sched-row" style="display:grid;grid-template-columns:1fr 140px 60px 22px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border2);" id="sched-row-{{ draw.id }}">
       <input style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:4px 8px;height:28px;width:100%;" value="{{ draw.label }}" onchange="updateDraw({{ draw.id }},'label',this.value)">
       <div style="position:relative;">
         <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:11px;">$</span>
         <input style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:4px 8px 4px 18px;height:28px;width:100%;text-align:right;font-family:'Chivo Mono',monospace;" value="{{ '%.2f'|format(draw.amount) }}" onchange="updateDraw({{ draw.id }},'amount',this.value)" id="draw-amt-{{ draw.id }}">
       </div>
       <div style="font-size:11px;color:var(--text3);text-align:center;" id="draw-pct-{{ draw.id }}">{{ '%.0f'|format(draw.pct) }}%</div>
+      <button onclick="deleteMilestone({{ draw.id }})" title="Remove this milestone" style="background:none;border:none;color:var(--red);cursor:pointer;padding:2px;font-size:12px;">✕</button>
     </div>
     {% endfor %}
-    <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:4px;">
-      <span style="font-size:10px;color:var(--text3);">Must equal quote total</span>
-      <span class="mono" style="font-size:11px;font-weight:600;color:#93c5fd;" id="sched-total">{{ schedule|sum(attribute='amount')|usd }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+      <a href="#" onclick="addMilestone(); return false;" style="font-size:11px;color:var(--blue-light);">+ Add Milestone</a>
+      <span id="sched-mismatch-label" style="font-size:10px;color:{{ 'var(--red)' if schedule_mismatch else 'var(--text3)' }};">
+        {% if schedule_mismatch %}⚠ {{ 'Over' if schedule_diff > 0 else 'Under' }} by {{ (schedule_diff if schedule_diff > 0 else -schedule_diff)|usd }} vs. quote total{% else %}Must equal quote total{% endif %}
+      </span>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:2px;">
+      <span class="mono" style="font-size:11px;font-weight:600;color:{{ 'var(--red)' if schedule_mismatch else '#93c5fd' }};" id="sched-total">{{ schedule_total|usd }}</span>
+    </div>
+    {% else %}
+    <div style="display:flex;justify-content:flex-end;padding-top:8px;">
+      <a href="#" onclick="addMilestone(); return false;" style="font-size:11px;color:var(--blue-light);">+ Add Milestone</a>
     </div>
     {% endif %}
   </div>
@@ -1068,6 +1080,7 @@
 
 <script>
 const QID = {{ quote.quote_id }};
+const QUOTE_TOTAL_PRICE = {{ quote.total_price or 0 }};
 const POOL_SQFT = {{ quote.total_surface_sqft or quote.pool_sqft or 0 }};
 const DECK_SQFT = {{ quote.deck_sqft or 0 }};
 const POOL_LF = {{ (quote.pool_perimeter or 0) + (quote.spa_perimeter if quote.has_spa else 0)
@@ -2096,26 +2109,58 @@ function toggleSchedule() {
   chev.textContent = open ? '▲' : '▼';
 }
 
+function refreshScheduleMismatch(totalAmt) {
+  const diff = Math.round((totalAmt - QUOTE_TOTAL_PRICE) * 100) / 100;
+  const mismatch = Math.abs(diff) > 0.01;
+  const totEl = document.getElementById('sched-total');
+  const labelEl = document.getElementById('sched-mismatch-label');
+  if (totEl) {
+    totEl.textContent = fmtMoney(totalAmt);
+    totEl.style.color = mismatch ? '#dc2626' : '#93c5fd';
+  }
+  if (labelEl) {
+    labelEl.style.color = mismatch ? '#dc2626' : 'var(--text3)';
+    labelEl.textContent = mismatch
+      ? '⚠ ' + (diff > 0 ? 'Over' : 'Under') + ' by ' + fmtMoney(Math.abs(diff)) + ' vs. quote total'
+      : 'Must equal quote total';
+  }
+}
+
 function updateDraw(id, field, value) {
   const draw = DRAWS.find(d => d.id === id);
   if (!draw) return;
   draw[field] = value;
   if (field === 'amount') {
-    const total = {{ quote.total_price or 0 }};
     const pctEl = document.getElementById('draw-pct-' + id);
-    if (pctEl && total > 0) pctEl.textContent = (parseFloat(value)/total*100).toFixed(0) + '%';
+    if (pctEl && QUOTE_TOTAL_PRICE > 0) pctEl.textContent = (parseFloat(value)/QUOTE_TOTAL_PRICE*100).toFixed(0) + '%';
     const totalAmt = DRAWS.reduce((s,d) => s + parseFloat(d.amount||0), 0);
-    const totEl = document.getElementById('sched-total');
-    if (totEl) totEl.textContent = fmtMoney(totalAmt);
+    refreshScheduleMismatch(totalAmt);
   }
   fetch('/quotes/' + QID + '/payment_schedule/update', {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({items: DRAWS})
-  });
+  }).then(r => { if (!r.ok) alert('Could not save the payment schedule -- reloading.'); if (!r.ok) location.reload(); })
+    .catch(() => { alert('Could not save the payment schedule -- reloading.'); location.reload(); });
 }
 
 async function regenSchedule() {
   const r = await fetch('/quotes/' + QID + '/payment_schedule/regenerate', {method:'POST'});
   if (r.ok) location.reload();
+  else alert('Could not regenerate the payment schedule.');
+}
+
+async function addMilestone() {
+  if (LOCKED) { lockedAlert(); return; }
+  const r = await fetch('/quotes/' + QID + '/payment_schedule/add', {method:'POST'});
+  if (r.ok) location.reload();
+  else alert('Could not add a milestone.');
+}
+
+async function deleteMilestone(id) {
+  if (LOCKED) { lockedAlert(); return; }
+  if (!confirm('Remove this milestone from the payment schedule?')) return;
+  const r = await fetch('/quotes/' + QID + '/payment_schedule/' + id + '/delete', {method:'POST'});
+  if (r.ok) location.reload();
+  else alert('Could not remove this milestone.');
 }
 
 // ── Payments preview (Phase 1 mock — client-side only, nothing persisted) ──
