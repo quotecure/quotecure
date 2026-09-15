@@ -4,6 +4,26 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-15 — Mobile responsive, Phase 2: the quote editor itself
+
+Second of four planned phases (foundation shipped earlier today → **this: the quote editor** → customer-facing documents → sweeping the rest). This is the piece Jim specifically named: "quote creation is impossible on a phone."
+
+The line-item table (`qt_head`/`qt_rows` in `edit_quote.html`) becomes stacked cards below 900px using CSS alone -- `display:block`/`flex` on the existing table markup plus `data-label` attributes rendered via `content: attr(data-label)`, rather than a second parallel mobile template. Every id/class the JS already queries (`editCell`, `adjMarkup`, `toggleProductPicker`, `moveItemSection`, the drag handle) is untouched, so none of that logic needed to change -- only how it renders. Each card: the Service cell as an unlabeled header (its existing material/finish picker, description, and modifier chips just got touch-sized padding), Sub/Qty/Unit/Cost-per-unit/Total Cost/Markup/Margin as a dense 2-up grid instead of 7 stacked rows, Price set apart as the card's "final answer," and Main/Pass-Through/Optional plus the drag handle and delete as a footer row. Same treatment for the split labor/material sub-rows, the Add Line Item panel, the Sunshelf calculator's dimension grids, and the Payment Schedule/Payments rows.
+
+Also converted every JS-toggled hidden row (finish/material picker, description editor, Add Line Item, Add Replacement Item, Sunshelf panel) from an inline `style.display` toggle to a `.open` class toggle -- an inline style can't be overridden by a media query (it always wins), which would have made these panels stuck in their desktop `table-row` display and broken once the table became cards.
+
+Caught three real layout bugs during browser verification that a "looks right at a glance" pass would have missed:
+1. Two `inline-block; width:50%` cells wrapped onto separate lines instead of pairing up -- inline-block's whitespace-between-tags gap made the combined width exceed 100%. Switched the row containers to flexbox, which doesn't have that problem.
+2. A `<td>`'s default browser display is `table-cell`, which doesn't behave like a normal block box outside real table layout -- flex parents (the card rows) blockify their children automatically, but the plain-block rows (Add Line Item, pickers) don't, so those needed `display:block` spelled out explicitly or they rendered at some arbitrary content-driven width instead of filling the row.
+3. A `<select>` full of long option text (material names with prices) won't shrink below its own min-content width inside a grid/flex track by default, which silently forced a whole card wider than the viewport. Added a defensive `min-width:0` reset across every grid/flex item in this section, not just the one instance that surfaced it.
+4. One inline `grid-template-columns` (the Payment Schedule draw rows, built earlier today) beat the media query the same way the earlier customers-list layout bug did -- moved it into a real class rule.
+
+Verified in browser at 375px (iPhone) and 768px (iPad portrait): added a line item through the mobile Add Line Item panel, picked a material through the mobile finish picker, ran the Sunshelf calculator and added a real Sunshelf item, and confirmed the Payment Schedule/Payments sections -- checking the database after each to confirm it actually saved, not just that it looked right. Confirmed 1440px desktop is byte-for-byte unaffected. Full existing test suite (8 files) re-run and passes -- no pricing/logic changed, only markup/CSS.
+
+Next: Phase 3 -- the customer-facing quote/contract preview pages, which are standalone documents with their own embedded CSS separate from this work.
+
+---
+
 ## 2026-09-15 — Mobile responsive, Phase 1: foundation (nav, forms, split layouts)
 
 Jim: "the iphone and tablet version of the app looks awful," and quote creation specifically is "impossible on a phone." Confirmed `static/style.css` had zero `@media` queries anywhere -- every page rendered the same fixed desktop layout regardless of screen size. This is the first of four planned phases (foundation → the quote editor itself → customer-facing documents → sweeping the rest), each shipped as its own deploy. Full plan at `.claude/plans/giggly-swimming-stroustrup.md` on Jim's machine.

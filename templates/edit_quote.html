@@ -45,7 +45,7 @@
 .product-picker { display:none; background:var(--bg); border:1px solid var(--border);
   border-radius:6px; padding:12px; margin:4px 0 8px; }
 .product-picker.open { display:block; }
-.pp-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+.pp-grid { display:grid; grid-template-columns:var(--pp-cols, 1fr 1fr 1fr); gap:10px; }
 
 /* Editable cell */
 .ec { position:relative; cursor:text; }
@@ -120,6 +120,7 @@
 .sched-body.open { display:block; }
 
 /* Payments preview (Phase 1 mock — not yet persisted) */
+.sched-row { grid-template-columns:1fr 140px 60px 22px; }
 .paid-row { display:grid; grid-template-columns:1fr 90px 100px 26px 118px; gap:8px; align-items:center;
   padding:5px 0; border-bottom:1px solid var(--border2); }
 .paid-check { width:16px; height:16px; accent-color:var(--green); cursor:pointer; }
@@ -133,6 +134,128 @@
 .paid-summary-row.remaining .val { color:#fbbf24; font-weight:700; font-size:13px; }
 .paid-preview-badge { font-size:9px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;
   color:#fbbf24; background:#78350f44; border:1px solid #78350f; border-radius:4px; padding:2px 6px; margin-left:8px; }
+
+/* Hidden expanding rows (finish/material picker, description editor, Add Line Item,
+   Add Replacement Item, Sunshelf calculator) -- toggled via .open by JS instead of an
+   inline style.display, specifically so the actual display value (table-row on desktop,
+   block on mobile once the table becomes cards) can be resolved by CSS/media query. An
+   inline style.display couldn't be overridden that way. */
+.picker-row { display: none; }
+.picker-row.open { display: table-row; }
+.ss-grid-4 { grid-template-columns: repeat(4,1fr); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   MOBILE (below 900px, shared with tablet-portrait, per the app-wide
+   convention in static/style.css) -- the line-item table becomes stacked
+   cards. Every id/class the JS above queries (editCell, adjMarkup,
+   toggleProductPicker, moveItemSection, the drag handle, ...) is
+   untouched -- only how the existing markup renders changes, not the DOM
+   structure, so none of that JS needed to change for this.
+   ══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .qt thead { display: none; }
+  .qt, .qt tbody { display: block; width: 100%; }
+  .qt tbody tr.picker-row.open, .qt tbody tr.add-row {
+    display: block; width: 100%;
+  }
+  /* A <td>'s default UA display is table-cell, which doesn't behave like a normal
+     block box outside real table layout -- flex parents (tr.qrow/qrow-split below)
+     blockify their children automatically, but these plain-block rows don't, so
+     their <td> needs it spelled out or it renders at some content-driven width
+     instead of filling the row. */
+  .qt tbody tr.picker-row.open > td, .qt tbody tr.add-row > td {
+    display: block; width: 100%; box-sizing: border-box;
+  }
+  /* Flexbox, not inline-block -- inline-block's whitespace-between-tags gap made two
+     "50%" cells wrap to separate lines instead of pairing up. Flex items don't have
+     that problem. */
+  .qt tbody tr.qrow, .qt tbody tr.qrow-split {
+    display: flex; flex-wrap: wrap; width: 100%;
+  }
+  .qt tbody tr.qrow {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px; margin-bottom: 10px; background: var(--surface);
+  }
+  .qt tbody tr.qrow:hover { background: var(--surface); }
+  .qt tbody tr.qrow-split {
+    border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius);
+    padding: 8px 12px; margin-top: -10px; margin-bottom: 10px; background: var(--surface);
+  }
+  .qt tbody tr.picker-row.open { margin-top: -6px; margin-bottom: 10px; }
+  .qt tbody tr.picker-row.open td { padding: 0; }
+
+  /* Flex/grid items default to a min-width driven by their own content's min-content
+     size (a <select> full of long option text, a chip with a long sub name) -- without
+     resetting that, a card's cell can silently force the whole row wider than the
+     viewport instead of actually shrinking to the width this layout gives it. */
+  .qt tbody td, .pp-grid > div, .ss-grid-4 > div, .new-row-panel.open > div { min-width: 0; }
+  .qt tbody td { padding: 0; border: none; }
+  .qt select, .qt input, .qt .nr-input, .product-picker select, .product-picker input,
+  .product-picker button, .chip { max-width: 100%; box-sizing: border-box; }
+
+  /* Service cell is the card's own header -- no label, no boxed treatment.
+     Same treatment for the split rows' first cell (Labor/Material tag + name), and
+     Sub (child 2) gets the same full-width treatment since a sub's name can run long. */
+  .qt tbody tr.qrow > td:nth-child(1), .qt tbody tr.qrow > td:nth-child(2),
+  .qt tbody tr.qrow-split > td:nth-child(1) {
+    flex: 0 0 100%; margin-bottom: 8px;
+  }
+  .qt tbody tr.qrow-split > td:nth-child(2) { display: none; } /* always empty on split rows */
+
+  /* Qty / Unit / Cost-per-unit / Total Cost / Markup / Margin become a dense 2-up
+     label:value grid instead of 6 full-width stacked rows */
+  .qt tbody tr.qrow > td:nth-child(3), .qt tbody tr.qrow-split > td:nth-child(3),
+  .qt tbody tr.qrow > td:nth-child(4), .qt tbody tr.qrow-split > td:nth-child(4),
+  .qt tbody tr.qrow > td:nth-child(5), .qt tbody tr.qrow-split > td:nth-child(5),
+  .qt tbody tr.qrow > td:nth-child(6), .qt tbody tr.qrow-split > td:nth-child(6),
+  .qt tbody tr.qrow > td:nth-child(7), .qt tbody tr.qrow-split > td:nth-child(7),
+  .qt tbody tr.qrow > td:nth-child(8), .qt tbody tr.qrow-split > td:nth-child(8) {
+    flex: 0 0 50%; box-sizing: border-box; padding: 6px 6px 6px 0; text-align: left;
+  }
+
+  .qt tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text3); margin-bottom: 2px;
+  }
+
+  /* Price is the card's own "final answer" -- full width, set apart */
+  .qt tbody tr.qrow > td:nth-child(9),
+  .qt tbody tr.qrow-split > td:nth-child(9) {
+    flex: 0 0 100%; padding: 8px 0 4px; margin-top: 4px;
+    border-top: 1px solid var(--border2); text-align: right;
+  }
+  .qt tbody tr.qrow > td:nth-child(9) .mono { font-size: 16px; }
+
+  /* Actions -- footer row (main rows only; split rows' 10th cell is empty) */
+  .qt tbody tr.qrow > td:nth-child(10) {
+    flex: 0 0 100%; display: flex; align-items: center; justify-content: space-between;
+    margin-top: 6px; padding-top: 6px !important;
+    border-top: 1px solid var(--border2); text-align: left !important;
+  }
+  .qt tbody tr.qrow > td:nth-child(10) .move-section-select { max-width: 140px; margin: 0; }
+  .qt tbody tr.qrow > td:nth-child(10) .drag-handle { padding: 8px 10px; font-size: 16px; }
+  .qt tbody tr.qrow > td:nth-child(10) button { padding: 8px 10px; font-size: 15px; }
+
+  /* Touch-friendly editable cells, steppers, chips */
+  .ec-val { min-height: 32px; padding: 5px 6px; }
+  .mstep button { width: 32px; height: 32px; font-size: 14px; }
+  .mstep .mv { min-width: 40px; }
+  .mod-chip { padding: 6px 10px; font-size: 11px; }
+
+  /* Finish/material picker's own grid, Sunshelf's dimension grids, Add Line Item /
+     Add Replacement Item panels -- all stack to one column */
+  .pp-grid, .ss-grid-4, .new-row-panel.open, .pp-mat-row { grid-template-columns: 1fr; }
+  /* A <select> full of long option text ("SCP Pool Supply — Skimmer — $200.00/each")
+     won't shrink below its content's min-content width inside a grid track by default
+     -- this is what overflowed the whole card horizontally at phone width. */
+  .pp-mat-row, .pp-mat-row > div, .pp-mat-row select { min-width: 0; }
+  .pp-mat-row button { justify-self: start; }
+
+  /* Payment Schedule draw rows and the Payments-collected tracking rows */
+  .sched-row, .paid-row { grid-template-columns: 1fr; gap: 4px; }
+  .sched-row select, .sched-row > span { text-align: left !important; }
+}
 </style>
 {% endblock %}
 {% block content %}
@@ -487,32 +610,32 @@
         </td>
 
         <!-- Sub -->
-        <td class="ec" onclick="editCell(this, {{ item.id }}, {% if item.is_calculated %}'none'{% else %}'sub'{% endif %})" id="cell-sub-{{ item.id }}">
+        <td class="ec" data-label="Sub" onclick="editCell(this, {{ item.id }}, {% if item.is_calculated %}'none'{% else %}'sub'{% endif %})" id="cell-sub-{{ item.id }}">
           <span class="ec-val">{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</span>
         </td>
 
         <!-- Qty -->
-        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if item.is_calculated %}'none'{% else %}'labor_qty'{% endif %})" id="cell-qty-{{ item.id }}">
+        <td class="ec r" data-label="Qty" onclick="editCell(this, {{ item.id }}, {% if item.is_calculated %}'none'{% else %}'labor_qty'{% endif %})" id="cell-qty-{{ item.id }}">
           <span class="ec-val mono">{{ item.labor_quantity }}</span>
         </td>
 
         <!-- Unit -->
-        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if item.is_calculated %}'none'{% else %}'unit'{% endif %})" id="cell-unit-{{ item.id }}">
+        <td class="ec r" data-label="Unit" onclick="editCell(this, {{ item.id }}, {% if item.is_calculated %}'none'{% else %}'unit'{% endif %})" id="cell-unit-{{ item.id }}">
           <span class="ec-val" style="color:var(--text3);">{{ item.labor_unit }}</span>
         </td>
 
         <!-- Cost/Unit -->
-        <td class="ec r" onclick="editCell(this, {{ item.id }}, {% if is_split or item.is_calculated %}'none'{% else %}'labor_cpu'{% endif %})" id="cell-cpu-{{ item.id }}">
+        <td class="ec r" data-label="Cost/Unit" onclick="editCell(this, {{ item.id }}, {% if is_split or item.is_calculated %}'none'{% else %}'labor_cpu'{% endif %})" id="cell-cpu-{{ item.id }}">
           <span class="ec-val mono" style="color:var(--text3);">{% if is_split or item.is_calculated %}—{% else %}{{ item.labor_cost_per_unit|usd }}{% endif %}</span>
         </td>
 
         <!-- Total Cost -->
-        <td class="r">
+        <td class="r" data-label="Total Cost">
           <span class="mono" id="tcost-{{ item.id }}">{{ money(item.total_cost) }}</span>
         </td>
 
         <!-- Markup -->
-        <td class="r">
+        <td class="r" data-label="Markup">
           {% if item.is_passthrough %}
           <span style="font-size:10px;color:var(--text3);" title="Billed at cost, no markup">at cost</span>
           {% elif not is_split %}
@@ -527,7 +650,7 @@
         </td>
 
         <!-- Margin -->
-        <td class="r">
+        <td class="r" data-label="Margin">
           <span class="pill pill-margin" id="margin-{{ item.id }}">{{ '%.0f'|format(item.total_margin_pct) }}%</span>
         </td>
 
@@ -579,11 +702,11 @@
       {% endif %}
 
       <!-- Product picker row (inline, hidden by default) -->
-      <tr id="pprow-{{ item.id }}" data-id="{{ item.id }}" style="display:none;">
+      <tr id="pprow-{{ item.id }}" data-id="{{ item.id }}" class="picker-row">
         <td colspan="10" style="padding:0 10px 10px 10px;">
           <div class="product-picker open" id="pp-{{ item.id }}">
             {% if item.work_type_id == 1 %}
-            <div class="pp-grid" style="{% if additives %}grid-template-columns:1fr 1fr 1fr 1fr;{% endif %}">
+            <div class="pp-grid" style="{% if additives %}--pp-cols:1fr 1fr 1fr 1fr;{% endif %}">
               <div>
                 <label class="nr-label">Manufacturer</label>
                 <select class="nr-input" id="pp-mfr-{{ item.id }}" onchange="ppLoadLines({{ item.id }})">
@@ -631,8 +754,8 @@
                 </select>
               </div>
               {% endif %}
-              <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;">
-                <div>
+              <div class="pp-mat-row" style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;">
+                <div style="min-width:0;">
                   <label class="nr-label">Material</label>
                   <select class="nr-input" id="pp-mat-{{ item.id }}" onchange="ppSaveMaterial({{ item.id }})">
                     <option value="">— None —</option>
@@ -677,7 +800,7 @@
       </tr>
 
       <!-- Description picker row (inline, hidden by default) -->
-      <tr id="descrow-{{ item.id }}" data-id="{{ item.id }}" style="display:none;">
+      <tr id="descrow-{{ item.id }}" data-id="{{ item.id }}" class="picker-row">
         <td colspan="10" style="padding:0 10px 10px 10px;">
           <div class="product-picker open">
             <label class="nr-label">Quote Description (shown to customer on PDF)</label>
@@ -698,20 +821,20 @@
           <span class="ec-val" style="font-size:11px;color:var(--text2);">{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}—{% endif %}</span>
         </td>
         <td></td>
-        <td class="r mono" style="font-size:12px;color:var(--text2);" id="split-labor-qty-{{ item.id }}">{{ item.labor_quantity }}</td>
-        <td class="r" style="font-size:11px;color:var(--text3);">{{ item.labor_unit }}</td>
-        <td class="ec r" onclick="editCell(this, {{ item.id }}, 'labor_cpu')" id="cell-labor-cpu-{{ item.id }}">
+        <td class="r mono" data-label="Qty" style="font-size:12px;color:var(--text2);" id="split-labor-qty-{{ item.id }}">{{ item.labor_quantity }}</td>
+        <td class="r" data-label="Unit" style="font-size:11px;color:var(--text3);">{{ item.labor_unit }}</td>
+        <td class="ec r" data-label="Cost/Unit" onclick="editCell(this, {{ item.id }}, 'labor_cpu')" id="cell-labor-cpu-{{ item.id }}">
           <span class="ec-val mono" style="font-size:12px;color:var(--text2);">{{ item.labor_cost_per_unit|usd }}</span>
         </td>
-        <td class="r mono" style="font-size:12px;" id="labor-tcost-{{ item.id }}">{{ money(item.labor_total_cost) }}</td>
-        <td class="r">
+        <td class="r mono" data-label="Total Cost" style="font-size:12px;" id="labor-tcost-{{ item.id }}">{{ money(item.labor_total_cost) }}</td>
+        <td class="r" data-label="Markup">
           <div class="mstep {% if item.labor_markup_pct <= item.labor_min_markup %}floor{% endif %}">
             <button onclick="adjMarkup({{ item.id }},'labor',-5)" {% if item.labor_markup_pct <= item.labor_min_markup %}disabled{% endif %} id="mdn-labor-{{ item.id }}">−</button>
             <span class="mv" id="mv-labor-{{ item.id }}">{{ '%.0f'|format(item.labor_markup_pct) }}%</span>
             <button onclick="adjMarkup({{ item.id }},'labor',5)">+</button>
           </div>
         </td>
-        <td class="r"><span class="pill pill-margin" id="margin-labor-{{ item.id }}">{{ '%.0f'|format(item.labor_margin_pct) }}%</span></td>
+        <td class="r" data-label="Margin"><span class="pill pill-margin" id="margin-labor-{{ item.id }}">{{ '%.0f'|format(item.labor_margin_pct) }}%</span></td>
         <td class="r mono" style="font-size:12px;{{ 'color:#f87171;' if item.labor_total_price < 0 }}" id="price-labor-{{ item.id }}">{{ money(item.labor_total_price) }}</td>
         <td></td>
       </tr>
@@ -721,22 +844,22 @@
           <span style="font-size:11px;color:var(--text2);">{{ item.material_label or '—' }}</span>
         </td>
         <td></td>
-        <td class="ec r" onclick="editCell(this, {{ item.id }}, 'mat_qty')" id="mat-qty-{{ item.id }}">
+        <td class="ec r" data-label="Qty" onclick="editCell(this, {{ item.id }}, 'mat_qty')" id="mat-qty-{{ item.id }}">
           <span class="ec-val mono" style="font-size:12px;color:var(--text2);">{{ item.material_quantity }}</span>
         </td>
-        <td class="r" style="font-size:11px;color:var(--text3);">{{ item.material_unit }}</td>
-        <td class="ec r" onclick="editCell(this, {{ item.id }}, 'mat_cpu')" id="cell-mat-cpu-{{ item.id }}">
+        <td class="r" data-label="Unit" style="font-size:11px;color:var(--text3);">{{ item.material_unit }}</td>
+        <td class="ec r" data-label="Cost/Unit" onclick="editCell(this, {{ item.id }}, 'mat_cpu')" id="cell-mat-cpu-{{ item.id }}">
           <span class="ec-val mono" style="font-size:12px;color:var(--text2);" id="mat-cpu-{{ item.id }}">{{ item.material_cost_per_unit|usd }}</span>
         </td>
-        <td class="r mono" style="font-size:12px;" id="mat-tcost-{{ item.id }}">{{ money(item.material_total_cost) }}</td>
-        <td class="r">
+        <td class="r mono" data-label="Total Cost" style="font-size:12px;" id="mat-tcost-{{ item.id }}">{{ money(item.material_total_cost) }}</td>
+        <td class="r" data-label="Markup">
           <div class="mstep {% if item.material_markup_pct <= item.material_min_markup %}floor{% endif %}">
             <button onclick="adjMarkup({{ item.id }},'material',-5)" {% if item.material_markup_pct <= item.material_min_markup %}disabled{% endif %} id="mdn-mat-{{ item.id }}">−</button>
             <span class="mv" id="mv-mat-{{ item.id }}">{{ '%.0f'|format(item.material_markup_pct) }}%</span>
             <button onclick="adjMarkup({{ item.id }},'material',5)">+</button>
           </div>
         </td>
-        <td class="r"><span class="pill pill-margin" id="margin-mat-{{ item.id }}">{{ '%.0f'|format(item.material_margin_pct) }}%</span></td>
+        <td class="r" data-label="Margin"><span class="pill pill-margin" id="margin-mat-{{ item.id }}">{{ '%.0f'|format(item.material_margin_pct) }}%</span></td>
         <td class="r mono" style="font-size:12px;{{ 'color:#f87171;' if item.material_total_price < 0 }}" id="price-mat-{{ item.id }}">{{ money(item.material_total_price) }}</td>
         <td></td>
       </tr>
@@ -752,7 +875,7 @@
       </tr>
 
       <!-- New row panel -->
-      <tr id="new-row-tr-{{ section }}" style="display:none;">
+      <tr id="new-row-tr-{{ section }}" class="picker-row">
         <td colspan="10" style="padding:0;">
           <div class="new-row-panel open" id="new-row-panel-{{ section }}">
             <div>
@@ -805,7 +928,7 @@
         <td colspan="10">↩ Add Replacement Item — credit for an item above, if this option is chosen instead</td>
       </tr>
 
-      <tr id="new-repl-tr" style="display:none;">
+      <tr id="new-repl-tr" class="picker-row">
         <td colspan="10" style="padding:0;">
           <div class="new-row-panel open" id="new-repl-panel">
             <div>
@@ -841,13 +964,13 @@
       <tr class="add-row" onclick="openSunshelfPanel()">
         <td colspan="10">+ Add Sunshelf Construction</td>
       </tr>
-      <tr id="sunshelf-panel-row" style="display:none;">
+      <tr id="sunshelf-panel-row" class="picker-row">
         <td colspan="10" style="padding:0;">
           <div class="new-row-panel open" id="sunshelf-panel" style="display:block;">
             <div style="font-size:11px;color:var(--text3);margin-bottom:10px;max-width:640px;">
               An estimate, not a real sub-quoted cost — Jim's own words: sunshelves are the one thing he doesn't fully know the price of. Typical range from other contractors: <strong>$6,000–$10,000</strong> depending on size. Tune rates in Admin → Sunshelf Components as you price more real ones.
             </div>
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+            <div class="ss-grid-4" style="display:grid;gap:10px;">
               <div>
                 <label class="nr-label">Length (ft)</label>
                 <input class="nr-input mono" id="ss-length" type="number" step="0.1" oninput="sunshelfRecalc()">
@@ -865,7 +988,7 @@
                 <input class="nr-input mono" id="ss-depth" type="number" step="1" value="31" oninput="sunshelfRecalc()">
               </div>
             </div>
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px;">
+            <div class="ss-grid-4" style="display:grid;gap:10px;margin-top:10px;">
               <div>
                 <label class="nr-label">Riser count</label>
                 <input class="nr-input mono" id="ss-risers" type="number" step="1" value="1" min="0" oninput="sunshelfRecalc()">
@@ -889,7 +1012,7 @@
                 </select>
               </div>
             </div>
-            <div id="ss-conduit-row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px;">
+            <div id="ss-conduit-row" class="ss-grid-4" style="display:grid;gap:10px;margin-top:10px;">
               <div>
                 <label class="nr-label">Conduit run (ft)</label>
                 <input class="nr-input mono" id="ss-conduit" type="number" step="1" value="50" oninput="sunshelfRecalc()">
@@ -1020,7 +1143,7 @@
     {% if schedule %}
     <div id="sched-rows">
     {% for draw in schedule %}
-    <div class="sched-row" style="display:grid;grid-template-columns:1fr 140px 60px 22px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border2);" id="sched-row-{{ draw.id }}">
+    <div class="sched-row" style="display:grid;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border2);" id="sched-row-{{ draw.id }}">
       <input style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:4px 8px;height:28px;width:100%;" value="{{ draw.label }}" onchange="updateDraw({{ draw.id }},'label',this.value)">
       <div style="position:relative;">
         <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:11px;">$</span>
@@ -1499,7 +1622,7 @@ async function toggleFinancingLink() {
 function toggleProductPicker(id) {
   if (LOCKED) { lockedAlert(); return; }
   const tr = document.getElementById('pprow-' + id);
-  tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
+  tr.classList.toggle('open');
 }
 
 // ── Restore a customer-declined optional item ──────────────────────
@@ -1532,8 +1655,8 @@ async function toggleModifier(itemId, modifierId, checked) {
 function toggleDescPicker(id) {
   if (LOCKED) { lockedAlert(); return; }
   const tr = document.getElementById('descrow-' + id);
-  tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
-  if (tr.style.display === 'table-row') document.getElementById('desc-inp-' + id).focus();
+  tr.classList.toggle('open');
+  if (tr.classList.contains('open')) document.getElementById('desc-inp-' + id).focus();
 }
 
 async function saveDescription(id) {
@@ -1766,21 +1889,21 @@ async function moveItemSection(id, to) {
 // ── Add new row ───────────────────────────────────────────────────
 function openNewRow(section) {
   if (LOCKED) { lockedAlert(); return; }
-  document.getElementById('new-row-tr-' + section).style.display = 'table-row';
+  document.getElementById('new-row-tr-' + section).classList.add('open');
   document.getElementById('nr-wt-' + section).focus();
 }
 function closeNewRow(section) {
-  document.getElementById('new-row-tr-' + section).style.display = 'none';
+  document.getElementById('new-row-tr-' + section).classList.remove('open');
 }
 
 // ── Add replacement item ──────────────────────────────────────────
 function openReplacementRow() {
   if (LOCKED) { lockedAlert(); return; }
-  document.getElementById('new-repl-tr').style.display = 'table-row';
+  document.getElementById('new-repl-tr').classList.add('open');
   document.getElementById('nr-repl-src').focus();
 }
 function closeReplacementRow() {
-  document.getElementById('new-repl-tr').style.display = 'none';
+  document.getElementById('new-repl-tr').classList.remove('open');
 }
 async function addReplacementRow() {
   if (LOCKED) { lockedAlert(); return; }
@@ -1967,11 +2090,11 @@ function openSunshelfPanel() {
   sunshelfEditingId = null;
   document.getElementById('ss-optional').checked = false;
   document.getElementById('ss-add-btn').textContent = 'Add';
-  document.getElementById('sunshelf-panel-row').style.display = 'table-row';
+  document.getElementById('sunshelf-panel-row').classList.add('open');
   document.getElementById('ss-length').focus();
 }
 function closeSunshelfPanel() {
-  document.getElementById('sunshelf-panel-row').style.display = 'none';
+  document.getElementById('sunshelf-panel-row').classList.remove('open');
   sunshelfEditingId = null;
 }
 function sunshelfToggleLight() {
@@ -1997,7 +2120,7 @@ function openSunshelfEditor(itemId, isOptional) {
   sunshelfMarkup = d.markup_pct ?? sunshelfMarkup;
   sunshelfToggleLight();
   document.getElementById('ss-add-btn').textContent = 'Update';
-  document.getElementById('sunshelf-panel-row').style.display = 'table-row';
+  document.getElementById('sunshelf-panel-row').classList.add('open');
   document.getElementById('sunshelf-panel-row').scrollIntoView({behavior:'smooth', block:'center'});
   sunshelfRecalc();
 }
