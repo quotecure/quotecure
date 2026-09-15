@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-15 — Customer profile: Contact Info back to two columns (shorter)
+
+Quick follow-up to the equal-width-boxes change below: once Contact Info became a standalone full-width card, its five stacked fields (Name/Address/City/Phone/Email) made the card much taller than the others. Jim asked to tighten it up. Paired the fields into the existing `.form-row-2` grid (Name+Phone, Address+City), leaving Email as its own full-width row — same field names/POST target, just a shorter, denser layout. `.form-row-2` already collapses to one column below 900px (from the mobile-responsive pass), so phone/tablet are unaffected.
+
+---
+
 ## 2026-09-15 — Customer profile: equal-width boxes, reordered
 
 Jim wanted the customer detail page (`customer_detail.html`) to stop pairing Contact Info and Quotes & Contracts side-by-side in an unequal 1fr:2fr split, and instead have all five sections -- Customer Info, Quotes, Notes, Photos, Competitors -- render as equally-wide, full-width boxes stacked in that exact order. Previously the order was [Contact Info | Quotes] side-by-side, then Photos, then Competitor Quotes, then History/Notes at the very bottom.

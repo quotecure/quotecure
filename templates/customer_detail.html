@@ -21,28 +21,32 @@
     <div class="card-header"><div class="card-title">Contact Info</div></div>
     <div class="card-body">
       <form method="POST" action="/customers/{{ customer.customer_id }}/edit">
-        <div class="form-group">
-          <label class="form-label">Name</label>
-          <input class="form-control" name="name" required value="{{ customer.name }}">
+        <div class="form-row form-row-2">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Name</label>
+            <input class="form-control" name="name" required value="{{ customer.name }}">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Phone</label>
+            <input class="form-control" name="phone" value="{{ customer.phone or '' }}">
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Address</label>
-          <input class="form-control" name="address" value="{{ customer.address or '' }}" autocomplete="off">
-          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Just this customer's own record — doesn't change the address on any of their existing quotes below.</div>
+        <div class="form-row form-row-2" style="margin-top:16px;">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Address</label>
+            <input class="form-control" name="address" value="{{ customer.address or '' }}" autocomplete="off">
+            <div style="font-size:11px;color:var(--text3);margin-top:4px;">Just this customer's own record — doesn't change the address on any of their existing quotes below.</div>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">City</label>
+            <input class="form-control" name="city" value="{{ customer.city or '' }}" placeholder="Tampa" autocomplete="off">
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">City</label>
-          <input class="form-control" name="city" value="{{ customer.city or '' }}" placeholder="Tampa" autocomplete="off">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Phone</label>
-          <input class="form-control" name="phone" value="{{ customer.phone or '' }}">
-        </div>
-        <div class="form-group">
+        <div class="form-group" style="margin-top:16px;">
           <label class="form-label">Email</label>
           <input class="form-control" name="email" type="email" value="{{ customer.email or '' }}">
         </div>
-        <button class="btn btn-primary" type="submit" style="margin-top:4px;">Save</button>
+        <button class="btn btn-primary" type="submit" style="margin-top:16px;">Save</button>
       </form>
       {% if customer.lead_source or customer.site_visit_at %}
       <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2);font-size:12px;color:var(--text2);">
