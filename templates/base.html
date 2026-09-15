@@ -9,58 +9,10 @@
 {% block extra_css %}{% endblock %}
 </head>
 <body>
-<style>
-.nav-dropdown { position: relative; display: flex; align-items: center; }
-.nav-dropdown-trigger {
-  padding: 6px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text2);
-  cursor: default;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 100%;
-  user-select: none;
-  transition: all 0.15s;
-}
-.nav-dropdown:hover .nav-dropdown-trigger { background: var(--surface2); color: var(--text); }
-.nav-dropdown-trigger.active { background: var(--blue); color: white; }
-.nav-dropdown-menu {
-  display: none;
-  position: absolute;
-  top: 100%;
-  left: 0;
-  padding-top: 8px;
-  z-index: 200;
-  min-width: 190px;
-}
-.nav-dropdown-menu-inner {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  overflow: hidden;
-}
-.nav-dropdown:hover .nav-dropdown-menu { display: block; }
-.nav-dropdown-item {
-  display: block;
-  padding: 10px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text2);
-  text-decoration: none;
-  transition: all 0.1s;
-}
-.nav-dropdown-item:hover { background: var(--surface2); color: var(--text); text-decoration: none; }
-.nav-dropdown-item.active { color: var(--blue-light); }
-.nav-dropdown-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
-.nav-caret { font-size: 9px; opacity: 0.6; }
-</style>
 <nav class="nav">
   <a href="/" class="nav-brand">Quote<span>Cure</span></a>
-  <div class="nav-links">
+  <button type="button" class="nav-toggle" onclick="toggleMobileNav()" aria-label="Menu">☰</button>
+  <div class="nav-links" id="nav-links">
     <a href="/customers" class="nav-link {% if request.path.startswith('/customers') %}active{% endif %}">Customers
       {% if new_lead_count %}
       <span class="badge badge-red" style="margin-left:3px;padding:1px 6px;" title="New leads from GoHighLevel in the last {{ NEW_LEAD_BADGE_WINDOW_DAYS }} days">{{ new_lead_count }}</span>
@@ -71,10 +23,10 @@
     <a href="/schedule" class="nav-link {% if request.path == '/schedule' %}active{% endif %}">Schedule</a>
     {% if current_role and current_role.can_access_admin %}
     <div class="nav-dropdown">
-      <span class="nav-dropdown-trigger {% if '/admin' in request.path %}active{% endif %}">
+      <span class="nav-dropdown-trigger {% if '/admin' in request.path %}active{% endif %}" onclick="toggleMobileDropdown(event)">
         Admin <span class="nav-caret">▼</span>
       </span>
-      <div class="nav-dropdown-menu">
+      <div class="nav-dropdown-menu" id="admin-dropdown-menu">
         <div class="nav-dropdown-menu-inner">
         <a href="/admin/subs" class="nav-dropdown-item {% if '/admin/subs' in request.path %}active{% endif %}">Subs & Applicators</a>
         <a href="/admin/work_types" class="nav-dropdown-item {% if '/admin/work_types' in request.path %}active{% endif %}">Work Types</a>
@@ -104,7 +56,7 @@
   </div>
   <div style="margin-left:auto; display:flex; align-items:center; gap:12px;">
     {% if current_user %}
-    <span style="font-size:12px; color:var(--text3);">
+    <span class="nav-user-label" style="font-size:12px; color:var(--text3);">
       {{ current_user.username }}
       <span style="color:var(--border); margin:0 4px;">·</span>
       <span style="color:var(--text2);">{{ current_user.role_name }}</span>
@@ -113,6 +65,19 @@
     {% endif %}
   </div>
 </nav>
+<script>
+function toggleMobileNav() {
+  document.getElementById('nav-links').classList.toggle('open');
+}
+function toggleMobileDropdown(e) {
+  // Desktop keeps its plain :hover-driven dropdown (the trigger has no real
+  // click behavior there); only intercept when the hamburger is actually
+  // showing, i.e. we're below the mobile breakpoint.
+  if (getComputedStyle(document.querySelector('.nav-toggle')).display === 'none') return;
+  e.stopPropagation();
+  document.getElementById('admin-dropdown-menu').classList.toggle('open');
+}
+</script>
 {% block content %}{% endblock %}
 </body>
 </html>

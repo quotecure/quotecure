@@ -4,6 +4,20 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-15 — Mobile responsive, Phase 1: foundation (nav, forms, split layouts)
+
+Jim: "the iphone and tablet version of the app looks awful," and quote creation specifically is "impossible on a phone." Confirmed `static/style.css` had zero `@media` queries anywhere -- every page rendered the same fixed desktop layout regardless of screen size. This is the first of four planned phases (foundation → the quote editor itself → customer-facing documents → sweeping the rest), each shipped as its own deploy. Full plan at `.claude/plans/giggly-swimming-stroustrup.md` on Jim's machine.
+
+One breakpoint (900px) covers iPhone and iPad-portrait with the same mobile-optimized layout, per Jim's call -- not a separate tablet design. Desktop and iPad-landscape (1024px+) are unaffected.
+
+This phase: the top nav (4 links + a 14-item Admin dropdown) now collapses into a hamburger-triggered panel below 900px, with the Admin dropdown expanding in place on tap (desktop keeps its existing hover behavior, untouched). Also quietly de-duplicated `base.html`'s embedded nav CSS, which was a byte-for-byte copy of `style.css`'s own nav-dropdown rules. `.form-row-2/3/4` (the shared form-grid classes used in ~30 places) now stack to one column below 900px automatically, no template changes needed. Introduced a new `.split-layout` class (a "main content + sidebar" pattern, with the actual column spec set per-page via a `--split-cols` custom property so the stylesheet can still override it by media query -- an inline `grid-template-columns` couldn't be) and swapped it into the ~10 pages that had their own bespoke, non-collapsing version of this layout (customers, customer detail, admin settings/quote template/materials/competitors/modifiers/sub rates/surfaces, admin subs). `admin_subs.html`'s row list (the one page that isn't a real `<table>`, just an unwrapped flex row) got `flex-wrap` so it no longer silently clips buttons off-screen at narrow widths. Small tap-target bumps on `.btn-sm` and the shared `.markup-stepper` below 900px.
+
+Verified visually at 375px (iPhone), 768px (iPad portrait), and 1440px (desktop, to confirm zero regression) across the nav, Customers, Company Settings, and Admin → Competitors. Caught and fixed one real bug along the way: the mobile nav's `.open`-class toggle was initially losing to a leftover desktop `:hover` rule on CSS specificity, so the Admin submenu wouldn't expand on tap -- removed the redundant hover override rather than patching around it. Full existing test suite re-run (no backend logic touched, CSS/markup only).
+
+Next: Phase 2 tackles the quote editor itself (the line-item table, Add Line Item panel, Sunshelf calculator, Payment Schedule) -- the part Jim specifically flagged as unusable on a phone today.
+
+---
+
 ## 2026-09-14 — Fixed the Payment Schedule silently wiping hand-edits, added Add/Delete Milestone
 
 Jim: "i can change it, but it doesn't save" -- referring to the Payment Schedule panel on a quote. It wasn't a save bug: `_recalc_quote()` (called at the end of literally every quote edit -- any line item's qty/cost/markup, a modifier toggle, a section move) unconditionally deleted and regenerated the entire payment schedule from the standard formula every time. So a hand-edit (retitling a milestone, front-loading a deposit for a customer who seems shady) would genuinely save in the moment, then get silently wiped the next time anything else on the quote changed -- with zero warning. He also had no way to add a real new milestone row, only edit the label/amount of whatever rows the last auto-generation happened to create. The ↺ button next to "Payment Schedule" is "Regenerate" -- it's the same reset-to-standard-formula logic, just triggered manually.

@@ -61,7 +61,8 @@ a:hover { text-decoration: underline; }
 
 /* Dropdown */
 .nav-dropdown { position: relative; display: flex; align-items: center; }
-.nav-dropdown-trigger { padding: 6px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; color: var(--text2); cursor: default; display: flex; align-items: center; gap: 4px; user-select: none; transition: all 0.15s; }
+.nav-dropdown-trigger { padding: 6px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; color: var(--text2); cursor: default; display: flex; align-items: center; gap: 4px; height: 100%; user-select: none; transition: all 0.15s; }
+.nav-toggle { display: none; background: none; border: none; color: var(--text); font-size: 22px; line-height: 1; cursor: pointer; padding: 8px; margin-left: 4px; }
 .nav-dropdown:hover .nav-dropdown-trigger { background: var(--surface2); color: var(--text); }
 .nav-dropdown-trigger.active { background: var(--blue); color: white; }
 .nav-dropdown-menu { display: none; position: absolute; top: 100%; left: 0; padding-top: 8px; z-index: 200; min-width: 190px; }
@@ -209,3 +210,70 @@ input:checked + .slider:before { transform: translateX(16px); }
 .role-col { min-width: 120px; }
 .feature-group { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text3); background: var(--bg); }
 .feature-group td { padding: 10px 14px 6px !important; }
+
+/* ── Shared "content + sidebar" layout ──
+   A single class for the ~9 pages that pair a main content card with a
+   narrower sidebar card (Add Customer, Add Rate, ...), each previously its
+   own bespoke inline grid-template-columns with no responsive collapse.
+   --split-cols carries the page's actual column spec (e.g. "1fr 300px",
+   "2fr 1fr", "680px 1fr") as a raw value, set per-instance via an inline
+   style="--split-cols:...". The stylesheet owns grid-template-columns
+   itself, so the @media rule below can override it by cascade order --
+   an inline grid-template-columns declaration couldn't be overridden this
+   way, which is why this exists as a custom property instead. */
+.split-layout { display: grid; gap: 24px; align-items: start; grid-template-columns: var(--split-cols, 1fr 1fr); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE — phone and tablet-portrait share one layout below 900px
+   (Jim's call: one mobile-optimized layout, not a separate tablet design --
+   an iPad in portrait can't fit the desktop dense-table/multi-column
+   layouts any better than a phone can). Desktop and iPad-landscape
+   (1024px+) are unaffected. A narrower 480px tier handles the few things
+   that need finer shrinking on top of that.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .page { padding: 16px; }
+  .page-wide { padding: 16px; }
+  .page-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .page-header > div:last-child { width: 100%; }
+
+  .form-row-2, .form-row-3, .form-row-4 { grid-template-columns: 1fr; }
+  .split-layout { grid-template-columns: 1fr; }
+
+  /* Nav: 4 links + a 14-item Admin dropdown collapse into a hamburger-
+     triggered full-height panel. Desktop keeps its hover-driven dropdown;
+     mobile toggles .open via JS (toggleMobileNav/toggleMobileDropdown in
+     base.html) since :hover doesn't work on touch. */
+  .nav { padding: 0 16px; gap: 8px; }
+  .nav-toggle { display: flex; align-items: center; justify-content: center; }
+  .nav-links {
+    display: none; position: fixed; top: 56px; left: 0; right: 0; bottom: 0;
+    background: var(--surface); border-top: 1px solid var(--border);
+    flex-direction: column; gap: 2px; padding: 12px; overflow-y: auto; z-index: 150;
+  }
+  .nav-links.open { display: flex; }
+  .nav-link { padding: 13px 14px; font-size: 15px; }
+  .nav-dropdown { flex-direction: column; align-items: stretch; }
+  .nav-dropdown-trigger { padding: 13px 14px; font-size: 15px; height: auto; justify-content: space-between; }
+  .nav-dropdown:hover .nav-dropdown-trigger { background: none; color: var(--text2); }
+  .nav-dropdown-trigger.active { background: var(--blue); color: white; }
+  /* .open toggled by JS (base.html's toggleMobileDropdown) since :hover
+     doesn't apply on touch -- no competing hover-based override here, so
+     .open's specificity doesn't need to fight anything to win. */
+  .nav-dropdown-menu { display: none; position: static; padding-top: 0; min-width: 0; }
+  .nav-dropdown-menu.open { display: block; }
+  .nav-dropdown-menu-inner { border: none; border-radius: 0; box-shadow: none; background: transparent; }
+  .nav-dropdown-item { padding: 11px 20px; font-size: 14px; }
+  .nav-user-label { display: none; }
+
+  /* Tap targets for the few globally-shared small controls (edit_quote.html
+     has its own local .mstep/.mod-chip handled separately in that file) */
+  .btn-sm { padding: 8px 12px; font-size: 12px; }
+  .markup-stepper button { width: 32px; height: 32px; font-size: 14px; }
+  .markup-stepper .mv { line-height: 32px; min-width: 40px; }
+}
+
+@media (max-width: 480px) {
+  .summary-grid { grid-template-columns: 1fr 1fr; }
+  .summary-value { font-size: 17px; }
+}

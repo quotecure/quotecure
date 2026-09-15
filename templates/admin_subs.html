@@ -15,7 +15,7 @@
     {% endfor %}
   </datalist>
 
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+  <div class="split-layout">
 
     <!-- General Subs -->
     <div>
@@ -27,7 +27,7 @@
         </div>
         {% for s in subs %}
         <div style="border-bottom:1px solid var(--border2);" data-name="{{ s.name|lower }}" data-display-name="{{ s.name }}" id="subrow-{{ s.sub_id }}">
-          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;flex-wrap:wrap;">
             <span class="mono" style="color:var(--text3);min-width:36px;">{{ s.sub_id }}</span>
             <span style="font-weight:500;flex:1;">{{ s.name }}
               {% if s.poc_name %}<span style="font-weight:400;color:var(--text3);font-size:12px;margin-left:8px;">{{ s.poc_name }}</span>{% endif %}
@@ -213,7 +213,7 @@
         </div>
         {% for a in applicators %}
         <div style="border-bottom:1px solid var(--border2);" data-name="{{ a.name|lower }}" data-display-name="{{ a.name }}" id="approw-{{ a.sub_id }}">
-          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;flex-wrap:wrap;">
             <span class="mono" style="color:var(--text3);min-width:36px;">{{ a.sub_id }}</span>
             <span style="font-weight:500;flex:1;">{{ a.name }}{% if a.phone %}<span style="font-weight:400;color:var(--text3);font-size:12px;margin-left:8px;">{{ a.phone }}</span>{% endif %}</span>
             <span class="badge badge-{{ 'green' if a.active == 'Y' else 'red' }}">{{ 'Active' if a.active == 'Y' else 'Off' }}</span>
