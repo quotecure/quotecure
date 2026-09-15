@@ -297,6 +297,8 @@ def ghl_webhook(secret):
             return _ghl_webhook_on_site_scheduled(db, data)
         if event == 'note_added':
             return _ghl_webhook_note_added(db, data)
+        if event == 'quote_follow_up_due':
+            return _ghl_webhook_quote_follow_up_due(db, data)
     except Exception as e:
         print(f'[GHL webhook] event={event} failed: {e}')
         return jsonify({'success': False}), 200  # 200 so GHL doesn't retry-storm on a transient bug
@@ -368,6 +370,45 @@ def _ghl_webhook_note_added(db, data):
                (customer['customer_id'], note_text, author, note_id))
     db.commit()
     return jsonify({'success': True})
+
+def _ghl_webhook_quote_follow_up_due(db, data):
+    """Fired by a GHL Workflow that waits 2-3 days after a quote's opportunity moves to
+    'Quote Sent' before calling back. Deliberately does NOT trust whatever stage the GHL card
+    still shows -- Jim might sign a customer up and simply forget to drag the card to Won, and
+    a check against GHL's own stage would send an awkward "still interested?" email to someone
+    who already signed. Instead this checks QuoteCure's own status, which flips to 'contract'
+    automatically the moment a signature is captured, no manual step required. follow_up_sent_at
+    is the idempotency guard against a retried webhook double-sending."""
+    opportunity_id = data.get('opportunity_id')
+    if not opportunity_id:
+        return jsonify({'error': 'missing opportunity_id'}), 400
+    quote = db.execute("SELECT * FROM quotes WHERE ghl_opportunity_id=?", (opportunity_id,)).fetchone()
+    if not quote:
+        return jsonify({'error': 'unknown opportunity_id'}), 404
+    already_resolved = (quote['status'] in ('contract', 'in_progress', 'complete')
+                         or (quote['archived_reason'] or '') != '')
+    if quote['follow_up_sent_at'] or already_resolved:
+        return jsonify({'success': True, 'skipped': 'quote already resolved or already followed up'})
+    to_email = (quote['customer_email'] or '').strip()
+    if not to_email:
+        return jsonify({'success': True, 'skipped': 'no customer email on file'})
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    gmail_address = settings['gmail_address'] if settings else ''
+    gmail_app_password = settings['gmail_app_password'] if settings else ''
+    if not gmail_address or not gmail_app_password:
+        return jsonify({'success': True, 'skipped': 'email sending not configured'})
+    template = db.execute(
+        "SELECT * FROM quote_followup_templates WHERE active='Y' ORDER BY random() LIMIT 1").fetchone()
+    if not template:
+        return jsonify({'success': True, 'skipped': 'no active follow-up templates'})
+    first_name = (quote['customer_name'] or '').strip().split(' ')[0] or 'there'
+    company_name = (settings['company_name'] or '').strip() if settings else ''
+    body = template['body_text'].replace('{name}', first_name).replace('{company}', company_name)
+    _send_plain_email(to_email, template['subject'], body, gmail_address, gmail_app_password)
+    db.execute("UPDATE quotes SET follow_up_template_id=?, follow_up_sent_at=now()::text WHERE quote_id=?",
+               (template['id'], quote['quote_id']))
+    db.commit()
+    return jsonify({'success': True, 'sent_to': to_email, 'template': template['label']})
 
 # ── Home ──────────────────────────────────────────────────────────────────────
 @app.route('/')
@@ -4942,7 +4983,9 @@ def admin_settings():
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
     terms_docs = db.execute("SELECT * FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
     ghl_webhook_url = url_for('ghl_webhook', secret=settings['ghl_webhook_secret'], _external=True) if settings and settings['ghl_webhook_secret'] else ''
-    return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs, ghl_webhook_url=ghl_webhook_url)
+    followup_templates = db.execute("SELECT * FROM quote_followup_templates ORDER BY active DESC, id").fetchall()
+    return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs,
+                            ghl_webhook_url=ghl_webhook_url, followup_templates=followup_templates)
 
 @app.route('/admin/settings/email_config', methods=['POST'])
 @require_permission('can_edit_commission_policy')
@@ -5009,6 +5052,61 @@ def delete_terms_document(doc_id):
         db.execute("UPDATE terms_documents SET active=0 WHERE id=?", (doc_id,))
         db.commit()
     return redirect(url_for('admin_settings'))
+
+@app.route('/admin/settings/followup_templates/add', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def add_followup_template():
+    db = get_db()
+    label = request.form.get('label', '').strip()
+    subject = request.form.get('subject', '').strip()
+    body_text = request.form.get('body_text', '').strip()
+    if label and subject and body_text:
+        db.execute("INSERT INTO quote_followup_templates (label,subject,body_text) VALUES (?,?,?)",
+                   (label, subject, body_text))
+        db.commit()
+    return redirect(url_for('admin_settings'))
+
+@app.route('/admin/settings/followup_templates/<int:template_id>/toggle', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def toggle_followup_template(template_id):
+    db = get_db()
+    db.execute("UPDATE quote_followup_templates SET active = CASE WHEN active='Y' THEN 'N' ELSE 'Y' END WHERE id=?",
+               (template_id,))
+    db.commit()
+    return redirect(url_for('admin_settings'))
+
+@app.route('/admin/settings/followup_templates/<int:template_id>/delete', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def delete_followup_template(template_id):
+    db = get_db()
+    # Not deleted if it's already been sent at least once -- doing so would orphan
+    # quotes.follow_up_template_id and break the results report's per-template breakdown.
+    # Retire it with the toggle instead; only an unused draft can be removed outright.
+    used = db.execute("SELECT 1 FROM quotes WHERE follow_up_template_id=? LIMIT 1", (template_id,)).fetchone()
+    if not used:
+        db.execute("DELETE FROM quote_followup_templates WHERE id=?", (template_id,))
+        db.commit()
+    return redirect(url_for('admin_settings'))
+
+@app.route('/admin/followup_results')
+@require_permission('can_edit_commission_policy')
+def admin_followup_results():
+    db = get_db()
+    rows = db.execute("""
+        SELECT t.id, t.label, t.subject, t.active,
+               COUNT(q.quote_id) AS sent_count,
+               COUNT(q.quote_id) FILTER (WHERE q.status='contract') AS signed_count
+        FROM quote_followup_templates t
+        LEFT JOIN quotes q ON q.follow_up_template_id = t.id
+        GROUP BY t.id, t.label, t.subject, t.active
+        ORDER BY t.active DESC, t.id
+    """).fetchall()
+    results = []
+    for r in rows:
+        r = dict(r)
+        r['conversion_pct'] = round(100 * r['signed_count'] / r['sent_count'], 1) if r['sent_count'] else None
+        results.append(r)
+    return render_template('admin_followup_results.html', results=results)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CUSTOMER QUOTE VIEW (print-to-PDF)

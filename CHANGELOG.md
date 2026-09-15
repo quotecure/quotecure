@@ -4,6 +4,20 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-15 — A/B-tested quote follow-up emails via GHL
+
+Jim wanted a 2-3 day follow-up email to go out automatically after a quote is marked "Quote Sent" in GHL, without texting (Twilio/GHL phone number options both turned out to be dead ends — no local area codes available, and porting his real business cell would've knocked out his normal phone service). He also didn't know what the email should say, so rather than pick one fixed wording, QuoteCure now randomly picks from a pool of *active* templates per send and tracks which one leads to more signed contracts.
+
+**The automation, end to end:** Jim builds one more GHL Workflow (documented as trigger #4 in Admin → Company Settings, same webhook URL already used for the other 3 triggers) — stage changes to "Quote Sent" → Wait 2-3 days → Webhook. QuoteCure's existing inbound webhook route gets a new `quote_follow_up_due` event, handled by `_ghl_webhook_quote_follow_up_due`.
+
+**The safety property that mattered most:** the decision to send does NOT depend on whatever stage the GHL card still shows. If Jim forgets to drag a card to Won after a customer signs, a check against GHL's own stage would send an awkward "still interested?" email to someone who already has a contract. Instead the handler checks QuoteCure's own `quotes.status` (which flips to `contract` automatically the instant a signature is captured, no manual step) and `archived_reason` (set when a quote's marked lost) — only a genuinely still-open quote gets followed up. `quotes.follow_up_sent_at` doubles as the idempotency guard against a retried webhook double-sending.
+
+**Templates & results:** new "Quote Follow-up Emails" card in Admin → Company Settings (mirrors the existing Terms & Conditions Library pattern) manages a pool of templates with `{name}`/`{company}` placeholders, each toggleable active/inactive; seeded with 3 starter variants (direct / low-pressure / value-forward) so it works immediately without Jim having to write copy first. A used template can be deactivated but not deleted (would orphan the results data); an unused draft can be deleted outright. New Admin → Follow-up Results page shows sent/signed/conversion-% per template, using whether the quote eventually reached `contract` status as the real signal — more reliable than open-tracking pixels, which Gmail and Apple Mail both defeat by design now.
+
+New: migration `add_quote_followup_templates` (`quote_followup_templates` table, `quotes.follow_up_template_id`/`follow_up_sent_at`). Tested: safe-to-send / already-signed / already-lost / already-followed-up / unknown-opportunity-id / template CRUD, all passing against `quotecure_dev`.
+
+---
+
 ## 2026-09-15 — Customer profile: Contact Info back to two columns (shorter)
 
 Quick follow-up to the equal-width-boxes change below: once Contact Info became a standalone full-width card, its five stacked fields (Name/Address/City/Phone/Email) made the card much taller than the others. Jim asked to tighten it up. Paired the fields into the existing `.form-row-2` grid (Name+Phone, Address+City), leaving Email as its own full-width row — same field names/POST target, just a shorter, denser layout. `.form-row-2` already collapses to one column below 900px (from the mobile-responsive pass), so phone/tablet are unaffected.

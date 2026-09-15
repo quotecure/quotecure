@@ -47,6 +47,7 @@
         <a href="/admin/salespeople" class="nav-dropdown-item {% if '/admin/salespeople' in request.path %}active{% endif %}">Salespeople</a>
         {% if current_role and current_role.can_edit_commission_policy %}
         <a href="/admin/competitor_rates" class="nav-dropdown-item {% if '/admin/competitor_rates' in request.path %}active{% endif %}">Competitor Rates</a>
+        <a href="/admin/followup_results" class="nav-dropdown-item {% if '/admin/followup_results' in request.path %}active{% endif %}">Follow-up Results</a>
         <a href="/admin/permissions" class="nav-dropdown-item {% if '/admin/permissions' in request.path %}active{% endif %}">Roles &amp; Permissions</a>
         {% endif %}
         </div>

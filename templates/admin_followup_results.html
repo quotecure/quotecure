@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Follow-up Results — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Follow-up Results</div>
+      <div class="page-subtitle">Which quote follow-up email wording actually leads to signed contracts</div>
+    </div>
+    <a href="/admin/settings" class="btn btn-secondary">Manage Templates</a>
+  </div>
+
+  {% if not results %}
+  <div class="card">
+    <div class="empty-state">
+      <div class="empty-state-icon">📧</div>
+      <div class="empty-state-text">No follow-up templates yet. Add some in Admin → Company Settings.</div>
+    </div>
+  </div>
+  {% else %}
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Template</th>
+            <th>Subject</th>
+            <th>Status</th>
+            <th class="right">Sent</th>
+            <th class="right">Signed</th>
+            <th class="right">Conversion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+          <tr>
+            <td style="font-weight:600;">{{ r.label }}</td>
+            <td style="color:var(--text2);font-size:12px;">{{ r.subject }}</td>
+            <td>
+              {% if r.active == 'Y' %}
+              <span class="badge badge-green">Active</span>
+              {% else %}
+              <span class="badge badge-amber">Inactive</span>
+              {% endif %}
+            </td>
+            <td class="right mono">{{ r.sent_count }}</td>
+            <td class="right mono">{{ r.signed_count }}</td>
+            <td class="right mono" style="font-weight:700;">
+              {% if r.conversion_pct is not none %}{{ r.conversion_pct }}%{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div style="font-size:11px;color:var(--text3);margin-top:12px;">
+    "Signed" counts a template's quotes that are currently in <span class="mono">contract</span> status -- it doesn't require the signature to have happened within any particular window after the follow-up went out.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
