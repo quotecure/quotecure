@@ -158,6 +158,7 @@
         Each quote picks one of these from a dropdown. Upload a PDF for full control over formatting — it gets appended to the end of the quote PDF. Without a PDF, the plain text below renders as paragraphs instead (blank lines become paragraph breaks).
       </div>
       {% if terms_docs %}
+      <div class="table-wrap">
       <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
         <thead>
           <tr style="text-align:left;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;">
@@ -192,6 +193,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
       {% else %}
       <div style="text-align:center;padding:24px;background:var(--bg);border:2px dashed var(--border);border-radius:6px;margin-bottom:20px;color:var(--text3);">
         No terms documents yet

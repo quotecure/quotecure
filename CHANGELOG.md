@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-15 — Mobile responsive, Phase 4: the sweep (done)
+
+Last of four planned phases (foundation → the quote editor → customer-facing documents → **this: sweeping the rest**). Confirms the bet from Phase 1 paid off: of the 26 table-based admin/list pages in the app, only two needed any actual template change here. The rest -- Work Types, Sub Rates, Surface Products, Materials, Modifiers, Locked Accounts, Salespeople, Roles & Permissions (the widest table in the app, a full role-by-feature matrix), Schedule -- already work correctly on a phone with zero extra changes, purely from Phase 1's global nav/tap-target/table-scroll foundation.
+
+The two real fixes: `quotes.html`'s by-salesperson/by-lead-source stat rows (`.rep-row`) had no `flex-wrap`, so a long name plus three stat spans had no fallback if they didn't fit one line -- added it. `admin_settings.html`'s Terms & Conditions table was a bare `<table>` never wrapped in `.table-wrap`, unlike every other table in the app -- wrapped it.
+
+Spot-checked in browser at 375px: Work Types (table renders clean, no changes needed), Roles & Permissions (the wide matrix scrolls horizontally as expected via the existing `.table-wrap`), Schedule (same), and Company Settings' now-wrapped Terms table.
+
+**This closes out the mobile-responsive project.** Summary across all four phases: one shared 900px breakpoint (phone and tablet-portrait get the same layout, desktop and iPad-landscape unaffected) added to `static/style.css`; the nav collapses to a hamburger; every shared form/split-layout grid stacks; the quote editor's line-item table becomes stacked cards via CSS alone (no parallel template, so `editCell`/`adjMarkup`/`moveItemSection`/drag-reorder all kept working unchanged); the customer-facing quote/contract preview and sign flow works end-to-end on a phone (verified with an actual drawn signature); and the rest of the app needed almost no further work because the foundation held up. One pre-existing, unrelated bug (unstyled selects on `customer_view.html`) was spotted along the way and flagged as a separate follow-up rather than folded into this pass.
+
+---
+
 ## 2026-09-15 — Mobile responsive, Phase 3: customer-facing quote/contract documents
 
 Third of four planned phases (foundation → the quote editor → **this: customer-facing documents** → sweeping the rest). This is the page a customer actually opens and signs on their own phone, independent of any staff-side work.
