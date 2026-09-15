@@ -4,6 +4,22 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-15 — Mobile responsive, Phase 3: customer-facing quote/contract documents
+
+Third of four planned phases (foundation → the quote editor → **this: customer-facing documents** → sweeping the rest). This is the page a customer actually opens and signs on their own phone, independent of any staff-side work.
+
+`quote_preview.html` and `change_order_preview.html` are standalone documents with their own embedded `<style>`, entirely separate from `static/style.css` -- each got its own `@media screen and (max-width: 900px)` block (the existing `@media print` rule is untouched): the header/customer-info/signature grids stack to one column, the totals box goes full-width, and page padding shrinks. The line-items `<table>` needed no changes at all -- it's just 2 columns (Service, Price) with no forced `white-space:nowrap`, so it already wraps text naturally at narrow widths with no horizontal scroll. `customer_view.html` (what a customer taps through to swap materials/finishes) already used the shared nav/foundation from Phase 1; its own two bespoke picker grids (the surface-finish 3-select row, the material 1-select+Done-button row) now stack too.
+
+Repeated the exact same inline-style-beats-media-query mistake from Phase 2 here, twice, before catching it: added `.cv-picker-grid-3`/`.cv-picker-grid-2` classes for targeting but left the conflicting `grid-template-columns` in the element's own `style="..."` attribute, so the class-based override silently did nothing. Fixed by moving the actual `grid-template-columns` value into the class itself, same fix as the Payment Schedule bug in Phase 2.
+
+Also found, while checking those pickers: `customer_view.html`'s `<select>`/`<label>` elements use `.nr-input`/`.nr-label` classes that are only ever defined in `edit_quote.html`'s own embedded styles -- a pre-existing gap, not something this pass caused, that leaves those controls rendering as plain unstyled browser defaults on the customer-facing page at every screen width, not just mobile. Flagged as a separate follow-up rather than fixed here (out of scope for a responsive-layout pass) -- but it's why the Material/Manufacturer/Finish dropdowns in the screenshots below look like plain white boxes instead of the app's usual dark styling.
+
+Verified in browser at 375px: opened a real quote preview, drew and submitted an actual signature (canvas coordinate mapping confirmed pixel-accurate against the drawn stroke), and watched the quote flip from draft to a signed contract -- checking the database, not just the screen. Same for a change order preview. Confirmed `customer_view.html`'s cascading finish/material pickers render correctly stacked with no horizontal overflow.
+
+Next: Phase 4 -- sweeping the remaining admin/list pages (mostly automatic from Phase 1's foundation classes) and a couple of small targeted fixes found during research (quotes.html's salesperson/lead-source stat rows lack `flex-wrap`; one bare `<table>` on admin_settings.html isn't wrapped for horizontal scroll).
+
+---
+
 ## 2026-09-15 — Mobile responsive, Phase 2: the quote editor itself
 
 Second of four planned phases (foundation shipped earlier today → **this: the quote editor** → customer-facing documents → sweeping the rest). This is the piece Jim specifically named: "quote creation is impossible on a phone."

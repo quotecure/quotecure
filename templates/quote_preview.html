@@ -83,6 +83,20 @@
   .viz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   .viz-grid img { width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; display: block; }
   .viz-label { text-align: center; font-size: 11px; color: #64748b; margin-top: 8px; }
+
+  /* Mobile/tablet-portrait -- a customer very plausibly opens and signs this on their
+     phone. Screen-only (the existing @media print block above is untouched). */
+  @media screen and (max-width: 900px) {
+    .page { padding: 20px 16px 40px; }
+    .print-bar { flex-wrap: wrap; gap: 8px; }
+    .header { grid-template-columns: 1fr; text-align: center; gap: 12px; }
+    .header-title, .header-meta { text-align: center; }
+    .quote-title { font-size: 30px; }
+    .customer-section { grid-template-columns: 1fr; gap: 16px; }
+    .totals-box { width: 100%; }
+    .sig-grid { grid-template-columns: 1fr; gap: 28px; }
+    .viz-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>

@@ -61,6 +61,19 @@
   .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
   .sig-line { border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 6px; height: 40px; }
   .sig-label { font-size: 11px; color: #94a3b8; }
+
+  /* Mobile/tablet-portrait -- a customer very plausibly opens and signs this on their
+     phone. Screen-only (the existing @media print block above is untouched). */
+  @media screen and (max-width: 900px) {
+    .page { padding: 20px 16px 40px; }
+    .print-bar { flex-wrap: wrap; gap: 8px; }
+    .header { grid-template-columns: 1fr; text-align: center; gap: 12px; }
+    .header-title, .header-meta { text-align: center; }
+    .quote-title { font-size: 26px; }
+    .customer-section { grid-template-columns: 1fr; gap: 16px; }
+    .totals-box { width: 100%; }
+    .sig-grid { grid-template-columns: 1fr; gap: 28px; }
+  }
 </style>
 </head>
 <body>

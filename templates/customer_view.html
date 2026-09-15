@@ -30,6 +30,20 @@
   display: flex; gap: 10px; align-items: end; padding: 16px 20px; border: 1px dashed var(--border);
   border-radius: var(--radius); margin-bottom: 12px; background: var(--surface);
 }
+.cv-picker-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.cv-picker-grid-2 { grid-template-columns: 1fr auto; }
+
+@media (max-width: 900px) {
+  .cv-item { flex-wrap: wrap; }
+  .cv-add-row { flex-wrap: wrap; }
+  .cv-picker-grid-3, .cv-picker-grid-2 { grid-template-columns: 1fr; }
+  /* These selects have no width rule at all here (.nr-input/.nr-label are only defined
+     in edit_quote.html's own <style>, not shared -- a separate, pre-existing gap outside
+     this fix's scope), so with no CSS width, a <select> in a grid cell sizes to its own
+     content instead of stretching to fill the row. Force it explicitly. */
+  .cv-picker-grid-3 > div, .cv-picker-grid-2 > div { min-width: 0; width: 100%; }
+  .cv-picker-grid-3 select, .cv-picker-grid-2 select { min-width: 0; width: 100%; box-sizing: border-box; }
+}
 </style>
 {% endblock %}
 {% block content %}
@@ -60,7 +74,7 @@
 
       <div class="cv-picker" id="cv-picker-{{ item.id }}">
         {% if item.work_type_id == 1 %}
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:end;">
+        <div class="cv-picker-grid-3" style="display:grid;gap:10px;align-items:end;">
           <div>
             <label class="nr-label">Manufacturer</label>
             <select class="nr-input" id="cv-mfr-{{ item.id }}" onchange="cvLoadLines({{ item.id }})">
@@ -84,7 +98,7 @@
           </div>
         </div>
         {% else %}
-        <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;">
+        <div class="cv-picker-grid-2" style="display:grid;gap:10px;align-items:end;">
           <div>
             <label class="nr-label">Material</label>
             <select class="nr-input" id="cv-mat-{{ item.id }}" onchange="cvSaveMaterial({{ item.id }})">
