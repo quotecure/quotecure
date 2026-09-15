@@ -16,84 +16,125 @@
     </div>
   </div>
 
-  <div class="split-layout" style="--split-cols:1fr 2fr;">
-    <div class="card">
-      <div class="card-header"><div class="card-title">Contact Info</div></div>
-      <div class="card-body">
-        <form method="POST" action="/customers/{{ customer.customer_id }}/edit">
-          <div class="form-group">
-            <label class="form-label">Name</label>
-            <input class="form-control" name="name" required value="{{ customer.name }}">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Address</label>
-            <input class="form-control" name="address" value="{{ customer.address or '' }}" autocomplete="off">
-            <div style="font-size:11px;color:var(--text3);margin-top:4px;">Just this customer's own record — doesn't change the address on any of their existing quotes below.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">City</label>
-            <input class="form-control" name="city" value="{{ customer.city or '' }}" placeholder="Tampa" autocomplete="off">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Phone</label>
-            <input class="form-control" name="phone" value="{{ customer.phone or '' }}">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Email</label>
-            <input class="form-control" name="email" type="email" value="{{ customer.email or '' }}">
-          </div>
-          <button class="btn btn-primary" type="submit" style="margin-top:4px;">Save</button>
-        </form>
-        {% if customer.lead_source or customer.site_visit_at %}
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2);font-size:12px;color:var(--text2);">
-          {% if customer.lead_source %}<div>Lead source: <strong>{{ customer.lead_source }}</strong></div>{% endif %}
-          {% if customer.site_visit_at %}<div style="margin-top:4px;">Site visit: <strong>{{ customer.site_visit_at }}</strong></div>{% endif %}
+  <!-- 1. Customer Info -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">Contact Info</div></div>
+    <div class="card-body">
+      <form method="POST" action="/customers/{{ customer.customer_id }}/edit">
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input class="form-control" name="name" required value="{{ customer.name }}">
         </div>
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header"><div class="card-title">Quotes &amp; Contracts</div></div>
-      {% if quotes %}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Address</th>
-              <th>Status</th>
-              <th class="right">Total Price</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for q in quotes %}
-            <tr>
-              <td class="mono"><a href="/quotes/{{ q.quote_id }}">QT-{{ '%04d'|format(q.quote_id) }}</a></td>
-              <td style="color:var(--text2)">{{ (q.address|full_address(q.city)) or '—' }}</td>
-              <td>
-                <span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status in ('sent', 'complete') else 'blue' if q.status == 'draft' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span>
-                {% if q.quote_id in archived_ids %}
-                <span class="badge badge-amber" style="margin-left:4px;" title="Excluded from the Quotes stats">🗄 Archived</span>
-                {% endif %}
-              </td>
-              <td class="right mono" style="font-weight:600">{{ q.total_price|usd }}</td>
-              <td style="color:var(--text3); font-size:12px">{{ q.created_at[:10] if q.created_at else '—' }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <div class="empty-state">
-        <div class="empty-state-icon">📋</div>
-        <div class="empty-state-text">No quotes yet for this customer.</div>
+        <div class="form-group">
+          <label class="form-label">Address</label>
+          <input class="form-control" name="address" value="{{ customer.address or '' }}" autocomplete="off">
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Just this customer's own record — doesn't change the address on any of their existing quotes below.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">City</label>
+          <input class="form-control" name="city" value="{{ customer.city or '' }}" placeholder="Tampa" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Phone</label>
+          <input class="form-control" name="phone" value="{{ customer.phone or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-control" name="email" type="email" value="{{ customer.email or '' }}">
+        </div>
+        <button class="btn btn-primary" type="submit" style="margin-top:4px;">Save</button>
+      </form>
+      {% if customer.lead_source or customer.site_visit_at %}
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2);font-size:12px;color:var(--text2);">
+        {% if customer.lead_source %}<div>Lead source: <strong>{{ customer.lead_source }}</strong></div>{% endif %}
+        {% if customer.site_visit_at %}<div style="margin-top:4px;">Site visit: <strong>{{ customer.site_visit_at }}</strong></div>{% endif %}
       </div>
       {% endif %}
     </div>
   </div>
 
+  <!-- 2. Quotes -->
+  <div class="card" style="margin-top:24px;">
+    <div class="card-header"><div class="card-title">Quotes &amp; Contracts</div></div>
+    {% if quotes %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Address</th>
+            <th>Status</th>
+            <th class="right">Total Price</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for q in quotes %}
+          <tr>
+            <td class="mono"><a href="/quotes/{{ q.quote_id }}">QT-{{ '%04d'|format(q.quote_id) }}</a></td>
+            <td style="color:var(--text2)">{{ (q.address|full_address(q.city)) or '—' }}</td>
+            <td>
+              <span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status in ('sent', 'complete') else 'blue' if q.status == 'draft' else 'amber' }}">{{ 'in progress' if q.status == 'in_progress' else q.status }}</span>
+              {% if q.quote_id in archived_ids %}
+              <span class="badge badge-amber" style="margin-left:4px;" title="Excluded from the Quotes stats">🗄 Archived</span>
+              {% endif %}
+            </td>
+            <td class="right mono" style="font-weight:600">{{ q.total_price|usd }}</td>
+            <td style="color:var(--text3); font-size:12px">{{ q.created_at[:10] if q.created_at else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-state-icon">📋</div>
+      <div class="empty-state-text">No quotes yet for this customer.</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- 3. Notes -->
+  <div class="card" style="margin-top:24px;">
+    <div class="card-header"><div class="card-title">History</div></div>
+    <div class="card-body">
+      <form method="POST" action="/customers/{{ customer.customer_id }}/notes/add" style="margin-bottom:20px;">
+        <label class="form-label">Add a Note</label>
+        <textarea class="form-control" name="note_text" rows="2" placeholder="e.g. Wants pebble finish instead of quartz, budget around $70k..." required></textarea>
+        <button class="btn btn-secondary btn-sm" type="submit" style="margin-top:8px;">Add Note</button>
+      </form>
+
+      {% if history %}
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        {% for item in history %}
+        <div style="display:flex; gap:12px; padding-top:14px; border-top:1px solid var(--border2);">
+          <div style="flex:1;">
+            <div style="font-size:11px; color:var(--text3); margin-bottom:4px;">
+              {{ item.created_at[:16] if item.created_at else '' }}{% if item.created_by %} · {{ item.created_by }}{% endif %}
+            </div>
+            {% if item.kind == 'note' %}
+            <div style="white-space:pre-wrap;">{{ item.note_text }}</div>
+            {% else %}
+            <a href="/customers/attachments/{{ item.id }}/download" style="color:var(--blue-light);">📎 {{ item.filename }}</a>
+            {% endif %}
+          </div>
+          <form method="POST" action="/customers/{{ customer.customer_id }}/{{ 'notes' if item.kind == 'note' else 'attachments' }}/{{ item.id }}/delete"
+                onsubmit="return confirm('Delete this {{ 'note' if item.kind == 'note' else 'file' }}?')">
+            <button class="btn btn-secondary btn-sm" type="submit" style="color:var(--red);">✕</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <div class="empty-state-icon">📝</div>
+        <div class="empty-state-text">No notes yet.</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- 4. Pictures -->
   <div class="card" style="margin-top:24px;">
     <div class="card-header"><div class="card-title">Photos ({{ photos|length }})</div></div>
     <div class="card-body">
@@ -103,7 +144,7 @@
           <input class="form-control" name="file" type="file" multiple required style="flex:1;min-width:220px;">
           <button class="btn btn-secondary btn-sm" type="submit">Upload</button>
         </div>
-        <div style="font-size:11px;color:var(--text3);margin-top:4px;">Select multiple at once (ctrl/cmd-click or shift-click) — around 10-15 typical phone photos per batch. Non-photo files (PDFs, etc.) show up in History below instead of here.</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;">Select multiple at once (ctrl/cmd-click or shift-click) — around 10-15 typical phone photos per batch. Non-photo files (PDFs, etc.) show up in History above instead of here.</div>
       </form>
       <script>
         // A batch that's too big in total crashes the server request rather than failing
@@ -145,6 +186,7 @@
     </div>
   </div>
 
+  <!-- 5. Competitors -->
   <div class="card" style="margin-top:24px;" id="competitor-quotes">
     <div class="card-header"><div class="card-title">Competitor Quotes ({{ competitor_quotes|length }})</div></div>
     <div class="card-body">
@@ -294,45 +336,6 @@
       <div class="empty-state">
         <div class="empty-state-icon">🏷️</div>
         <div class="empty-state-text">No competitor quotes logged yet.</div>
-      </div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:24px;">
-    <div class="card-header"><div class="card-title">History</div></div>
-    <div class="card-body">
-      <form method="POST" action="/customers/{{ customer.customer_id }}/notes/add" style="margin-bottom:20px;">
-        <label class="form-label">Add a Note</label>
-        <textarea class="form-control" name="note_text" rows="2" placeholder="e.g. Wants pebble finish instead of quartz, budget around $70k..." required></textarea>
-        <button class="btn btn-secondary btn-sm" type="submit" style="margin-top:8px;">Add Note</button>
-      </form>
-
-      {% if history %}
-      <div style="display:flex; flex-direction:column; gap:14px;">
-        {% for item in history %}
-        <div style="display:flex; gap:12px; padding-top:14px; border-top:1px solid var(--border2);">
-          <div style="flex:1;">
-            <div style="font-size:11px; color:var(--text3); margin-bottom:4px;">
-              {{ item.created_at[:16] if item.created_at else '' }}{% if item.created_by %} · {{ item.created_by }}{% endif %}
-            </div>
-            {% if item.kind == 'note' %}
-            <div style="white-space:pre-wrap;">{{ item.note_text }}</div>
-            {% else %}
-            <a href="/customers/attachments/{{ item.id }}/download" style="color:var(--blue-light);">📎 {{ item.filename }}</a>
-            {% endif %}
-          </div>
-          <form method="POST" action="/customers/{{ customer.customer_id }}/{{ 'notes' if item.kind == 'note' else 'attachments' }}/{{ item.id }}/delete"
-                onsubmit="return confirm('Delete this {{ 'note' if item.kind == 'note' else 'file' }}?')">
-            <button class="btn btn-secondary btn-sm" type="submit" style="color:var(--red);">✕</button>
-          </form>
-        </div>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="empty-state">
-        <div class="empty-state-icon">📝</div>
-        <div class="empty-state-text">No notes yet.</div>
       </div>
       {% endif %}
     </div>

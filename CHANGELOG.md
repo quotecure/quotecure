@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-15 — Customer profile: equal-width boxes, reordered
+
+Jim wanted the customer detail page (`customer_detail.html`) to stop pairing Contact Info and Quotes & Contracts side-by-side in an unequal 1fr:2fr split, and instead have all five sections -- Customer Info, Quotes, Notes, Photos, Competitors -- render as equally-wide, full-width boxes stacked in that exact order. Previously the order was [Contact Info | Quotes] side-by-side, then Photos, then Competitor Quotes, then History/Notes at the very bottom.
+
+Removed the `.split-layout` wrapper around Contact Info + Quotes (that shared class itself is untouched -- ~9 other admin pages still use it for legitimate unequal sidebars), turning each into its own standalone full-width `.card`, and physically reordered the five card blocks to: Contact Info, Quotes & Contracts, History (Notes), Photos, Competitor Quotes. The `id="competitor-quotes"` anchor (used by the add/delete-competitor-quote routes' post-submit redirect) moved with its card and still works. Pure template reorder -- no backend or JS changes, confirmed by the full competitor-tracking test suite passing unchanged. Browser-verified at both desktop and 375px mobile widths.
+
+---
+
 ## 2026-09-15 — Mobile responsive, Phase 4: the sweep (done)
 
 Last of four planned phases (foundation → the quote editor → customer-facing documents → **this: sweeping the rest**). Confirms the bet from Phase 1 paid off: of the 26 table-based admin/list pages in the app, only two needed any actual template change here. The rest -- Work Types, Sub Rates, Surface Products, Materials, Modifiers, Locked Accounts, Salespeople, Roles & Permissions (the widest table in the app, a full role-by-feature matrix), Schedule -- already work correctly on a phone with zero extra changes, purely from Phase 1's global nav/tap-target/table-scroll foundation.
