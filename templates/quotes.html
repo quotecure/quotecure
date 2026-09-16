@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}{{ 'Archive' if active_tab == 'archive' else 'Quotes' }} — QuoteCure{% endblock %}
+{% block title %}{{ 'Needs Follow-up Call' if active_tab == 'followup' else 'Archive' if active_tab == 'archive' else 'Quotes' }} — QuoteCure{% endblock %}
 {% block extra_css %}
 <style>
 .qtabs { display: flex; gap: 6px; margin-bottom: 14px; }
@@ -25,8 +25,16 @@
 <div class="page">
   <div class="page-header">
     <div>
-      <div class="page-title">{{ 'Archive' if active_tab == 'archive' else 'Quotes' }}</div>
-      <div class="page-subtitle">{{ 'Gone cold (30+ days) or marked lost — restore one to bring it back' if active_tab == 'archive' else 'Draft and sent quotes' }}</div>
+      <div class="page-title">{{ 'Needs Follow-up Call' if active_tab == 'followup' else 'Archive' if active_tab == 'archive' else 'Quotes' }}</div>
+      <div class="page-subtitle">
+        {% if active_tab == 'followup' %}
+        A follow-up email already went out on these — still open, worth a call
+        {% elif active_tab == 'archive' %}
+        Gone cold (30+ days) or marked lost — restore one to bring it back
+        {% else %}
+        Draft and sent quotes
+        {% endif %}
+      </div>
     </div>
     <a href="/quotes/new" class="btn btn-primary">+ New Quote</a>
   </div>
@@ -86,7 +94,8 @@
   {% endif %}
 
   <div class="qtabs">
-    <a href="/quotes?{{ qs_with(tab='quotes') }}" class="qtab {{ 'active' if active_tab != 'archive' }}">Quotes</a>
+    <a href="/quotes?{{ qs_with(tab='quotes') }}" class="qtab {{ 'active' if active_tab == 'quotes' }}">Quotes</a>
+    <a href="/quotes?{{ qs_with(tab='followup') }}" class="qtab {{ 'active' if active_tab == 'followup' }}">Needs Follow-up Call</a>
     <a href="/quotes?{{ qs_with(tab='archive') }}" class="qtab {{ 'active' if active_tab == 'archive' }}">Archive</a>
   </div>
 
@@ -136,6 +145,9 @@
             {% if active_tab == 'archive' %}
             <th>Why</th>
             {% endif %}
+            {% if active_tab == 'followup' %}
+            <th>Follow-up Sent</th>
+            {% endif %}
             <th class="right">Total Cost</th>
             {{ sort_th('Total Price', 'price_asc', 'price_desc', 'right') }}
             {{ sort_th('Margin', 'margin_asc', 'margin_desc', 'right') }}
@@ -161,6 +173,12 @@
             <td><span class="badge badge-{{ 'green' if q.status == 'sent' else 'blue' }}">{{ q.status }}</span></td>
             {% if active_tab == 'archive' %}
             <td style="color:var(--text3);font-size:12px;">{{ q.archived_reason or 'Inactive 30+ days' }}</td>
+            {% endif %}
+            {% if active_tab == 'followup' %}
+            <td style="color:var(--text3);font-size:12px;">
+              {{ q.follow_up_sent_at[:10] if q.follow_up_sent_at else '—' }}
+              <span style="color:var(--text2);">({{ followup_template_labels.get(q.follow_up_template_id, 'unknown') }})</span>
+            </td>
             {% endif %}
             <td class="right mono">{{ q.total_cost|usd }}</td>
             <td class="right mono" style="font-weight:600">{{ q.total_price|usd }}</td>
@@ -199,9 +217,11 @@
     {% endif %}
     {% else %}
     <div class="empty-state">
-      <div class="empty-state-icon">{{ '🗄' if active_tab == 'archive' else '📋' }}</div>
+      <div class="empty-state-icon">{{ '📞' if active_tab == 'followup' else '🗄' if active_tab == 'archive' else '📋' }}</div>
       <div class="empty-state-text">
-        {% if active_tab == 'archive' %}
+        {% if active_tab == 'followup' %}
+        Nothing here right now. Quotes land here once their follow-up email has actually gone out and they're still open.
+        {% elif active_tab == 'archive' %}
         Nothing archived. Quotes land here once they've gone cold (30+ days) or get marked lost.
         {% else %}
         No quotes yet. <a href="/quotes/new">Create your first one.</a>

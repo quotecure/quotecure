@@ -408,6 +408,12 @@ def _ghl_webhook_quote_follow_up_due(db, data):
     db.execute("UPDATE quotes SET follow_up_template_id=?, follow_up_sent_at=now()::text WHERE quote_id=?",
                (template['id'], quote['quote_id']))
     db.commit()
+    # GHL has no way to know QuoteCure actually sent this -- the wait timer expiring doesn't
+    # mean the email went out (the quote could've been skipped above for any number of
+    # reasons), so QuoteCure is the one that pushes the stage forward, and only once it's
+    # confirmed the send really happened.
+    _sync_quote_to_ghl(db, quote['quote_id'], _GHL_STAGE_QUOTE_FOLLOW_UP,
+                        note_text=f"Follow-up email sent (template: {template['label']})")
     return jsonify({'success': True, 'sent_to': to_email, 'template': template['label']})
 
 # ── Home ──────────────────────────────────────────────────────────────────────
@@ -726,7 +732,7 @@ def quotes_list():
         # Contracts moved to its own page -- redirect any stale bookmarks/links rather
         # than silently changing what this URL shows.
         return redirect(url_for('contracts_list'))
-    if tab != 'archive':
+    if tab not in ('archive', 'followup'):
         tab = 'quotes'
 
     search = request.args.get('q', '').strip()
@@ -743,8 +749,16 @@ def quotes_list():
     # narrowing it further -- built as a WHERE clause + params list rather than two near-
     # identical hardcoded queries, so the filter/sort/pagination logic below only has to be
     # written once for both tabs.
-    where_parts = ["(status='draft' OR status='sent')",
-                   _ARCHIVED_SQL if tab == 'archive' else f"NOT {_ARCHIVED_SQL}"]
+    if tab == 'followup':
+        # A quote lands here once its follow-up email has actually gone out (not merely
+        # "sent" -- follow_up_sent_at is set by _ghl_webhook_quote_follow_up_due, so a quote
+        # that's still waiting out its GHL Wait step doesn't show up prematurely) and is
+        # still open -- the same "not archived" guard used elsewhere so a lost/gone-cold one
+        # doesn't linger on this worklist after Sales has no reason to call it.
+        where_parts = ["status='sent'", "follow_up_sent_at != ''", f"NOT {_ARCHIVED_SQL}"]
+    else:
+        where_parts = ["(status='draft' OR status='sent')",
+                       _ARCHIVED_SQL if tab == 'archive' else f"NOT {_ARCHIVED_SQL}"]
     params = []
     if search:
         # Matches customer name, address, or "QT-0042"/"42" style quote-number lookups --
@@ -771,11 +785,13 @@ def quotes_list():
     quote_counts = _quote_counts_for(db, quotes)
     net_commissions = {q['quote_id']: _net_commission(q) for q in quotes}
     salesperson_names = _known_salesperson_names(db)
+    followup_template_labels = {t['id']: t['label'] for t in
+                                 db.execute("SELECT id, label FROM quote_followup_templates").fetchall()}
     return render_template('quotes.html', quotes=quotes,
                            active_tab=tab, quote_counts=quote_counts, current_role=g.role,
                            net_commissions=net_commissions, stats=stats, date_range=date_range,
                            search=search, salesperson_filter=salesperson_filter, sort=sort,
-                           salesperson_names=salesperson_names,
+                           salesperson_names=salesperson_names, followup_template_labels=followup_template_labels,
                            page=page, total_pages=total_pages, total_count=total_count)
 
 @app.route('/contracts')

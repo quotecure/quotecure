@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-16 — Follow-up emails now push GHL forward, and a "Needs Follow-up Call" worklist for Sales
+
+Two small additions on top of yesterday's A/B-tested follow-up emails, while Jim gets the actual GHL Workflow wired up and tested:
+
+**GHL stage now moves automatically once the email actually sends.** Jim's first instinct was to have GHL itself move the card to "Quote Follow-up" as soon as its Wait step finishes — but the Wait step finishing doesn't mean QuoteCure actually sent anything (the quote might've already been signed or marked lost in that window, or there's no email on file, or no active template). Blindly moving the stage on a timer could yank an already-Won deal backward, or falsely suggest a nudge went out when it didn't. So instead, `_ghl_webhook_quote_follow_up_due` now pushes the opportunity to the (previously unused) `_GHL_STAGE_QUOTE_FOLLOW_UP` stage itself, immediately after confirming the send — same outbound-sync mechanism already used for Quote Sent/Won/Lost, so it's just as safe against duplicate opportunities.
+
+**New "Needs Follow-up Call" tab on the Quotes page** — a third tab alongside Quotes/Archive, filtered to quotes where a follow-up email has gone out (`follow_up_sent_at` set) and the quote is still open. Gives Sales a daily worklist: these are leads who got an automated nudge and still haven't converted, worth an actual phone call. Shows which template variant they received. Reuses the existing Quotes page's search/salesperson-filter/pagination rather than a new standalone page.
+
+Tested against `quotecure_dev`: full existing follow-up suite re-run clean (the new `_sync_quote_to_ghl` call never raises even without real GHL credentials configured, per its own "never raises" contract). Browser-verified the new tab renders correctly with both an empty state and a populated row, desktop and mobile.
+
+---
+
 ## 2026-09-15 — A/B-tested quote follow-up emails via GHL
 
 Jim wanted a 2-3 day follow-up email to go out automatically after a quote is marked "Quote Sent" in GHL, without texting (Twilio/GHL phone number options both turned out to be dead ends — no local area codes available, and porting his real business cell would've knocked out his normal phone service). He also didn't know what the email should say, so rather than pick one fixed wording, QuoteCure now randomly picks from a pool of *active* templates per send and tracks which one leads to more signed contracts.
