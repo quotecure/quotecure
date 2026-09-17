@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-17 — Fix: Customers list badge now matches the profile page; new GHL stage-id lookup tool
+
+**Badge fix**: Jim caught that the Customers list still showed a blanket "Lead" badge for every GHL-sourced customer (based only on `ghl_contact_id` being set) after Phase 2 built the more accurate Lead/R4Q/R4F badge on the profile page -- the list page was never updated to match. Now reads `customers.pipeline_stage` the same way the profile page does, falling back to the old blanket "Lead" only for customers with no `pipeline_stage` set at all (pre-existing GHL customers from before that column existed) -- no regression for historical data.
+
+**New `/admin/debug_ghl_pipelines`**: GHL's own UI never shows a stage's raw id anywhere -- every `_GHL_STAGE_*` constant in this app had to be found some other way. Ahead of a planned Phase 5 (a "Waiting to Buy" stage for leads who aren't ready yet), added this lookup page: lists every pipeline in Jim's account with each stage's name and id side by side, flagging which pipeline is the one already configured. One-page lookup instead of digging through browser dev tools next time a new stage needs its id.
+
+Tested against `quotecure_dev`: the list-page badge shows R4Q/R4F/Lead correctly per stage, with the legacy fallback confirmed separately. `debug_ghl_pipelines` and `list_pipelines` tested against a mocked GHL response. Full suite re-run clean.
+
+---
+
 ## 2026-09-17 — Fix: found and fixed the real reason Quote Sent syncs were failing
 
 Yesterday's error-visibility fix paid off immediately: Jim sent a real quote (QT-0031, Fred Fleming) and `debug_ghl_outbound` showed the actual reason for the first time ever -- `"Can not create duplicate opportunity for the contact"`. Root cause: **GHL only allows one Opportunity per contact per pipeline**, full stop. Fred already had one (created by GHL's own Facebook-ad integration when his lead came in -- his contact shows full ad/campaign attribution), entirely outside anything QuoteCure knew about. Every attempt to create a second one for him was always going to fail this same way.

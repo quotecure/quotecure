@@ -134,6 +134,18 @@ def update_opportunity(db, opportunity_id, stage_id, monetary_value=None, status
     return _extract(resp, 'opportunity', 'id')
 
 
+def list_pipelines(db):
+    """Returns every pipeline in this location, each with its stages (id + name). GHL's own
+    UI never shows a stage's raw id anywhere -- this is how every _GHL_STAGE_* constant in
+    app.py was originally found, and the only practical way to find a new one (e.g. a
+    "Waiting to Buy" column Jim adds later) without digging through browser dev tools."""
+    token, location_id = _creds(db)
+    resp = requests.get(f'{_BASE}/opportunities/pipelines', headers=_headers(token),
+                         params={'locationId': location_id}, timeout=_TIMEOUT)
+    _raise_for_status(resp)
+    return _extract(resp, 'pipelines')
+
+
 # ── Notes ────────────────────────────────────────────────────────────────────
 def add_note(db, contact_id, body_text):
     token, _ = _creds(db)

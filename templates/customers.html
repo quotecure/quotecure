@@ -51,7 +51,13 @@
             <tr>
               <td>
                 <a href="/customers/{{ c.customer_id }}">{{ c.name }}</a>
-                {% if c.ghl_contact_id %}
+                {% if c.pipeline_stage in ('qualified', 'on_site_scheduled') %}
+                <span class="badge badge-blue" style="margin-left:4px;" title="Came in from GoHighLevel">Lead</span>
+                {% elif c.pipeline_stage == 'ready_for_quote' %}
+                <span class="badge badge-amber" style="margin-left:4px;">R4Q</span>
+                {% elif c.pipeline_stage in ('quote_sent', 'quote_follow_up') %}
+                <span class="badge badge-purple" style="margin-left:4px;">R4F</span>
+                {% elif not c.pipeline_stage and c.ghl_contact_id %}
                 <span class="badge badge-blue" style="margin-left:4px;" title="Came in from GoHighLevel">Lead</span>
                 {% endif %}
               </td>

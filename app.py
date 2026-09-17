@@ -865,6 +865,31 @@ def debug_ghl_config():
         'ghl_location_id': (settings['ghl_location_id'] if settings else '') or '(not set)',
     })
 
+@app.route('/admin/debug_ghl_pipelines')
+@require_permission('can_edit_commission_policy')
+def debug_ghl_pipelines():
+    """TEMPORARY -- GHL's own UI never shows a stage's raw id anywhere, and every
+    _GHL_STAGE_* constant in this file had to be found some other way. This is that way:
+    lists every pipeline + stage (name and id) in Jim's account, so adding a new stage to a
+    _GHL_STAGE_* constant later (e.g. "Waiting to Buy") is a one-page lookup instead of
+    digging through browser dev tools. Remove once no longer needed."""
+    db = get_db()
+    try:
+        pipelines = ghl_client.list_pipelines(db)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({
+        'pipelines': [
+            {
+                'id': p.get('id'),
+                'name': p.get('name'),
+                'is_configured_pipeline': p.get('id') == _GHL_PIPELINE_ID,
+                'stages': [{'id': s.get('id'), 'name': s.get('name')} for s in (p.get('stages') or [])],
+            }
+            for p in pipelines
+        ]
+    })
+
 @app.route('/admin/debug_ghl_outbound/<int:quote_id>')
 @require_permission('can_edit_commission_policy')
 def debug_ghl_outbound(quote_id):
