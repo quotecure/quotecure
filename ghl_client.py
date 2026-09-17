@@ -89,6 +89,15 @@ def create_contact(db, name, email, phone):
 
 # ── Opportunities ────────────────────────────────────────────────────────────
 def create_opportunity(db, contact_id, pipeline_id, stage_id, name, monetary_value, status='open'):
+    """GHL allows only ONE Opportunity per contact per pipeline -- found live via a real
+    failure (QT-0031, Fred Fleming): his contact already had an Opportunity nothing in
+    QuoteCure knew about (created by GHL's own Facebook-ad integration, well before he ever
+    reached QuoteCure), so this call 400'd with OPPORTUNITY_NO_DUPLICATE every single time.
+    GHL's error body conveniently includes the existing Opportunity's id -- rather than
+    failing the whole sync over a conflict GHL itself just told us how to resolve, adopt that
+    id and push it to the stage/value THIS call actually wanted. Self-healing regardless of
+    where the pre-existing Opportunity came from (an ad integration, a manual add in GHL, or
+    an earlier sync whose local UPDATE never stuck)."""
     token, location_id = _creds(db)
     resp = requests.post(
         f'{_BASE}/opportunities/',
@@ -99,6 +108,14 @@ def create_opportunity(db, contact_id, pipeline_id, stage_id, name, monetary_val
         },
         timeout=_TIMEOUT,
     )
+    if resp.status_code == 400:
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        existing_id = ((body.get('meta') or {}).get('existingId'))
+        if body.get('code') == 'OPPORTUNITY_NO_DUPLICATE' and existing_id:
+            return update_opportunity(db, existing_id, stage_id, monetary_value=monetary_value, status=status)
     _raise_for_status(resp)
     return _extract(resp, 'opportunity', 'id')
 

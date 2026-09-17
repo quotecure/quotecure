@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-17 — Fix: found and fixed the real reason Quote Sent syncs were failing
+
+Yesterday's error-visibility fix paid off immediately: Jim sent a real quote (QT-0031, Fred Fleming) and `debug_ghl_outbound` showed the actual reason for the first time ever -- `"Can not create duplicate opportunity for the contact"`. Root cause: **GHL only allows one Opportunity per contact per pipeline**, full stop. Fred already had one (created by GHL's own Facebook-ad integration when his lead came in -- his contact shows full ad/campaign attribution), entirely outside anything QuoteCure knew about. Every attempt to create a second one for him was always going to fail this same way.
+
+The fix lives entirely in `ghl_client.create_opportunity`: GHL's rejection conveniently includes the existing Opportunity's id right in the error body. On that specific error, the code now adopts that id and pushes it to the stage/value the call actually wanted (via `update_opportunity`) instead of failing the sync. Self-healing regardless of where the pre-existing Opportunity came from -- an ad integration, a manual add in GHL, or an earlier sync whose local save never stuck -- and since the fix sits at this shared layer, both `_sync_quote_to_ghl` and `_sync_customer_to_ghl` benefit automatically, no changes needed at either call site.
+
+Backfilled QT-0031 to point at the real existing Opportunity via `?set_opportunity_id=`. Tested: the specific duplicate-conflict response is caught and resolved correctly; a genuinely different 400 error still raises normally rather than being silently swallowed. Full existing suite re-run clean.
+
+---
+
 ## 2026-09-17 — Full pipeline automation, Phase 3: photo upload auto-advances to Ready for Quote
 
 Third of four planned phases. Uploading the first site-visit photo while a lead is in On-site Scheduled now auto-advances their card to Ready for Quote and flips their profile badge to "R4Q" -- no manual stage-drag needed. `add_customer_attachment` reads the customer's `pipeline_stage` before the upload (not after, since the upload is what's about to change it), and pushes the advance via last week's `_sync_customer_to_ghl` helper only if at least one file actually uploaded and they were sitting in `on_site_scheduled`. Self-guarding: the stage-mirror write moves them out of that stage, so a second photo upload doesn't re-fire.
