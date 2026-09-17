@@ -134,24 +134,28 @@
           <label class="form-label">Inbound Webhook URL</label>
           <input class="form-control mono" value="{{ ghl_webhook_url }}" readonly onclick="this.select()" style="font-size:11px;">
           <div style="font-size:11px;color:var(--text3);margin-top:8px;">
-            Paste this one URL into the "Webhook" action of these GHL Workflows (Settings → Workflows → new Workflow → Add Action → Webhook), each with a custom JSON body:
+            Paste this one URL into the "Webhook" action of these GHL Workflows (Settings → Workflows → new Workflow → Add Action → Webhook), each with a custom JSON body. Numbered in real pipeline order, matching the Workflow names in your GHL account:
           </div>
           <div style="font-size:11px;color:var(--text3);margin-top:10px;">
-            <strong>1. Trigger: Opportunity stage changed to "Ready for quote"</strong>
-            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"ready_for_quote","contact_id":"{{ '{{contact.id}}' }}","name":"{{ '{{contact.full_name}}' }}","email":"{{ '{{contact.email}}' }}","phone":"{{ '{{contact.phone}}' }}","address":"{{ '{{contact.address1}}' }}","city":"{{ '{{contact.city}}' }}","lead_source":"{{ '{{contact.source}}' }}"}</pre>
-            <strong>2. Trigger: Opportunity stage changed to "On-site scheduled"</strong>
-            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"on_site_scheduled","contact_id":"{{ '{{contact.id}}' }}","site_visit_at":"{{ '{{appointment.start_time}}' }}"}</pre>
-            <strong>3. Trigger: Note added on a contact</strong>
-            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"note_added","contact_id":"{{ '{{contact.id}}' }}","note_id":"{{ '{{note.id}}' }}","note_text":"{{ '{{note.body}}' }}","created_by":"{{ '{{note.userName}}' }}"}</pre>
-            <strong>4. Trigger: Opportunity stage changed to "Quote Sent", then Wait (2-3 days) → Webhook → Wait (2-3 days) → Webhook -- same event, fired twice</strong>
-            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"quote_follow_up_due","opportunity_id":"{{ '{{opportunity.id}}' }}"}</pre>
-            <div style="margin-top:4px;">1st call sends a random active follow-up email below, 2nd call sends another -- but only if the quote hasn't already been signed or marked lost in QuoteCure, so it's safe even if the GHL card doesn't get moved right away. If there's still no response after both, it auto-moves to Unqualified (never Lost -- that stays a manual, explicit action).</div>
-            <strong>5. Trigger: Contact Created</strong>
+            <strong>1. "New Lead Email" — Trigger: Contact Created</strong>
             <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"new_lead","contact_id":"{{ '{{contact.id}}' }}","opportunity_id":"{{ '{{opportunity.id}}' }}","name":"{{ '{{contact.full_name}}' }}","email":"{{ '{{contact.email}}' }}","phone":"{{ '{{contact.phone}}' }}","lead_source":"{{ '{{contact.source}}' }}"}</pre>
             <div style="margin-top:4px;">Sends the instant New Lead email below through your real Gmail (never GHL's own sender).</div>
-            <strong>6. Trigger: Opportunity stage changed to "Qualifying", then Wait (2 days) → Webhook → Wait (2 days) → Webhook → Wait (2 days) → Webhook -- same event, fired 3 times</strong>
+            <strong>2. "Qualifying Nudge Cycle" — Trigger: Opportunity stage changed to "Qualifying", then Wait (2 days) → Webhook → Wait (2 days) → Webhook → Wait (2 days) → Webhook -- same event, fired 3 times</strong>
             <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"qualifying_check_due","contact_id":"{{ '{{contact.id}}' }}"}</pre>
             <div style="margin-top:4px;">1st call sends a nudge email, 2nd call sends it again, 3rd call auto-moves the card to Unqualified -- skipped entirely if you've already moved the lead to Qualified in the meantime.</div>
+            <strong>3. "Qualified → Create Profile" — Trigger: Opportunity stage changed to "Qualified"</strong>
+            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"ready_for_quote","contact_id":"{{ '{{contact.id}}' }}","name":"{{ '{{contact.full_name}}' }}","email":"{{ '{{contact.email}}' }}","phone":"{{ '{{contact.phone}}' }}","address":"{{ '{{contact.address1}}' }}","city":"{{ '{{contact.city}}' }}","lead_source":"{{ '{{contact.source}}' }}"}</pre>
+            <div style="margin-top:4px;">The very first automation you built -- creates the customer profile in QuoteCure the moment a lead is confirmed real. The event name says "ready_for_quote" for historical reasons only; don't change it, it's just an internal label.</div>
+            <strong>4. "Quote Sent Follow-up" — Trigger: Opportunity stage changed to "Quote Sent", then Wait (2-3 days) → Webhook → Wait (2-3 days) → Webhook -- same event, fired twice</strong>
+            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"quote_follow_up_due","opportunity_id":"{{ '{{opportunity.id}}' }}"}</pre>
+            <div style="margin-top:4px;">1st call sends a random active follow-up email below, 2nd call sends another -- but only if the quote hasn't already been signed or marked lost in QuoteCure, so it's safe even if the GHL card doesn't get moved right away. If there's still no response after both, it auto-moves to Unqualified (never Lost -- that stays a manual, explicit action).</div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:16px;padding-top:12px;border-top:1px solid var(--border2);">
+            <strong>Optional, not currently built:</strong>
+            <div style="margin-top:8px;"><strong>Trigger: Opportunity stage changed to "On-site scheduled"</strong></div>
+            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"on_site_scheduled","contact_id":"{{ '{{contact.id}}' }}","site_visit_at":"{{ '{{appointment.start_time}}' }}"}</pre>
+            <div style="margin-top:8px;"><strong>Trigger: Note added on a contact</strong></div>
+            <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"note_added","contact_id":"{{ '{{contact.id}}' }}","note_id":"{{ '{{note.id}}' }}","note_text":"{{ '{{note.body}}' }}","created_by":"{{ '{{note.userName}}' }}"}</pre>
           </div>
         </div>
         {% endif %}

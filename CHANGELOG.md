@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-17 — Cleaner GHL Workflow docs: renamed and renumbered in real pipeline order
+
+Jim: the trigger docs in Admin Settings had grown confusing across today's session -- numbered in the order features got built, not the order things actually happen in the pipeline, and two of the four real automations had never been given clear names. Also surfaced a naming mixup worth recording: the oldest automation (creates the customer profile in QuoteCure) has always been described as attached to the **Qualified** stage -- confirmed directly with Jim -- but its internal code event name has always been `ready_for_quote`, a leftover label from before this session that doesn't match. No bug (Jim's real GHL Workflow just sends whatever event string the docs told him to, regardless of what it's internally called), but confusing enough to call out explicitly in the docs so it doesn't cause a mix-up later. Left the internal name alone rather than risk breaking Jim's already-working, already-published Workflow for a purely cosmetic fix.
+
+Renumbered 1-4 to match real pipeline order and Jim's actual GHL Workflow names: 1. "New Lead Email" (Contact Created), 2. "Qualifying Nudge Cycle" (Qualifying stage), 3. "Qualified → Create Profile" (Qualified stage -- newly named, previously unnamed), 4. "Quote Sent Follow-up" (Quote Sent stage -- newly named, previously unnamed). The two triggers Jim never actually built (On-site Scheduled, Note Added) moved to a clearly separate "Optional, not currently built" section instead of being numbered inline with the real ones.
+
+Docs-only change, no code/schema touched.
+
+---
+
 ## 2026-09-17 — Full pipeline automation, Phase 4 (built last): Quote Follow-up round 2 → auto-Unqualified
 
 Final phase of the pipeline automation project (built last since Jim wanted the other phases first). `_ghl_webhook_quote_follow_up_due` already sent one follow-up email 2-3 days after Quote Sent. Now the same event, fired a second time by one more Wait→Webhook pair on the existing GHL Workflow, sends a second round -- and if there's still no response after both, the quote auto-moves to **Unqualified**, never Lost (which stays exclusively a manual, explicit "went with a competitor" action everywhere in this system, confirmed directly by Jim early in this project).
