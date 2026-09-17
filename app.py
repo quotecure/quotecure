@@ -299,6 +299,10 @@ def ghl_webhook(secret):
             return _ghl_webhook_note_added(db, data)
         if event == 'quote_follow_up_due':
             return _ghl_webhook_quote_follow_up_due(db, data)
+        if event == 'new_lead':
+            return _ghl_webhook_new_lead(db, data)
+        if event == 'qualifying_check_due':
+            return _ghl_webhook_qualifying_check(db, data)
     except Exception as e:
         print(f'[GHL webhook] event={event} failed: {e}')
         return jsonify({'success': False}), 200  # 200 so GHL doesn't retry-storm on a transient bug
@@ -311,17 +315,36 @@ def _get_or_create_customer_by_ghl_contact(db, contact_id, name, email, phone, a
     warns about (two different people who happen to share a name)."""
     existing = db.execute("SELECT customer_id FROM customers WHERE ghl_contact_id=?", (contact_id,)).fetchone()
     if existing:
+        _convert_ghl_lead(db, contact_id, existing['customer_id'])
         return existing['customer_id']
     if email:
         existing = db.execute("SELECT customer_id FROM customers WHERE LOWER(TRIM(email))=? AND email != ''", (email.lower().strip(),)).fetchone()
         if existing:
             db.execute("UPDATE customers SET ghl_contact_id=? WHERE customer_id=?", (contact_id, existing['customer_id']))
+            _convert_ghl_lead(db, contact_id, existing['customer_id'])
             return existing['customer_id']
+    # A lead that already passed through the New/Qualifying pre-quote pipeline has a
+    # ghl_leads staging row carrying the one continuous Opportunity id + lead_source picked
+    # up back at New -- carry both onto the new customer row so this doesn't start a second,
+    # disconnected Opportunity the first time a quote gets sent.
+    lead = db.execute("SELECT ghl_opportunity_id, lead_source FROM ghl_leads WHERE ghl_contact_id=?", (contact_id,)).fetchone()
     cur = db.execute(
-        "INSERT INTO customers (name, address, city, email, phone, ghl_contact_id) VALUES (?,?,?,?,?,?) RETURNING customer_id",
-        ((name or '').strip() or 'Unknown Lead', address or '', city or '', email or '', phone or '', contact_id)
+        "INSERT INTO customers (name, address, city, email, phone, ghl_contact_id, ghl_opportunity_id, lead_source, pipeline_stage) "
+        "VALUES (?,?,?,?,?,?,?,?,'qualified') RETURNING customer_id",
+        ((name or '').strip() or 'Unknown Lead', address or '', city or '', email or '', phone or '', contact_id,
+         (lead['ghl_opportunity_id'] if lead else '') or '', (lead['lead_source'] if lead else '') or '')
     )
-    return cur.fetchone()[0]
+    customer_id = cur.fetchone()[0]
+    _convert_ghl_lead(db, contact_id, customer_id)
+    return customer_id
+
+def _convert_ghl_lead(db, contact_id, customer_id):
+    """Marks a ghl_leads staging row as converted once its contact becomes a real customer
+    (kept, not deleted, for basic funnel-visibility later -- new-lead count vs. how many made
+    it to Qualified). Idempotent no-op if there's no staging row (a walk-in customer who was
+    never a GHL lead) or it's already marked converted."""
+    db.execute("UPDATE ghl_leads SET converted_customer_id=?, converted_at=now()::text "
+               "WHERE ghl_contact_id=? AND converted_at=''", (customer_id, contact_id))
 
 def _ghl_webhook_ready_for_quote(db, data):
     contact_id = data.get('contact_id')
@@ -370,6 +393,95 @@ def _ghl_webhook_note_added(db, data):
                (customer['customer_id'], note_text, author, note_id))
     db.commit()
     return jsonify({'success': True})
+
+def _update_lead_opportunity_stage(db, lead, stage_id, note_text=None):
+    """The pre-Qualified equivalent of _sync_quote_to_ghl -- for a ghl_leads staging row,
+    since no customers row (and therefore no _ensure_ghl_contact-linked customer) exists yet
+    at this point in the pipeline. Never raises, same convention as the quote-level helper."""
+    try:
+        if lead['ghl_opportunity_id']:
+            ghl_client.update_opportunity(db, lead['ghl_opportunity_id'], stage_id, status='abandoned')
+        if note_text and lead['ghl_contact_id']:
+            ghl_client.add_note(db, lead['ghl_contact_id'], note_text)
+    except Exception as e:
+        print(f'[GHL] lead {lead["id"]} stage push failed: {e}')
+
+def _ghl_webhook_new_lead(db, data):
+    """Fires the instant a lead first exists in GHL -- before any customers row can exist,
+    since that only happens once the card reaches Qualified (_get_or_create_customer_by_ghl_
+    contact). Upserts a ghl_leads staging row and, on first-ever insert only, sends the
+    instant welcome/ask-for-info email through QuoteCure's own Gmail connection -- never
+    GHL's native email action, since Jim's real company address has to be the sender. A
+    repeat call (GHL retrying the webhook) just refreshes the contact info without re-sending."""
+    contact_id = data.get('contact_id')
+    if not contact_id:
+        return jsonify({'error': 'missing contact_id'}), 400
+    name = (data.get('name') or '').strip()
+    email = (data.get('email') or '').strip()
+    phone = (data.get('phone') or '').strip()
+    lead_source = (data.get('lead_source') or '').strip()
+    opportunity_id = (data.get('opportunity_id') or '').strip()
+    existing = db.execute("SELECT id FROM ghl_leads WHERE ghl_contact_id=?", (contact_id,)).fetchone()
+    if existing:
+        db.execute("UPDATE ghl_leads SET name=?, email=?, phone=?, "
+                   "lead_source=COALESCE(NULLIF(?,''),lead_source), "
+                   "ghl_opportunity_id=COALESCE(NULLIF(?,''),ghl_opportunity_id) WHERE id=?",
+                   (name, email, phone, lead_source, opportunity_id, existing['id']))
+        db.commit()
+        return jsonify({'success': True, 'skipped': 'already recorded'})
+    cur = db.execute(
+        "INSERT INTO ghl_leads (ghl_contact_id, ghl_opportunity_id, name, email, phone, lead_source) "
+        "VALUES (?,?,?,?,?,?) RETURNING id",
+        (contact_id, opportunity_id, name, email, phone, lead_source))
+    lead_id = cur.fetchone()[0]
+    db.commit()
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    gmail_address = settings['gmail_address'] if settings else ''
+    gmail_app_password = settings['gmail_app_password'] if settings else ''
+    if email and gmail_address and gmail_app_password and settings['new_lead_email_subject']:
+        first_name = name.split(' ')[0] if name else 'there'
+        company_name = (settings['company_name'] or '').strip()
+        body = settings['new_lead_email_body'].replace('{name}', first_name).replace('{company}', company_name)
+        _send_plain_email(email, settings['new_lead_email_subject'], body, gmail_address, gmail_app_password)
+        db.execute("UPDATE ghl_leads SET intake_email_sent_at=now()::text WHERE id=?", (lead_id,))
+        db.commit()
+    return jsonify({'success': True, 'lead_id': lead_id})
+
+def _ghl_webhook_qualifying_check(db, data):
+    """Fired repeatedly by one GHL Workflow (Wait -> Webhook, the same event 3 times) after a
+    lead's card moves to Qualifying. Branches purely on which idempotency timestamp is
+    already set, same idiom as quotes.follow_up_sent_at: nudge 1, then nudge 2, then
+    auto-Unqualified if still nothing -- fully automatic, no confirmation needed (Jim
+    confirmed this explicitly; Lost stays reserved for an explicit human "went with a
+    competitor" action, never a timeout). Bails out silently if the lead already converted to
+    a real customer (manual progress happened) or is already unqualified -- checked against
+    QuoteCure's own state, not whatever the GHL card still shows."""
+    contact_id = data.get('contact_id')
+    if not contact_id:
+        return jsonify({'error': 'missing contact_id'}), 400
+    lead = db.execute("SELECT * FROM ghl_leads WHERE ghl_contact_id=?", (contact_id,)).fetchone()
+    if not lead:
+        return jsonify({'error': 'unknown contact_id'}), 404
+    if lead['converted_at'] or lead['stage'] == 'unqualified':
+        return jsonify({'success': True, 'skipped': 'already resolved'})
+    if lead['nudge_1_sent_at'] and lead['nudge_2_sent_at']:
+        _update_lead_opportunity_stage(db, lead, _GHL_STAGE_UNQUALIFIED,
+                                        note_text='No response after 2 nudges -- auto-moved to Unqualified')
+        db.execute("UPDATE ghl_leads SET stage='unqualified' WHERE id=?", (lead['id'],))
+        db.commit()
+        return jsonify({'success': True, 'result': 'unqualified'})
+    column = 'nudge_1_sent_at' if not lead['nudge_1_sent_at'] else 'nudge_2_sent_at'
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    gmail_address = settings['gmail_address'] if settings else ''
+    gmail_app_password = settings['gmail_app_password'] if settings else ''
+    if lead['email'] and gmail_address and gmail_app_password and settings['qualifying_nudge_email_subject']:
+        first_name = lead['name'].split(' ')[0] if lead['name'] else 'there'
+        company_name = (settings['company_name'] or '').strip()
+        body = settings['qualifying_nudge_email_body'].replace('{name}', first_name).replace('{company}', company_name)
+        _send_plain_email(lead['email'], settings['qualifying_nudge_email_subject'], body, gmail_address, gmail_app_password)
+    db.execute(f"UPDATE ghl_leads SET stage='qualifying', {column}=now()::text WHERE id=?", (lead['id'],))
+    db.commit()
+    return jsonify({'success': True, 'result': column})
 
 def _ghl_webhook_quote_follow_up_due(db, data):
     """Fired by a GHL Workflow that waits 2-3 days after a quote's opportunity moves to
@@ -560,6 +672,21 @@ _GHL_STAGE_WON = '954803b7-a04d-4bce-9018-0f5d35344de6'
 _GHL_STAGE_LOST = '1dff3bf6-1101-4fdb-8b08-b2496f782856'
 _GHL_STAGE_UNQUALIFIED = 'bf6c661d-681a-4ecf-916a-c05c0f13f93b'
 
+# Mirrors whichever GHL stage a customer's continuous Opportunity is currently in in a plain
+# local column (customers.pipeline_stage) -- drives the profile badge and idempotency checks
+# (e.g. "only auto-advance on the first photo while still on_site_scheduled") without a live
+# read back from GHL. Only stages reachable via the shared customer-level Opportunity are
+# listed; 'qualified' itself is stamped directly where the customer row is created, not here.
+_GHL_STAGE_LOCAL_LABEL = {
+    _GHL_STAGE_ON_SITE_SCHEDULED: 'on_site_scheduled',
+    _GHL_STAGE_READY_FOR_QUOTE: 'ready_for_quote',
+    _GHL_STAGE_QUOTE_SENT: 'quote_sent',
+    _GHL_STAGE_QUOTE_FOLLOW_UP: 'quote_follow_up',
+    _GHL_STAGE_WON: 'won',
+    _GHL_STAGE_LOST: 'lost',
+    _GHL_STAGE_UNQUALIFIED: 'unqualified',
+}
+
 def _ensure_ghl_contact(db, customer_id):
     """Returns this customer's GHL contact_id, creating it if needed. Three paths in order:
     (1) already linked -- customers.ghl_contact_id set, either by a prior outbound call or
@@ -607,10 +734,31 @@ def _sync_quote_to_ghl(db, quote_id, stage_id, note_text=None, pdf_bytes=None, p
             ghl_client.update_opportunity(db, quote['ghl_opportunity_id'], stage_id,
                                            monetary_value=float(quote['total_price'] or 0), status=mark_status)
         else:
-            opp_id = ghl_client.create_opportunity(db, contact_id, _GHL_PIPELINE_ID, stage_id,
-                                                     quote['customer_name'] or f"QT-{quote_id:04d}",
-                                                     float(quote['total_price'] or 0), status=mark_status or 'open')
+            # A lead that came through the pre-quote pipeline (New -> ... -> Ready for Quote)
+            # already has a continuous Opportunity sitting on customers.ghl_opportunity_id --
+            # this quote's first-ever push should adopt that same card rather than spawning a
+            # second one, so GHL shows one deal end to end. Guard against adopting an
+            # opportunity id another one of this customer's quotes already claimed (a genuinely
+            # separate, later deal for a repeat customer still gets its own fresh Opportunity,
+            # same as before this change).
+            customer = db.execute("SELECT ghl_opportunity_id FROM customers WHERE customer_id=?",
+                                   (quote['customer_id'],)).fetchone()
+            already_claimed = customer and customer['ghl_opportunity_id'] and db.execute(
+                "SELECT 1 FROM quotes WHERE customer_id=? AND ghl_opportunity_id=?",
+                (quote['customer_id'], customer['ghl_opportunity_id'])).fetchone()
+            if customer and customer['ghl_opportunity_id'] and not already_claimed:
+                opp_id = customer['ghl_opportunity_id']
+                ghl_client.update_opportunity(db, opp_id, stage_id,
+                                               monetary_value=float(quote['total_price'] or 0), status=mark_status or 'open')
+            else:
+                opp_id = ghl_client.create_opportunity(db, contact_id, _GHL_PIPELINE_ID, stage_id,
+                                                         quote['customer_name'] or f"QT-{quote_id:04d}",
+                                                         float(quote['total_price'] or 0), status=mark_status or 'open')
             db.execute("UPDATE quotes SET ghl_opportunity_id=? WHERE quote_id=?", (opp_id, quote_id))
+            db.commit()
+        if quote['customer_id'] and stage_id in _GHL_STAGE_LOCAL_LABEL:
+            db.execute("UPDATE customers SET pipeline_stage=? WHERE customer_id=?",
+                       (_GHL_STAGE_LOCAL_LABEL[stage_id], quote['customer_id']))
             db.commit()
         if note_text:
             try:
@@ -4507,15 +4655,24 @@ def inject_new_lead_count():
     a visible Created date, and staff uses their own memory for who's been called). Purely
     time-based, so it can't tell a genuinely new lead from one that's already been handled --
     a nudge to go check the list, not an accurate to-do count. Runs on every page load for a
-    logged-in user, so kept to one cheap indexed-by-created_at COUNT query."""
+    logged-in user, so kept to one cheap indexed-by-created_at COUNT query per table.
+
+    Counts both customers (Qualified+, unchanged) and un-converted ghl_leads rows (New/
+    Qualifying stage, no customer profile exists yet for these) -- since a customers row no
+    longer gets created until Qualified, counting customers alone would silently stop
+    reflecting brand-new pipeline activity."""
     if not g.user:
         return {'new_lead_count': 0}
     db = get_db()
-    count = db.execute(
+    customer_count = db.execute(
         f"SELECT COUNT(*) FROM customers WHERE ghl_contact_id != '' "
         f"AND created_at >= (now() - interval '{NEW_LEAD_BADGE_WINDOW_DAYS} days')::text"
     ).fetchone()[0]
-    return {'new_lead_count': count}
+    lead_count = db.execute(
+        f"SELECT COUNT(*) FROM ghl_leads WHERE converted_at = '' "
+        f"AND created_at >= (now() - interval '{NEW_LEAD_BADGE_WINDOW_DAYS} days')::text"
+    ).fetchone()[0]
+    return {'new_lead_count': customer_count + lead_count}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MATERIALS
@@ -5027,6 +5184,19 @@ def update_ghl_config():
         db.execute("UPDATE company_settings SET ghl_location_id=?,ghl_api_token=? WHERE id=1", (location_id, new_token))
     else:
         db.execute("UPDATE company_settings SET ghl_location_id=? WHERE id=1", (location_id,))
+    db.commit()
+    return redirect(url_for('admin_settings'))
+
+@app.route('/admin/settings/pipeline_emails', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def update_pipeline_emails():
+    db = get_db()
+    db.execute("""UPDATE company_settings SET new_lead_email_subject=?, new_lead_email_body=?,
+                  qualifying_nudge_email_subject=?, qualifying_nudge_email_body=? WHERE id=1""",
+               (request.form.get('new_lead_email_subject', '').strip(),
+                request.form.get('new_lead_email_body', '').strip(),
+                request.form.get('qualifying_nudge_email_subject', '').strip(),
+                request.form.get('qualifying_nudge_email_body', '').strip()))
     db.commit()
     return redirect(url_for('admin_settings'))
 

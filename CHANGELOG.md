@@ -4,6 +4,24 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-17 — Full pipeline automation, Phase 1: one continuous GHL card + New Lead intake + Qualifying nudge cycle
+
+Jim wants his entire sales funnel automated end to end in GHL: New Lead → Qualifying → Qualified → On-site Scheduled → Ready for Quote → Quote Sent → Quote Follow-up → Won/Lost/Unqualified. This is the first of four planned phases (foundation → Qualified-stage profile UI → photo-upload auto-advance → Quote Follow-up round 2), scoped and written up as a full plan before any code, since it required fixing a real architectural gap first.
+
+**The gap**: every quote got its own brand-new GHL Opportunity the first time it was sent (`quotes.ghl_opportunity_id`), and nothing existed in QuoteCure at all before a card reached "Qualified" -- no `customers` row, no tracking. Jim's vision needs ONE continuous card flowing the whole way from New Lead through Won/Lost/Unqualified, not a fresh one recreated at each stage.
+
+**The fix**: a new `ghl_leads` staging table holds pre-Qualified leads (New/Qualifying) and owns the continuous Opportunity id from the moment a lead is created -- since no customer profile exists yet for them. When a lead reaches Qualified, `_get_or_create_customer_by_ghl_contact` now carries that opportunity id (and lead_source) onto the new `customers` row, and marks the staging row converted (kept, not deleted, for future funnel-visibility stats). When that customer's *first* quote gets sent, `_sync_quote_to_ghl` now adopts the customer's existing opportunity instead of creating a second one -- checked against an "already claimed by another quote" guard, so a customer's later, genuinely independent second quote (after their first deal already resolved) still gets its own fresh Opportunity, exactly as before. A new `customers.pipeline_stage` column mirrors whichever stage the continuous Opportunity is actually in, written by every outbound push -- this is what will drive the profile badge and idempotency checks in later phases, without needing a live read back from GHL.
+
+**New Lead intake**: a 6th webhook trigger (`new_lead`, fired on GHL's "Contact Created") sends an instant welcome/ask-for-info email through QuoteCure's own Gmail connection -- never GHL's native email action, since Jim's real company address has to be the sender. Reuses the "Quick reply needed" copy drafted earlier this session (asks for a callback time, a project overview, and photos).
+
+**Qualifying nudge cycle**: a 7th trigger (`qualifying_check_due`, the same event fired three times by one Workflow's repeating Wait→Webhook chain) sends up to two nudge emails 2 days apart if a lead sits in Qualifying with no progress, then automatically moves it to **Unqualified** if there's still nothing -- fully automatic, no confirmation needed (Jim's explicit call). **Lost stays exclusively a manual, explicit "customer told us they're going with someone else" action, never a timeout outcome anywhere in this system.** The auto-Unqualified decision is checked against QuoteCure's own `ghl_leads` state (already converted? already unqualified?), never a live read of whatever the GHL card still shows -- same safety principle as the existing Quote Follow-up automation.
+
+Both new email templates are single, fixed copy (not the random-pick A/B pattern used for quote follow-ups -- Jim didn't ask for variant-testing here), editable in a new "Pipeline Emails" card in Admin → Company Settings, seeded with sensible defaults so they work immediately. The nav's "new lead" count badge now also counts un-converted `ghl_leads` rows, since a `customers` row no longer exists until Qualified -- without this it would have silently stopped reflecting brand-new pipeline activity.
+
+Ships "dormant" until Jim builds the corresponding GHL Workflows (documented as triggers 5 and 6 in Admin Settings, same pattern as the existing 4). Tested against `quotecure_dev`: new-lead idempotency (no double-send on a retried webhook), the full 3-call qualifying cycle in order, skip-if-already-converted, skip-if-already-unqualified, the staging-to-customer opportunity carry-over, and -- the critical regression check -- a customer's first quote adopting their existing continuous opportunity while a second, independent quote and a walk-in customer with no lead-pipeline history both still get fresh opportunities exactly as before this change.
+
+---
+
 ## 2026-09-16 — Follow-up emails now push GHL forward, and a "Needs Follow-up Call" worklist for Sales
 
 Two small additions on top of yesterday's A/B-tested follow-up emails, while Jim gets the actual GHL Workflow wired up and tested:
