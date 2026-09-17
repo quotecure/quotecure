@@ -4,6 +4,19 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-17 — Fix: silent GHL sync failures now visible instead of vanishing
+
+Jim: "I don't think the Quote Sent stage push has ever actually worked" -- he's been manually dragging cards in GHL himself after noticing QuoteCure hadn't moved them. Root cause: `_sync_quote_to_ghl`'s outer `try/except` swallows every GHL failure by design (so a CRM outage can never block sending a real quote to a customer), but that also meant a failure had zero visibility anywhere -- not in the UI, not in a way Jim could check without server log access he doesn't have.
+
+Two fixes, found via `/admin/debug_ghl_outbound/<quote_id>` (an existing temporary diagnostic route from an earlier GHL bug):
+
+1. **`ghl_client.py`**: every response-parsing call site (`create_opportunity`, `update_opportunity`, `create_contact`, `add_note`) now goes through a shared `_extract()` helper that raises a real `GHLError` with the raw response body if a 2xx response doesn't have the expected shape -- previously this was a bare, contextless `KeyError`, and worse, it happened *after* the real GHL-side action (an Opportunity actually created, a stage actually moved) had already taken effect, meaning the CRM and QuoteCure's own database could silently disagree with each other going forward.
+2. **New `quotes.ghl_sync_error` column**: `_sync_quote_to_ghl` now persists whatever exception message it catches (cleared automatically the next time a sync for that quote succeeds), and `/admin/debug_ghl_outbound/<quote_id>` now shows it directly, plus a `customer_ghl_opportunity_id` field and two new manual-fix query params: `?set_opportunity_id=<id>` (link a quote to a real Opportunity that already exists in GHL, e.g. one created before this fix shipped, without risking a duplicate) and `?resync=1` (re-run the sync live against a quote right now and see the result immediately, without needing a whole new quote send to test).
+
+Tested against `quotecure_dev`: a forced sync failure now records a readable error message on the quote instead of vanishing, and the next successful sync clears it back to empty. Full existing GHL pipeline suite re-run clean. Root cause of the *original* failure (bad token scope, a genuine response-shape mismatch, or something else) is still unconfirmed -- this fix makes the next real attempt self-diagnosing instead of guessing from secondary evidence.
+
+---
+
 ## 2026-09-17 — Full pipeline automation, Phase 1: one continuous GHL card + New Lead intake + Qualifying nudge cycle
 
 Jim wants his entire sales funnel automated end to end in GHL: New Lead → Qualifying → Qualified → On-site Scheduled → Ready for Quote → Quote Sent → Quote Follow-up → Won/Lost/Unqualified. This is the first of four planned phases (foundation → Qualified-stage profile UI → photo-upload auto-advance → Quote Follow-up round 2), scoped and written up as a full plan before any code, since it required fixing a real architectural gap first.

@@ -41,6 +41,22 @@ def _raise_for_status(resp):
         raise GHLError(f'GHL API {resp.status_code}: {resp.text[:300]}')
 
 
+def _extract(resp, *path):
+    """Digs into a successful (2xx) response body along `path` (e.g. 'opportunity', 'id').
+    A 2xx response with a differently-shaped body than expected is a real, distinct failure
+    from an HTTP error -- previously this was a bare KeyError with no context, silently
+    swallowed by _sync_quote_to_ghl's outer try/except with the real GHL-side action (an
+    Opportunity actually created, a stage actually moved) already having happened. Raising
+    GHLError with the raw body means that mismatch is diagnosable instead of invisible."""
+    try:
+        value = resp.json()
+        for key in path:
+            value = value[key]
+        return value
+    except Exception:
+        raise GHLError(f"GHL API returned 2xx but unexpected body shape for {'.'.join(path)}: {resp.text[:300]}")
+
+
 # ── Contacts ─────────────────────────────────────────────────────────────────
 def find_contact_by_email(db, email):
     """Returns the first matching contact dict, or None. GHL's contact search index is
@@ -68,7 +84,7 @@ def create_contact(db, name, email, phone):
         timeout=_TIMEOUT,
     )
     _raise_for_status(resp)
-    return resp.json()['contact']['id']
+    return _extract(resp, 'contact', 'id')
 
 
 # ── Opportunities ────────────────────────────────────────────────────────────
@@ -84,7 +100,7 @@ def create_opportunity(db, contact_id, pipeline_id, stage_id, name, monetary_val
         timeout=_TIMEOUT,
     )
     _raise_for_status(resp)
-    return resp.json()['opportunity']['id']
+    return _extract(resp, 'opportunity', 'id')
 
 
 def update_opportunity(db, opportunity_id, stage_id, monetary_value=None, status=None):
@@ -98,7 +114,7 @@ def update_opportunity(db, opportunity_id, stage_id, monetary_value=None, status
         body['status'] = status
     resp = requests.put(f'{_BASE}/opportunities/{opportunity_id}', headers=_headers(token), json=body, timeout=_TIMEOUT)
     _raise_for_status(resp)
-    return resp.json()['opportunity']['id']
+    return _extract(resp, 'opportunity', 'id')
 
 
 # ── Notes ────────────────────────────────────────────────────────────────────
@@ -109,7 +125,7 @@ def add_note(db, contact_id, body_text):
         headers=_headers(token), json={'body': body_text}, timeout=_TIMEOUT,
     )
     _raise_for_status(resp)
-    return resp.json()['note']['id']
+    return _extract(resp, 'note', 'id')
 
 
 # ── Conversation file attachment ─────────────────────────────────────────────

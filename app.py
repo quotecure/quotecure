@@ -770,8 +770,22 @@ def _sync_quote_to_ghl(db, quote_id, stage_id, note_text=None, pdf_bytes=None, p
                 ghl_client.attach_file_to_conversation(db, contact_id, pdf_filename or f'QT-{quote_id:04d}.pdf', 'application/pdf', pdf_bytes)
             except Exception as e:
                 print(f'[GHL] quote {quote_id} PDF attach failed: {e}')
+        # Reaching here means the actual stage push (the part that matters) succeeded --
+        # clear any stale error from a previous failed attempt so debug_ghl_outbound reflects
+        # current reality, not history.
+        db.execute("UPDATE quotes SET ghl_sync_error='' WHERE quote_id=?", (quote_id,))
+        db.commit()
     except Exception as e:
+        # This used to be a silent print() only -- a real GHL-side action (an Opportunity
+        # created, a stage moved) could succeed while the exception happened one line later,
+        # with zero visibility anywhere that anything had gone wrong at all. Persisting the
+        # message here is what /admin/debug_ghl_outbound/<quote_id> surfaces.
         print(f'[GHL] quote {quote_id} sync failed: {e}')
+        try:
+            db.execute("UPDATE quotes SET ghl_sync_error=? WHERE quote_id=?", (str(e)[:500], quote_id))
+            db.commit()
+        except Exception as e2:
+            print(f'[GHL] quote {quote_id} failed to even record the sync error: {e2}')
 
 @app.route('/admin/debug_ghl_config')
 @require_permission('can_edit_commission_policy')
@@ -810,9 +824,11 @@ def debug_ghl_outbound(quote_id):
         'quote_status': quote['status'],
         'quote_customer_id': quote['customer_id'],
         'quote_ghl_opportunity_id': quote['ghl_opportunity_id'],
+        'quote_ghl_sync_error': quote['ghl_sync_error'] or None,
         'customer_found': bool(customer),
         'customer_email': customer['email'] if customer else None,
         'customer_ghl_contact_id': customer['ghl_contact_id'] if customer else None,
+        'customer_ghl_opportunity_id': customer['ghl_opportunity_id'] if customer else None,
     }
     if customer and customer['email']:
         try:
@@ -837,6 +853,24 @@ def debug_ghl_outbound(quote_id):
         db.execute("UPDATE customers SET ghl_contact_id=? WHERE customer_id=?", (set_contact_id, customer['customer_id']))
         db.commit()
         result['linked_ghl_contact_id'] = set_contact_id
+
+    # For a quote whose Opportunity really was created in GHL (Jim confirmed it live in his
+    # account) but never got saved back locally -- links it to the real, already-existing
+    # Opportunity id instead of letting a future sync create a second, duplicate one.
+    set_opportunity_id = request.args.get('set_opportunity_id')
+    if set_opportunity_id:
+        db.execute("UPDATE quotes SET ghl_opportunity_id=?, ghl_sync_error='' WHERE quote_id=?",
+                   (set_opportunity_id, quote_id))
+        db.commit()
+        result['linked_ghl_opportunity_id'] = set_opportunity_id
+
+    # Re-runs the real sync right now, live, so a fix can be verified against this exact
+    # quote without needing to trigger a whole new "send" action -- reflects the ghl_sync_error
+    # column's current value AFTER this attempt, not whatever it was before the page loaded.
+    if request.args.get('resync'):
+        _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_QUOTE_SENT, mark_status='open')
+        after = db.execute("SELECT ghl_opportunity_id, ghl_sync_error FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+        result['resync_result'] = {'ghl_opportunity_id': after['ghl_opportunity_id'], 'ghl_sync_error': after['ghl_sync_error'] or None}
     return jsonify(result)
 
 def _quote_counts_for(db, quotes):

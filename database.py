@@ -3979,6 +3979,20 @@ def add_ghl_lead_staging_and_opportunity_continuity(conn):
         )
 
 
+@migration
+def add_ghl_sync_error_tracking(conn):
+    """Found via /admin/debug_ghl_outbound: a real quote's GHL Opportunity got created
+    successfully (confirmed live in Jim's GHL account, correct pipeline+stage) but
+    quotes.ghl_opportunity_id stayed empty -- _sync_quote_to_ghl's outer try/except was
+    silently swallowing whatever went wrong between the API call succeeding and the local
+    UPDATE, with zero visibility anywhere. This column captures that error message (cleared
+    on the next successful sync) so a future failure shows up in debug_ghl_outbound's JSON
+    instead of vanishing into a server log nobody's watching."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'ghl_sync_error' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN ghl_sync_error TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
