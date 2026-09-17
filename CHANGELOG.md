@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-17 — Full pipeline automation, Phase 4 (built last): Quote Follow-up round 2 → auto-Unqualified
+
+Final phase of the pipeline automation project (built last since Jim wanted the other phases first). `_ghl_webhook_quote_follow_up_due` already sent one follow-up email 2-3 days after Quote Sent. Now the same event, fired a second time by one more Wait→Webhook pair on the existing GHL Workflow, sends a second round -- and if there's still no response after both, the quote auto-moves to **Unqualified**, never Lost (which stays exclusively a manual, explicit "went with a competitor" action everywhere in this system, confirmed directly by Jim early in this project).
+
+Same branching idiom as the Qualifying nudge cycle: which round fires is determined purely by which idempotency timestamp is already set (`follow_up_sent_at`, then the new `follow_up_2_sent_at`/`follow_up_2_template_id`), so Jim just adds one more identical Wait+Webhook pair to his existing Workflow rather than building a new one. The auto-Unqualified path reuses the existing archive mechanism (same as a manual "mark lost"), so it automatically falls out of the Needs-Follow-up tab into Archive with the reason visible -- no query changes needed anywhere else.
+
+Tested against `quotecure_dev`: round 1 unchanged, a second call correctly sends round 2 (updated an older test that had asserted a second call was a no-op -- that was true before this phase, intentionally no longer true now), a third call auto-unqualifies instead of sending a third email, a fourth call on the now-archived quote is a no-op, and already-signed/already-manually-lost quotes still skip immediately regardless of round state. Full suite re-run clean.
+
+**All 5 phases of the full pipeline automation are now shipped.** Only remaining action on Jim's end: add the second Wait+Webhook pair to the existing Quote-Sent-follow-up GHL Workflow (documented as trigger 4 in Admin Settings).
+
+---
+
 ## 2026-09-17 — Full pipeline automation, Phase 5: "Waiting to Buy"
 
 Fifth phase, added mid-session: some leads aren't ready to buy right now ("really looking to do this in 3 months"), and Jim wanted a way to park them without losing track. Rather than a plain bookmark he'd have to remember to check, this surfaces them proactively -- same "the system tells you, not your memory" principle behind everything else in this project.

@@ -4030,6 +4030,23 @@ def add_customer_future_followup(conn):
         conn.execute("ALTER TABLE customers ADD COLUMN future_follow_up_at TEXT DEFAULT ''")
 
 
+@migration
+def add_quote_followup_round_two(conn):
+    """Phase 4 of the full pipeline automation (built last, after Phase 5 -- Jim wanted the
+    other phases first): a second Quote Follow-up round. _ghl_webhook_quote_follow_up_due
+    already sends one follow-up email 2-3 days after Quote Sent (follow_up_sent_at is the
+    idempotency guard); this adds a second round on the same idiom
+    (follow_up_2_sent_at/follow_up_2_template_id), and if there's STILL no response after
+    both, auto-moves the quote to Unqualified -- same terminal state as the Qualifying
+    cycle's timeout, never Lost (that stays an explicit, manual "went with a competitor"
+    action everywhere in this system)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'follow_up_2_sent_at' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_2_sent_at TEXT DEFAULT ''")
+    if 'follow_up_2_template_id' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_2_template_id INTEGER")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

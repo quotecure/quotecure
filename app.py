@@ -485,12 +485,18 @@ def _ghl_webhook_qualifying_check(db, data):
 
 def _ghl_webhook_quote_follow_up_due(db, data):
     """Fired by a GHL Workflow that waits 2-3 days after a quote's opportunity moves to
-    'Quote Sent' before calling back. Deliberately does NOT trust whatever stage the GHL card
-    still shows -- Jim might sign a customer up and simply forget to drag the card to Won, and
-    a check against GHL's own stage would send an awkward "still interested?" email to someone
-    who already signed. Instead this checks QuoteCure's own status, which flips to 'contract'
-    automatically the moment a signature is captured, no manual step required. follow_up_sent_at
-    is the idempotency guard against a retried webhook double-sending."""
+    'Quote Sent' before calling back, then again 2-3 days after that for a second round
+    (Phase 4) -- same event, called twice, distinguished purely by which idempotency
+    timestamp is already set (follow_up_sent_at, then follow_up_2_sent_at), same idiom as the
+    Qualifying nudge cycle. If there's still no response after both, auto-moves the quote to
+    Unqualified -- never Lost, which stays an explicit, manual "went with a competitor"
+    action everywhere in this system.
+
+    Deliberately does NOT trust whatever stage the GHL card still shows -- Jim might sign a
+    customer up and simply forget to drag the card to Won, and a check against GHL's own
+    stage would send an awkward "still interested?" email to someone who already signed.
+    Instead this checks QuoteCure's own status, which flips to 'contract' automatically the
+    moment a signature is captured, no manual step required."""
     opportunity_id = data.get('opportunity_id')
     if not opportunity_id:
         return jsonify({'error': 'missing opportunity_id'}), 400
@@ -499,8 +505,22 @@ def _ghl_webhook_quote_follow_up_due(db, data):
         return jsonify({'error': 'unknown opportunity_id'}), 404
     already_resolved = (quote['status'] in ('contract', 'in_progress', 'complete')
                          or (quote['archived_reason'] or '') != '')
-    if quote['follow_up_sent_at'] or already_resolved:
-        return jsonify({'success': True, 'skipped': 'quote already resolved or already followed up'})
+    if already_resolved:
+        return jsonify({'success': True, 'skipped': 'quote already resolved'})
+
+    if quote['follow_up_sent_at'] and quote['follow_up_2_sent_at']:
+        # Two follow-ups, still nothing -- reuses the existing archive mechanism (same as a
+        # manual "mark lost"), so this automatically falls out of the Needs-Follow-up tab
+        # into Archive with the reason visible, no query changes needed anywhere else.
+        db.execute("UPDATE quotes SET archived_reason=?, archived_at=now()::text WHERE quote_id=?",
+                   ('Auto-unqualified — no response after 2 follow-ups', quote['quote_id']))
+        db.commit()
+        _sync_quote_to_ghl(db, quote['quote_id'], _GHL_STAGE_UNQUALIFIED,
+                            note_text='No response after 2 follow-ups -- auto-moved to Unqualified',
+                            mark_status='abandoned')
+        return jsonify({'success': True, 'result': 'unqualified'})
+
+    is_round_one = not quote['follow_up_sent_at']
     to_email = (quote['customer_email'] or '').strip()
     if not to_email:
         return jsonify({'success': True, 'skipped': 'no customer email on file'})
@@ -517,16 +537,23 @@ def _ghl_webhook_quote_follow_up_due(db, data):
     company_name = (settings['company_name'] or '').strip() if settings else ''
     body = template['body_text'].replace('{name}', first_name).replace('{company}', company_name)
     _send_plain_email(to_email, template['subject'], body, gmail_address, gmail_app_password)
-    db.execute("UPDATE quotes SET follow_up_template_id=?, follow_up_sent_at=now()::text WHERE quote_id=?",
-               (template['id'], quote['quote_id']))
+    if is_round_one:
+        db.execute("UPDATE quotes SET follow_up_template_id=?, follow_up_sent_at=now()::text WHERE quote_id=?",
+                   (template['id'], quote['quote_id']))
+    else:
+        db.execute("UPDATE quotes SET follow_up_2_template_id=?, follow_up_2_sent_at=now()::text WHERE quote_id=?",
+                   (template['id'], quote['quote_id']))
     db.commit()
     # GHL has no way to know QuoteCure actually sent this -- the wait timer expiring doesn't
     # mean the email went out (the quote could've been skipped above for any number of
     # reasons), so QuoteCure is the one that pushes the stage forward, and only once it's
-    # confirmed the send really happened.
-    _sync_quote_to_ghl(db, quote['quote_id'], _GHL_STAGE_QUOTE_FOLLOW_UP,
-                        note_text=f"Follow-up email sent (template: {template['label']})")
-    return jsonify({'success': True, 'sent_to': to_email, 'template': template['label']})
+    # confirmed the send really happened. Round 2 doesn't move the stage again (the card's
+    # already sitting in Quote Follow-up from round 1) -- just another note.
+    note = f"Follow-up email sent (template: {template['label']})" if is_round_one \
+        else f"Second follow-up email sent (template: {template['label']})"
+    _sync_quote_to_ghl(db, quote['quote_id'], _GHL_STAGE_QUOTE_FOLLOW_UP, note_text=note)
+    return jsonify({'success': True, 'sent_to': to_email, 'template': template['label'],
+                     'round': 1 if is_round_one else 2})
 
 # ── Home ──────────────────────────────────────────────────────────────────────
 @app.route('/')
