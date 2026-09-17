@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-17 — Full pipeline automation, Phase 5: "Waiting to Buy"
+
+Fifth phase, added mid-session: some leads aren't ready to buy right now ("really looking to do this in 3 months"), and Jim wanted a way to park them without losing track. Rather than a plain bookmark he'd have to remember to check, this surfaces them proactively -- same "the system tells you, not your memory" principle behind everything else in this project.
+
+New "Park It" date/time picker on the customer profile (alongside the existing Meeting picker), visible whenever a deal isn't already won/lost/unqualified. Setting a date stores it on `customers.future_follow_up_at` and pushes the customer's continuous GHL Opportunity to a new "Waiting to Buy" stage via the existing `_sync_customer_to_ghl` helper -- its raw GHL stage id was found via a new `/admin/debug_ghl_pipelines` lookup tool (GHL's own UI never shows one anywhere).
+
+New **"Waiting to Buy" tab on the Customers list**, sorted by follow-up date soonest-first, with a count badge next to the tab itself -- a real worklist instead of digging through GHL. Also added a `.badge-gray` style (all 5 existing badge colors were already spoken for) and promoted the `.qtabs`/`.qtab` tab-bar CSS from Quotes' page-local styles into the shared stylesheet, since this is now the second page using that exact pattern.
+
+Tested against `quotecure_dev`: the route stores the date and pushes the stage correctly, the picker hides once a deal is already resolved, and the Waiting to Buy tab filters and sorts correctly while the main Customers tab stays unaffected. Browser-verified on both pages, desktop and mobile.
+
+---
+
 ## 2026-09-17 — Fix: Customers list badge now matches the profile page; new GHL stage-id lookup tool
 
 **Badge fix**: Jim caught that the Customers list still showed a blanket "Lead" badge for every GHL-sourced customer (based only on `ghl_contact_id` being set) after Phase 2 built the more accurate Lead/R4Q/R4F badge on the profile page -- the list page was never updated to match. Now reads `customers.pipeline_stage` the same way the profile page does, falling back to the old blanket "Lead" only for customers with no `pipeline_stage` set at all (pre-existing GHL customers from before that column existed) -- no regression for historical data.

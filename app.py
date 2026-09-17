@@ -671,6 +671,7 @@ _GHL_STAGE_QUOTE_FOLLOW_UP = '09494e0c-1537-42fd-8c4e-c691474125ba'
 _GHL_STAGE_WON = '954803b7-a04d-4bce-9018-0f5d35344de6'
 _GHL_STAGE_LOST = '1dff3bf6-1101-4fdb-8b08-b2496f782856'
 _GHL_STAGE_UNQUALIFIED = 'bf6c661d-681a-4ecf-916a-c05c0f13f93b'
+_GHL_STAGE_WAITING_TO_BUY = '2b096f9f-5cc2-4a61-b61e-c5f94f891bba'
 
 # Mirrors whichever GHL stage a customer's continuous Opportunity is currently in in a plain
 # local column (customers.pipeline_stage) -- drives the profile badge and idempotency checks
@@ -685,6 +686,7 @@ _GHL_STAGE_LOCAL_LABEL = {
     _GHL_STAGE_WON: 'won',
     _GHL_STAGE_LOST: 'lost',
     _GHL_STAGE_UNQUALIFIED: 'unqualified',
+    _GHL_STAGE_WAITING_TO_BUY: 'waiting_to_buy',
 }
 
 def _ensure_ghl_contact(db, customer_id):
@@ -844,6 +846,23 @@ def schedule_customer_meeting(customer_id):
         db.commit()
         _sync_customer_to_ghl(db, customer_id, _GHL_STAGE_ON_SITE_SCHEDULED,
                                note_text=f'Meeting scheduled: {site_visit_at}')
+    return redirect(url_for('customer_detail', customer_id=customer_id))
+
+@app.route('/customers/<int:customer_id>/schedule_future_followup', methods=['POST'])
+@login_required
+def schedule_future_followup(customer_id):
+    """Phase 5: a lead who isn't ready to buy yet ('really looking to do this in 3 months')
+    gets parked in Waiting to Buy with a target date, rather than sitting stuck wherever they
+    were or falling out of sight entirely. The date itself is just a bookmark for now (no
+    automated action fires when it arrives) -- surfaced instead via the Waiting to Buy tab
+    on the Customers list, sorted soonest-first."""
+    db = get_db()
+    future_follow_up_at = request.form.get('future_follow_up_at', '').strip()
+    if future_follow_up_at:
+        db.execute("UPDATE customers SET future_follow_up_at=? WHERE customer_id=?", (future_follow_up_at, customer_id))
+        db.commit()
+        _sync_customer_to_ghl(db, customer_id, _GHL_STAGE_WAITING_TO_BUY,
+                               note_text=f'Not ready yet -- follow up around {future_follow_up_at}')
     return redirect(url_for('customer_detail', customer_id=customer_id))
 
 @app.route('/admin/debug_ghl_config')
@@ -1189,24 +1208,35 @@ def customers_list():
     # call: simpler than tracking an explicit handled state). Sortable via the same
     # whitelisted-SQL-fragment pattern as the Quotes list, so a raw `sort` query param can
     # never reach SQL as anything but one of these four fixed strings.
+    tab = request.args.get('tab', 'all')
+    if tab != 'waiting_to_buy':
+        tab = 'all'
     sort = request.args.get('sort', 'created_desc')
     if sort not in _CUSTOMERS_SORT_OPTIONS:
         sort = 'created_desc'
     search = request.args.get('q', '').strip()
-    where_sql = "1=1"
+    where_parts = ["1=1"]
     params = []
+    if tab == 'waiting_to_buy':
+        where_parts.append("c.pipeline_stage = 'waiting_to_buy'")
     if search:
         like = f"%{search}%"
-        where_sql = "(c.name ILIKE ? OR c.address ILIKE ? OR c.city ILIKE ? OR c.phone ILIKE ? OR c.email ILIKE ?)"
-        params = [like, like, like, like, like]
+        where_parts.append("(c.name ILIKE ? OR c.address ILIKE ? OR c.city ILIKE ? OR c.phone ILIKE ? OR c.email ILIKE ?)")
+        params.extend([like, like, like, like, like])
+    where_sql = " AND ".join(where_parts)
+    # Waiting to Buy always sorts by target date, soonest first -- that's the whole point of
+    # the tab (who's coming due), regardless of whatever sort the main list is on.
+    order_sql = "c.future_follow_up_at ASC" if tab == 'waiting_to_buy' else _CUSTOMERS_SORT_OPTIONS[sort]
     customers = db.execute(
         f"SELECT c.*, COUNT(q.quote_id) as quote_count "
         f"FROM customers c LEFT JOIN quotes q ON q.customer_id=c.customer_id "
         f"WHERE {where_sql} "
-        f"GROUP BY c.customer_id ORDER BY {_CUSTOMERS_SORT_OPTIONS[sort]}",
+        f"GROUP BY c.customer_id ORDER BY {order_sql}",
         tuple(params)
     ).fetchall()
-    return render_template('customers.html', customers=customers, sort=sort, search=search)
+    waiting_to_buy_count = db.execute("SELECT COUNT(*) FROM customers WHERE pipeline_stage='waiting_to_buy'").fetchone()[0]
+    return render_template('customers.html', customers=customers, sort=sort, search=search,
+                            active_tab=tab, waiting_to_buy_count=waiting_to_buy_count)
 
 @app.route('/customers/add', methods=['POST'])
 @login_required

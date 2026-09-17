@@ -12,6 +12,8 @@
         <span class="badge badge-amber" style="margin-left:8px;vertical-align:middle;">R4Q</span>
         {% elif customer.pipeline_stage in ('quote_sent','quote_follow_up') %}
         <span class="badge badge-purple" style="margin-left:8px;vertical-align:middle;">R4F</span>
+        {% elif customer.pipeline_stage == 'waiting_to_buy' %}
+        <span class="badge badge-gray" style="margin-left:8px;vertical-align:middle;">Waiting to Buy</span>
         {% endif %}
       </div>
       <div class="page-subtitle">Customer record — editing name, phone, or email here updates every quote for this customer</div>
@@ -63,10 +65,11 @@
         </div>
         <button class="btn btn-primary" type="submit" style="margin-top:16px;">Save</button>
       </form>
-      {% if customer.lead_source or customer.site_visit_at %}
+      {% if customer.lead_source or customer.site_visit_at or customer.future_follow_up_at %}
       <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2);font-size:12px;color:var(--text2);">
         {% if customer.lead_source %}<div>Lead source: <strong>{{ customer.lead_source }}</strong></div>{% endif %}
         {% if customer.site_visit_at %}<div style="margin-top:4px;">Site visit: <strong>{{ customer.site_visit_at }}</strong></div>{% endif %}
+        {% if customer.future_follow_up_at %}<div style="margin-top:4px;">Follow up around: <strong>{{ customer.future_follow_up_at }}</strong></div>{% endif %}
       </div>
       {% endif %}
       {% if customer.pipeline_stage in ('qualified', 'on_site_scheduled') %}
@@ -79,6 +82,18 @@
           <button type="submit" class="btn btn-secondary">Schedule</button>
         </form>
         <div style="font-size:11px;color:var(--text3);margin-top:6px;">Notes the time in GHL and moves this lead's card to On-site Scheduled.</div>
+      </div>
+      {% endif %}
+      {% if customer.pipeline_stage and customer.pipeline_stage not in ('won', 'lost', 'unqualified') %}
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2);">
+        <form method="POST" action="/customers/{{ customer.customer_id }}/schedule_future_followup" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+            <label class="form-label">Not Ready Yet — Follow Up Later</label>
+            <input class="form-control" name="future_follow_up_at" type="datetime-local" required>
+          </div>
+          <button type="submit" class="btn btn-secondary">Park It</button>
+        </form>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">Moves this lead's card to Waiting to Buy in GHL, and adds them to the Waiting to Buy tab on the Customers list so you don't lose track of them.</div>
       </div>
       {% endif %}
     </div>

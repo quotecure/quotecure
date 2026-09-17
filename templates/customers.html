@@ -18,11 +18,16 @@
     </a>
   </th>
   {% endmacro %}
+  <div class="qtabs" style="margin-bottom:14px;">
+    <a href="/customers?{{ qs_with(tab='all') }}" class="qtab {{ 'active' if active_tab == 'all' }}">All Customers</a>
+    <a href="/customers?{{ qs_with(tab='waiting_to_buy') }}" class="qtab {{ 'active' if active_tab == 'waiting_to_buy' }}">Waiting to Buy{% if waiting_to_buy_count %} ({{ waiting_to_buy_count }}){% endif %}</a>
+  </div>
   <div class="split-layout" style="--split-cols:1fr 300px;">
     <div class="card">
       <div style="padding:16px 16px 0;">
         <form method="GET" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
           <input type="hidden" name="sort" value="{{ sort }}">
+          <input type="hidden" name="tab" value="{{ active_tab }}">
           <div style="flex:1;min-width:220px;">
             <label class="form-label">Search</label>
             <input type="text" name="q" value="{{ search }}" placeholder="Name, address, phone, or email" class="form-control">
@@ -42,7 +47,11 @@
               <th>Address</th>
               <th>Phone</th>
               <th>Email</th>
+              {% if active_tab == 'waiting_to_buy' %}
+              <th>Follow Up</th>
+              {% else %}
               {{ sort_th('Created', 'created_asc', 'created_desc') }}
+              {% endif %}
               <th class="right">Quotes</th>
             </tr>
           </thead>
@@ -57,6 +66,8 @@
                 <span class="badge badge-amber" style="margin-left:4px;">R4Q</span>
                 {% elif c.pipeline_stage in ('quote_sent', 'quote_follow_up') %}
                 <span class="badge badge-purple" style="margin-left:4px;">R4F</span>
+                {% elif c.pipeline_stage == 'waiting_to_buy' %}
+                <span class="badge badge-gray" style="margin-left:4px;">Waiting</span>
                 {% elif not c.pipeline_stage and c.ghl_contact_id %}
                 <span class="badge badge-blue" style="margin-left:4px;" title="Came in from GoHighLevel">Lead</span>
                 {% endif %}
@@ -70,7 +81,11 @@
               </td>
               <td style="color:var(--text2);white-space:nowrap;">{{ c.phone or '—' }}</td>
               <td style="color:var(--text2);white-space:nowrap;">{{ c.email or '—' }}</td>
+              {% if active_tab == 'waiting_to_buy' %}
+              <td style="color:var(--text3);font-size:12px;white-space:nowrap;">{{ c.future_follow_up_at or '—' }}</td>
+              {% else %}
               <td style="color:var(--text3);font-size:12px;white-space:nowrap;">{{ (c.created_at[:10]) if c.created_at else '—' }}</td>
+              {% endif %}
               <td class="right mono">{{ c.quote_count }}</td>
             </tr>
             {% endfor %}
@@ -82,6 +97,8 @@
         <div class="empty-state-icon">👥</div>
         {% if search %}
         <div class="empty-state-text">No customers match "{{ search }}". <a href="/customers?{{ qs_with(q='') }}">Clear search</a>.</div>
+        {% elif active_tab == 'waiting_to_buy' %}
+        <div class="empty-state-text">Nobody parked here right now. Set a follow-up date on a customer's profile to add them to this list.</div>
         {% else %}
         <div class="empty-state-text">No customers yet. <a href="/quotes/new">Create a quote</a> or add one directly.</div>
         {% endif %}

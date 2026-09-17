@@ -124,6 +124,12 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: var(--surface2); }
 .mono { font-family: 'Chivo Mono', monospace; font-size: 12px; }
 
+/* ── Tab bar (Quotes/Archive, Customers/Waiting to Buy, etc.) ── */
+.qtabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.qtab { padding: 8px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600;
+  color: var(--text2); text-decoration: none; border: 1px solid var(--border); background: var(--surface); }
+.qtab.active { background: var(--blue); color: white; border-color: var(--blue); }
+
 /* ── Badges & Pills ── */
 .badge { display: inline-block; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; }
 .badge-green { background: #14532d44; color: var(--green-light); border: 1px solid #14532d; }
@@ -131,6 +137,7 @@ tbody tr:hover { background: var(--surface2); }
 .badge-blue { background: #1e3a8a44; color: #93c5fd; border: 1px solid #1e3a8a; }
 .badge-amber { background: #78350f44; color: #fbbf24; border: 1px solid #78350f; }
 .badge-purple { background: #581c8744; color: #c084fc; border: 1px solid #581c87; }
+.badge-gray { background: #37415144; color: #9ca3af; border: 1px solid #374151; }
 .pill { display: inline-block; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 500; }
 .pill-markup { background: var(--amber-pale); color: var(--amber); }
 .pill-margin { background: var(--green-pale); color: var(--green); }

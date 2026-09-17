@@ -4017,6 +4017,19 @@ def add_customer_attachment_category(conn):
         conn.execute("ALTER TABLE customer_attachments ADD COLUMN category TEXT DEFAULT 'before'")
 
 
+@migration
+def add_customer_future_followup(conn):
+    """Phase 5 of the full pipeline automation: some leads aren't ready to buy right now
+    ("really looking to do this in 3 months") -- a second date/time picker on the customer
+    profile, alongside the existing Meeting picker, lets Sales park them in a "Waiting to
+    Buy" GHL stage with a target date to check back, instead of losing track of them or
+    leaving them stuck wherever they were. future_follow_up_at is a plain text timestamp,
+    same convention as site_visit_at."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(customers)").fetchall()}
+    if 'future_follow_up_at' not in cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN future_follow_up_at TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
