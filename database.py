@@ -4004,6 +4004,19 @@ def add_customer_ghl_sync_error_tracking(conn):
         conn.execute("ALTER TABLE customers ADD COLUMN ghl_sync_error TEXT DEFAULT ''")
 
 
+@migration
+def add_customer_attachment_category(conn):
+    """Phase 3 of the full pipeline automation: uploading a photo while a lead is in
+    On-site Scheduled auto-advances their card to Ready for Quote (see add_customer_attachment
+    in app.py). Every photo defaults to 'before' for now -- Jim wants 'during'/'after'
+    sections gated behind a signed contract later, explicitly out of scope for this phase,
+    but adding the column now (mirrors the existing sub_attachments.category precedent) means
+    that later work is just a template/query change, not a second migration."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(customer_attachments)").fetchall()}
+    if 'category' not in cols:
+        conn.execute("ALTER TABLE customer_attachments ADD COLUMN category TEXT DEFAULT 'before'")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

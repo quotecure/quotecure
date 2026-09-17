@@ -1392,6 +1392,11 @@ def add_customer_attachment(customer_id):
     db = get_db()
     author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
     import base64
+    # Read the stage BEFORE the upload, not after -- the auto-advance check below needs to
+    # know whether this customer was sitting in on_site_scheduled at the moment they uploaded,
+    # not whatever stage they're in after (which is exactly what this route is about to change).
+    customer = db.execute("SELECT pipeline_stage FROM customers WHERE customer_id=?", (customer_id,)).fetchone()
+    uploaded_any = False
     # getlist, not get -- the form's file input now accepts multiple selections at once
     # (photos from a site visit are usually a batch, and adding them one at a time was
     # "extremely tedious," Jim's words). Each file is validated independently, same as
@@ -1406,10 +1411,18 @@ def add_customer_attachment(customer_id):
         ext = _validate_file_upload(file_bytes, f.filename)
         if ext:
             db.execute(
-                "INSERT INTO customer_attachments (customer_id, filename, mime_type, file_data, created_by) VALUES (?,?,?,?,?)",
+                "INSERT INTO customer_attachments (customer_id, filename, mime_type, file_data, created_by, category) VALUES (?,?,?,?,?,'before')",
                 (customer_id, f.filename, ATTACHMENT_MIME_TYPES[ext], base64.b64encode(file_bytes).decode('utf-8'), author)
             )
+            uploaded_any = True
     db.commit()
+    # The trigger for Ready for Quote is the first real site-visit photo landing while a lead
+    # is in On-site Scheduled -- self-guarding by construction: the stage-mirror write this
+    # triggers flips pipeline_stage away from on_site_scheduled, so a second upload's check
+    # (reading the stage fresh, before its own upload) no longer matches.
+    if uploaded_any and customer and customer['pipeline_stage'] == 'on_site_scheduled':
+        _sync_customer_to_ghl(db, customer_id, _GHL_STAGE_READY_FOR_QUOTE,
+                               note_text='First site-visit photo uploaded -- auto-advanced to Ready for Quote')
     return redirect(url_for('customer_detail', customer_id=customer_id))
 
 @app.route('/customers/attachments/<int:attachment_id>/download')

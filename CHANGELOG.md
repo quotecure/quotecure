@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-17 — Full pipeline automation, Phase 3: photo upload auto-advances to Ready for Quote
+
+Third of four planned phases. Uploading the first site-visit photo while a lead is in On-site Scheduled now auto-advances their card to Ready for Quote and flips their profile badge to "R4Q" -- no manual stage-drag needed. `add_customer_attachment` reads the customer's `pipeline_stage` before the upload (not after, since the upload is what's about to change it), and pushes the advance via last week's `_sync_customer_to_ghl` helper only if at least one file actually uploaded and they were sitting in `on_site_scheduled`. Self-guarding: the stage-mirror write moves them out of that stage, so a second photo upload doesn't re-fire.
+
+New `customer_attachments.category` column, defaulting every photo to `'before'` for now -- no visible change today, but sets up the "During"/"After" sections Jim wants later (gated behind a signed contract, explicitly out of scope for this phase) without a second migration.
+
+Tested against `quotecure_dev`: the advance fires on a real multipart upload while on_site_scheduled, a second upload afterward doesn't re-fire, and uploading while in an unrelated stage (e.g. still `qualified`) triggers nothing. Browser-verified the badge flip on the profile page.
+
+---
+
 ## 2026-09-17 — Full pipeline automation, Phase 2: Qualified-stage profile UI
 
 Second of four planned phases. Adds the customer-profile pieces Sales actually touches once a lead becomes a real customer: a pipeline-stage badge (Lead through Qualified/On-site Scheduled, R4Q at Ready for Quote, R4F once a quote's out), an "Unqualified" button, and a "Meeting" date/time picker -- both of the latter push the customer's continuous GHL Opportunity forward the moment they're used, reusing the exact one-card-per-deal mechanism from Phase 1.
