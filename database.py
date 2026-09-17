@@ -3993,6 +3993,17 @@ def add_ghl_sync_error_tracking(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN ghl_sync_error TEXT DEFAULT ''")
 
 
+@migration
+def add_customer_ghl_sync_error_tracking(conn):
+    """Same as add_ghl_sync_error_tracking above, extended to customers.ghl_sync_error for
+    the new customer-level sync helper (_sync_customer_to_ghl, Phase 2 -- Unqualified button,
+    Meeting picker). A separate migration rather than adding a column to the already-applied
+    one above, per the append-only migration convention."""
+    cust_cols = {r[1] for r in conn.execute("PRAGMA table_info(customers)").fetchall()}
+    if 'ghl_sync_error' not in cust_cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN ghl_sync_error TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

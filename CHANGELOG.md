@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-17 — Full pipeline automation, Phase 2: Qualified-stage profile UI
+
+Second of four planned phases. Adds the customer-profile pieces Sales actually touches once a lead becomes a real customer: a pipeline-stage badge (Lead through Qualified/On-site Scheduled, R4Q at Ready for Quote, R4F once a quote's out), an "Unqualified" button, and a "Meeting" date/time picker -- both of the latter push the customer's continuous GHL Opportunity forward the moment they're used, reusing the exact one-card-per-deal mechanism from Phase 1.
+
+New `_sync_customer_to_ghl` helper mirrors `_sync_quote_to_ghl`'s shape (creates the customer's Opportunity on first use, updates it after -- same idempotency guard, same "never raises" contract) for the stages reachable before any quote exists. The Meeting picker writes into the existing `customers.site_visit_at` column -- previously only ever set by the inbound webhook; this is the first *outbound* use of it. The Unqualified button hides once a customer's already won/lost/unqualified, and the Meeting picker only shows at qualified/on_site_scheduled, so neither is offered somewhere it wouldn't make sense.
+
+Also added `customers.ghl_sync_error`, matching the same-day fix for quotes -- a customer-level sync failure now records why instead of vanishing into a server log nobody's watching.
+
+Tested against `quotecure_dev`: opportunity creation vs. reuse on repeat calls, both new routes end to end via real HTTP POSTs, and the badge/button/picker only rendering at the stages where they're actually actionable. Browser-verified at desktop and mobile widths.
+
+---
+
 ## 2026-09-17 — Fix: silent GHL sync failures now visible instead of vanishing
 
 Jim: "I don't think the Quote Sent stage push has ever actually worked" -- he's been manually dragging cards in GHL himself after noticing QuoteCure hadn't moved them. Root cause: `_sync_quote_to_ghl`'s outer `try/except` swallows every GHL failure by design (so a CRM outage can never block sending a real quote to a customer), but that also meant a failure had zero visibility anywhere -- not in the UI, not in a way Jim could check without server log access he doesn't have.

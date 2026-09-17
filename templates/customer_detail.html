@@ -4,12 +4,27 @@
 <div class="page">
   <div class="page-header">
     <div>
-      <div class="page-title">{{ customer.name }}</div>
+      <div class="page-title">
+        {{ customer.name }}
+        {% if customer.pipeline_stage in ('qualified','on_site_scheduled') %}
+        <span class="badge badge-blue" style="margin-left:8px;vertical-align:middle;">Lead</span>
+        {% elif customer.pipeline_stage == 'ready_for_quote' %}
+        <span class="badge badge-amber" style="margin-left:8px;vertical-align:middle;">R4Q</span>
+        {% elif customer.pipeline_stage in ('quote_sent','quote_follow_up') %}
+        <span class="badge badge-purple" style="margin-left:8px;vertical-align:middle;">R4F</span>
+        {% endif %}
+      </div>
       <div class="page-subtitle">Customer record — editing name, phone, or email here updates every quote for this customer</div>
     </div>
     <div style="display:flex;gap:8px;">
       <a href="/quotes/new?customer_id={{ customer.customer_id }}" class="btn btn-primary">+ New Quote</a>
       <a href="/customers" class="btn btn-secondary">← Customers</a>
+      {% if customer.pipeline_stage and customer.pipeline_stage not in ('won','lost','unqualified') %}
+      <form method="POST" action="/customers/{{ customer.customer_id }}/unqualify" style="display:inline;"
+            onsubmit="return confirm('Mark this lead Unqualified? This moves their GHL card to Unqualified.');">
+        <button type="submit" class="btn btn-secondary" style="color:#fbbf24;">Unqualified</button>
+      </form>
+      {% endif %}
       {% if current_role and current_role.can_access_admin %}
       <button type="button" class="btn btn-secondary" style="color:var(--red);" onclick="deleteCustomer()">Delete Customer</button>
       {% endif %}
@@ -52,6 +67,18 @@
       <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2);font-size:12px;color:var(--text2);">
         {% if customer.lead_source %}<div>Lead source: <strong>{{ customer.lead_source }}</strong></div>{% endif %}
         {% if customer.site_visit_at %}<div style="margin-top:4px;">Site visit: <strong>{{ customer.site_visit_at }}</strong></div>{% endif %}
+      </div>
+      {% endif %}
+      {% if customer.pipeline_stage in ('qualified', 'on_site_scheduled') %}
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2);">
+        <form method="POST" action="/customers/{{ customer.customer_id }}/schedule_meeting" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+            <label class="form-label">Schedule Meeting</label>
+            <input class="form-control" name="site_visit_at" type="datetime-local" required>
+          </div>
+          <button type="submit" class="btn btn-secondary">Schedule</button>
+        </form>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">Notes the time in GHL and moves this lead's card to On-site Scheduled.</div>
       </div>
       {% endif %}
     </div>

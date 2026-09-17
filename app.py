@@ -787,6 +787,65 @@ def _sync_quote_to_ghl(db, quote_id, stage_id, note_text=None, pdf_bytes=None, p
         except Exception as e2:
             print(f'[GHL] quote {quote_id} failed to even record the sync error: {e2}')
 
+def _sync_customer_to_ghl(db, customer_id, stage_id, note_text=None, mark_status=None):
+    """The customer-level equivalent of _sync_quote_to_ghl, for stages reachable before any
+    quote exists (Unqualified button, Meeting picker, the photo-upload auto-advance) --
+    creates the customer's continuous Opportunity on first use (customers.ghl_opportunity_id
+    is the guard, mirroring quotes.ghl_opportunity_id exactly), updates it on every call
+    after. Never raises, same convention as _sync_quote_to_ghl."""
+    try:
+        customer = db.execute("SELECT * FROM customers WHERE customer_id=?", (customer_id,)).fetchone()
+        if not customer:
+            return
+        contact_id = _ensure_ghl_contact(db, customer_id)
+        if not contact_id:
+            return
+        if customer['ghl_opportunity_id']:
+            ghl_client.update_opportunity(db, customer['ghl_opportunity_id'], stage_id, status=mark_status)
+        else:
+            opp_id = ghl_client.create_opportunity(db, contact_id, _GHL_PIPELINE_ID, stage_id,
+                                                     customer['name'], 0, status=mark_status or 'open')
+            db.execute("UPDATE customers SET ghl_opportunity_id=? WHERE customer_id=?", (opp_id, customer_id))
+            db.commit()
+        if stage_id in _GHL_STAGE_LOCAL_LABEL:
+            db.execute("UPDATE customers SET pipeline_stage=? WHERE customer_id=?",
+                       (_GHL_STAGE_LOCAL_LABEL[stage_id], customer_id))
+            db.commit()
+        if note_text:
+            try:
+                ghl_client.add_note(db, contact_id, note_text)
+            except Exception as e:
+                print(f'[GHL] customer {customer_id} note push failed: {e}')
+        db.execute("UPDATE customers SET ghl_sync_error='' WHERE customer_id=?", (customer_id,))
+        db.commit()
+    except Exception as e:
+        print(f'[GHL] customer {customer_id} sync failed: {e}')
+        try:
+            db.execute("UPDATE customers SET ghl_sync_error=? WHERE customer_id=?", (str(e)[:500], customer_id))
+            db.commit()
+        except Exception as e2:
+            print(f'[GHL] customer {customer_id} failed to even record the sync error: {e2}')
+
+@app.route('/customers/<int:customer_id>/unqualify', methods=['POST'])
+@login_required
+def unqualify_customer(customer_id):
+    db = get_db()
+    _sync_customer_to_ghl(db, customer_id, _GHL_STAGE_UNQUALIFIED,
+                           note_text='Marked Unqualified by Sales', mark_status='abandoned')
+    return redirect(url_for('customer_detail', customer_id=customer_id))
+
+@app.route('/customers/<int:customer_id>/schedule_meeting', methods=['POST'])
+@login_required
+def schedule_customer_meeting(customer_id):
+    db = get_db()
+    site_visit_at = request.form.get('site_visit_at', '').strip()
+    if site_visit_at:
+        db.execute("UPDATE customers SET site_visit_at=? WHERE customer_id=?", (site_visit_at, customer_id))
+        db.commit()
+        _sync_customer_to_ghl(db, customer_id, _GHL_STAGE_ON_SITE_SCHEDULED,
+                               note_text=f'Meeting scheduled: {site_visit_at}')
+    return redirect(url_for('customer_detail', customer_id=customer_id))
+
 @app.route('/admin/debug_ghl_config')
 @require_permission('can_edit_commission_policy')
 def debug_ghl_config():
@@ -829,6 +888,8 @@ def debug_ghl_outbound(quote_id):
         'customer_email': customer['email'] if customer else None,
         'customer_ghl_contact_id': customer['ghl_contact_id'] if customer else None,
         'customer_ghl_opportunity_id': customer['ghl_opportunity_id'] if customer else None,
+        'customer_ghl_sync_error': (customer['ghl_sync_error'] or None) if customer else None,
+        'customer_pipeline_stage': customer['pipeline_stage'] if customer else None,
     }
     if customer and customer['email']:
         try:
