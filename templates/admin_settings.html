@@ -137,16 +137,16 @@
             Paste this one URL into the "Webhook" action of these GHL Workflows (Settings → Workflows → new Workflow → Add Action → Webhook), each with a custom JSON body. Numbered in real pipeline order, matching the Workflow names in your GHL account:
           </div>
           <div style="font-size:11px;color:var(--text3);margin-top:10px;">
-            <strong>1. "New Lead Email" — Trigger: Contact Created</strong>
+            <strong>1. "Stage: New - First email" — Trigger: Contact Created</strong>
             <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"new_lead","contact_id":"{{ '{{contact.id}}' }}","opportunity_id":"{{ '{{opportunity.id}}' }}","name":"{{ '{{contact.full_name}}' }}","email":"{{ '{{contact.email}}' }}","phone":"{{ '{{contact.phone}}' }}","lead_source":"{{ '{{contact.source}}' }}"}</pre>
             <div style="margin-top:4px;">Sends the instant New Lead email below through your real Gmail (never GHL's own sender).</div>
-            <strong>2. "Qualifying Nudge Cycle" — Trigger: Opportunity stage changed to "Qualifying", then Wait (2 days) → Webhook → Wait (2 days) → Webhook → Wait (2 days) → Webhook -- same event, fired 3 times</strong>
+            <strong>2. "Stage: Qualifying - Email cycle" — Trigger: Opportunity stage changed to "Qualifying", then Wait (2 days) → Webhook → Wait (2 days) → Webhook → Wait (2 days) → Webhook -- same event, fired 3 times</strong>
             <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"qualifying_check_due","contact_id":"{{ '{{contact.id}}' }}"}</pre>
             <div style="margin-top:4px;">1st call sends a nudge email, 2nd call sends it again, 3rd call auto-moves the card to Unqualified -- skipped entirely if you've already moved the lead to Qualified in the meantime.</div>
-            <strong>3. "Qualified → Create Profile" — Trigger: Opportunity stage changed to "Qualified"</strong>
+            <strong>3. "Stage: Qualified - Create QC profile" — Trigger: Opportunity stage changed to "Qualified"</strong>
             <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"ready_for_quote","contact_id":"{{ '{{contact.id}}' }}","name":"{{ '{{contact.full_name}}' }}","email":"{{ '{{contact.email}}' }}","phone":"{{ '{{contact.phone}}' }}","address":"{{ '{{contact.address1}}' }}","city":"{{ '{{contact.city}}' }}","lead_source":"{{ '{{contact.source}}' }}"}</pre>
             <div style="margin-top:4px;">The very first automation you built -- creates the customer profile in QuoteCure the moment a lead is confirmed real. The event name says "ready_for_quote" for historical reasons only; don't change it, it's just an internal label.</div>
-            <strong>4. "Quote Sent Follow-up" — Trigger: Opportunity stage changed to "Quote Sent", then Wait (2-3 days) → Webhook → Wait (2-3 days) → Webhook -- same event, fired twice</strong>
+            <strong>4. "Stage: Quote Sent - Follow-up email(s)" — Trigger: Opportunity stage changed to "Quote Sent", then Wait (2-3 days) → Webhook → Wait (2-3 days) → Webhook -- same event, fired twice</strong>
             <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"quote_follow_up_due","opportunity_id":"{{ '{{opportunity.id}}' }}"}</pre>
             <div style="margin-top:4px;">1st call sends a random active follow-up email below, 2nd call sends another -- but only if the quote hasn't already been signed or marked lost in QuoteCure, so it's safe even if the GHL card doesn't get moved right away. If there's still no response after both, it auto-moves to Unqualified (never Lost -- that stays a manual, explicit action).</div>
           </div>
