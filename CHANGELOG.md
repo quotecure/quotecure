@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-18 — Fix: Email Quote panel wiped a customized subject/body on reopen
+
+Jim: customize the email subject/body, then go tweak something else in the quote, and the customization was just gone with no way to get it back. `openEmailPanel()` unconditionally re-fetched and overwrote both fields on every open, with no check for whether the user had already typed something -- so reopening the panel after editing a line item elsewhere on the same page (or just Cancel-then-reopen) silently clobbered it.
+
+Fixed by tracking the last-fetched default text: a field only gets overwritten if it's currently empty or still holds exactly that same default (i.e. genuinely untouched) -- once the user types their own subject/body, no later reopen will touch it. A fresh page load still correctly loads real defaults, since there's nothing to compare against yet.
+
+Pure front-end fix, no backend/route changes. Browser-verified: customize → close → reopen preserves the custom text; a brand-new page load still loads real defaults.
+
+---
+
 ## 2026-09-18 — Fix: Optional replacement item overcharged by the modifier on the item it replaces
 
 Jim: a Main surface item at $9287.18 (with a Leak Detection modifier applied) replaced by an Optional surface item at $9745.45 (same modifier) should show a $458.27 difference, but showed $1038.27 — off by exactly $580.00, the modifier's own dollar contribution to the Main item.
