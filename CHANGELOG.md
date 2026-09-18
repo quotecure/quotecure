@@ -4,6 +4,19 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-18 — Fix: New Lead cards weren't actually moving to Qualifying
+
+Jim: "the new leads came in, and the email did go out, but the cards didn't move to Qualifying." Two real gaps, both in the New Lead handler added during Phase 1:
+
+1. `_ghl_webhook_new_lead` sent the welcome email and stamped the staging row, but never actually called anything to push the GHL card forward at all -- a genuine implementation gap against the original design (confirmed with Jim mid-session: "QuoteCure calls GHL's API and says set this opportunity's stage to Qualifying") that never made it into the code.
+2. Even with that call added, it would have kept failing silently: `_update_lead_opportunity_stage` could only *update* an Opportunity that already had an id on the `ghl_leads` row -- but real leads almost never carry one, since GHL doesn't expose an `opportunity.id` merge field at "Contact Created" time (confirmed directly with Jim, who couldn't find it in GHL's own picker). With no id to update, the push had nothing to act on.
+
+Fixed both: `_ghl_webhook_new_lead` now pushes the lead to Qualifying right after processing (whether or not the email itself sent -- a lead with no email on file still needs a phone call, not to sit stuck in New forever), and `_update_lead_opportunity_stage` now creates the Opportunity when the lead doesn't have one yet, self-healing against a duplicate via `create_opportunity`'s existing fallback exactly like every other sync path in this app. Also gave the helper a proper `mark_status` parameter instead of a hardcoded `'abandoned'`, since it's now used for an active, in-progress stage too, not just the terminal auto-Unqualify case.
+
+Tested against `quotecure_dev`: a lead with no `opportunity_id` in its webhook payload (the real-world case) still gets a fresh Opportunity created and pushed to Qualifying, and the existing "already has an id" path continues to just update it. Full suite re-run clean.
+
+---
+
 ## 2026-09-17 — Cleaner GHL Workflow docs: renamed and renumbered in real pipeline order
 
 Jim: the trigger docs in Admin Settings had grown confusing across today's session -- numbered in the order features got built, not the order things actually happen in the pipeline, and two of the four real automations had never been given clear names. Also surfaced a naming mixup worth recording: the oldest automation (creates the customer profile in QuoteCure) has always been described as attached to the **Qualified** stage -- confirmed directly with Jim -- but its internal code event name has always been `ready_for_quote`, a leftover label from before this session that doesn't match. No bug (Jim's real GHL Workflow just sends whatever event string the docs told him to, regardless of what it's internally called), but confusing enough to call out explicitly in the docs so it doesn't cause a mix-up later. Left the internal name alone rather than risk breaking Jim's already-working, already-published Workflow for a purely cosmetic fix.

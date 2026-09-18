@@ -394,15 +394,32 @@ def _ghl_webhook_note_added(db, data):
     db.commit()
     return jsonify({'success': True})
 
-def _update_lead_opportunity_stage(db, lead, stage_id, note_text=None):
-    """The pre-Qualified equivalent of _sync_quote_to_ghl -- for a ghl_leads staging row,
-    since no customers row (and therefore no _ensure_ghl_contact-linked customer) exists yet
-    at this point in the pipeline. Never raises, same convention as the quote-level helper."""
+def _update_lead_opportunity_stage(db, lead, stage_id, note_text=None, mark_status=None):
+    """The pre-Qualified equivalent of _sync_quote_to_ghl/_sync_customer_to_ghl -- for a
+    ghl_leads staging row, since no customers row (and therefore no _ensure_ghl_contact-linked
+    customer) exists yet at this point in the pipeline. Creates the lead's continuous
+    Opportunity if it doesn't have one yet -- found live that most real leads never carry an
+    opportunity_id at all, since GHL doesn't expose that merge field at Contact-Created time
+    (confirmed directly with Jim, who couldn't find it in GHL's picker), so this can't assume
+    one already exists the way the quote/customer-level helpers safely can. Self-healing
+    against a duplicate via create_opportunity's own fallback, same as everywhere else.
+    Updates it if one already does. Never raises, same convention as the other two helpers."""
     try:
+        contact_id = lead['ghl_contact_id']
+        if not contact_id:
+            return
         if lead['ghl_opportunity_id']:
-            ghl_client.update_opportunity(db, lead['ghl_opportunity_id'], stage_id, status='abandoned')
-        if note_text and lead['ghl_contact_id']:
-            ghl_client.add_note(db, lead['ghl_contact_id'], note_text)
+            ghl_client.update_opportunity(db, lead['ghl_opportunity_id'], stage_id, status=mark_status)
+        else:
+            opp_id = ghl_client.create_opportunity(db, contact_id, _GHL_PIPELINE_ID, stage_id,
+                                                     lead['name'] or 'New Lead', 0, status=mark_status or 'open')
+            db.execute("UPDATE ghl_leads SET ghl_opportunity_id=? WHERE id=?", (opp_id, lead['id']))
+            db.commit()
+        if note_text:
+            try:
+                ghl_client.add_note(db, contact_id, note_text)
+            except Exception as e:
+                print(f'[GHL] lead {lead["id"]} note push failed: {e}')
     except Exception as e:
         print(f'[GHL] lead {lead["id"]} stage push failed: {e}')
 
@@ -411,8 +428,11 @@ def _ghl_webhook_new_lead(db, data):
     since that only happens once the card reaches Qualified (_get_or_create_customer_by_ghl_
     contact). Upserts a ghl_leads staging row and, on first-ever insert only, sends the
     instant welcome/ask-for-info email through QuoteCure's own Gmail connection -- never
-    GHL's native email action, since Jim's real company address has to be the sender. A
-    repeat call (GHL retrying the webhook) just refreshes the contact info without re-sending."""
+    GHL's native email action, since Jim's real company address has to be the sender -- then
+    pushes the card forward to Qualifying, whether or not the email actually sent (a lead
+    with no email on file still needs to be called, not left stuck in New forever). A repeat
+    call (GHL retrying the webhook) just refreshes the contact info without re-sending or
+    re-pushing the stage."""
     contact_id = data.get('contact_id')
     if not contact_id:
         return jsonify({'error': 'missing contact_id'}), 400
@@ -438,6 +458,7 @@ def _ghl_webhook_new_lead(db, data):
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
     gmail_address = settings['gmail_address'] if settings else ''
     gmail_app_password = settings['gmail_app_password'] if settings else ''
+    email_sent = False
     if email and gmail_address and gmail_app_password and settings['new_lead_email_subject']:
         first_name = name.split(' ')[0] if name else 'there'
         company_name = (settings['company_name'] or '').strip()
@@ -445,6 +466,12 @@ def _ghl_webhook_new_lead(db, data):
         _send_plain_email(email, settings['new_lead_email_subject'], body, gmail_address, gmail_app_password)
         db.execute("UPDATE ghl_leads SET intake_email_sent_at=now()::text WHERE id=?", (lead_id,))
         db.commit()
+        email_sent = True
+    lead = db.execute("SELECT * FROM ghl_leads WHERE id=?", (lead_id,)).fetchone()
+    _update_lead_opportunity_stage(db, lead, _GHL_STAGE_QUALIFYING,
+                                    note_text='Welcome email sent' if email_sent else 'New lead received (no email on file)')
+    db.execute("UPDATE ghl_leads SET stage='qualifying' WHERE id=?", (lead_id,))
+    db.commit()
     return jsonify({'success': True, 'lead_id': lead_id})
 
 def _ghl_webhook_qualifying_check(db, data):
@@ -466,7 +493,8 @@ def _ghl_webhook_qualifying_check(db, data):
         return jsonify({'success': True, 'skipped': 'already resolved'})
     if lead['nudge_1_sent_at'] and lead['nudge_2_sent_at']:
         _update_lead_opportunity_stage(db, lead, _GHL_STAGE_UNQUALIFIED,
-                                        note_text='No response after 2 nudges -- auto-moved to Unqualified')
+                                        note_text='No response after 2 nudges -- auto-moved to Unqualified',
+                                        mark_status='abandoned')
         db.execute("UPDATE ghl_leads SET stage='unqualified' WHERE id=?", (lead['id'],))
         db.commit()
         return jsonify({'success': True, 'result': 'unqualified'})
