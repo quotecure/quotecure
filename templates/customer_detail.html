@@ -1,5 +1,31 @@
 {% extends 'base.html' %}
 {% block title %}{{ customer.name }} — QuoteCure{% endblock %}
+{% block extra_css %}
+<style>
+/* Custom Apple-style scrolling-wheel date/time picker for the Meeting and Park It fields --
+   desktop browsers have no native wheel picker for datetime-local (unlike iOS, which already
+   renders one for free), so this is a from-scratch component shared by both fields. */
+.wheel-picker-trigger { text-align:left; cursor:pointer; color:var(--text); }
+.wheel-picker-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:flex-end; justify-content:center; }
+.wheel-picker-overlay.open { display:flex; }
+.wheel-picker-sheet { background:var(--surface); border:1px solid var(--border); border-radius:16px 16px 0 0; width:100%; max-width:420px; margin-bottom:0; box-shadow:0 -8px 30px rgba(0,0,0,0.5); }
+.wheel-picker-header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid var(--border2); }
+.wheel-picker-header button { background:none; border:none; color:var(--blue-light); font-size:15px; cursor:pointer; padding:4px 8px; }
+.wheel-picker-header .wp-done { font-weight:700; }
+.wheel-picker-columns { display:flex; position:relative; height:200px; padding:16px 8px 0; }
+.wheel-col { flex:1; min-width:0; overflow-y:scroll; scroll-snap-type:y mandatory; scrollbar-width:none; -ms-overflow-style:none;
+  -webkit-mask-image:linear-gradient(to bottom, transparent 0%, black 35%, black 65%, transparent 100%);
+  mask-image:linear-gradient(to bottom, transparent 0%, black 35%, black 65%, transparent 100%); }
+.wheel-col::-webkit-scrollbar { display:none; }
+.wheel-col-pad { height:80px; }
+.wheel-col-item { height:40px; line-height:40px; text-align:center; scroll-snap-align:center; color:var(--text2); font-size:15px; font-family:'Chivo Mono',monospace; user-select:none; overflow:hidden; white-space:nowrap; }
+.wheel-picker-selection-bar { position:absolute; top:96px; left:8px; right:8px; height:40px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); pointer-events:none; background:rgba(255,255,255,0.04); }
+@media (max-width: 480px) {
+  .wheel-col-item { font-size:12px; }
+  .wheel-picker-columns { padding-left:2px; padding-right:2px; }
+}
+</style>
+{% endblock %}
 {% block content %}
 <div class="page">
   <div class="page-header">
@@ -77,7 +103,10 @@
         <form method="POST" action="/customers/{{ customer.customer_id }}/schedule_meeting" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
           <div class="form-group" style="margin:0;flex:1;min-width:200px;">
             <label class="form-label">Schedule Meeting</label>
-            <input class="form-control" name="site_visit_at" type="datetime-local" required>
+            <input type="hidden" name="site_visit_at" id="site_visit_at_value" value="{{ customer.site_visit_at or '' }}" required>
+            <button type="button" class="form-control wheel-picker-trigger" onclick="openWheelPicker('site_visit_at_value', 'site_visit_at_display')">
+              <span id="site_visit_at_display">{{ customer.site_visit_at or 'Pick a date & time' }}</span>
+            </button>
           </div>
           <button type="submit" class="btn btn-secondary">Schedule</button>
         </form>
@@ -89,7 +118,10 @@
         <form method="POST" action="/customers/{{ customer.customer_id }}/schedule_future_followup" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
           <div class="form-group" style="margin:0;flex:1;min-width:200px;">
             <label class="form-label">Not Ready Yet — Follow Up Later</label>
-            <input class="form-control" name="future_follow_up_at" type="datetime-local" required>
+            <input type="hidden" name="future_follow_up_at" id="future_follow_up_at_value" value="{{ customer.future_follow_up_at or '' }}" required>
+            <button type="button" class="form-control wheel-picker-trigger" onclick="openWheelPicker('future_follow_up_at_value', 'future_follow_up_at_display')">
+              <span id="future_follow_up_at_display">{{ customer.future_follow_up_at or 'Pick a date & time' }}</span>
+            </button>
           </div>
           <button type="submit" class="btn btn-secondary">Park It</button>
         </form>
@@ -425,6 +457,159 @@ document.addEventListener('keydown', function(e) {
   else if (e.key === 'Escape') closeLightbox();
 });
 </script>
+
+<!-- Shared Apple-style scrolling-wheel date/time picker, used by both the Meeting and
+     Park It fields above (openWheelPicker(hiddenInputId, displayId) targets whichever one
+     was clicked). Writes back the same "YYYY-MM-DDTHH:MM" format a native datetime-local
+     input would, so the backend routes needed zero changes. -->
+<div id="wheel-picker-overlay" class="wheel-picker-overlay" onclick="if (event.target === this) closeWheelPicker()">
+  <div class="wheel-picker-sheet">
+    <div class="wheel-picker-header">
+      <button type="button" onclick="closeWheelPicker()">Cancel</button>
+      <button type="button" class="wp-done" onclick="confirmWheelPicker()">Done</button>
+    </div>
+    <div class="wheel-picker-columns">
+      <div class="wheel-picker-selection-bar"></div>
+      <div class="wheel-col" data-col="month"></div>
+      <div class="wheel-col" data-col="day"></div>
+      <div class="wheel-col" data-col="year"></div>
+      <div class="wheel-col" data-col="hour"></div>
+      <div class="wheel-col" data-col="minute"></div>
+      <div class="wheel-col" data-col="ampm"></div>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  const ROW_H = 40;
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const HOURS = Array.from({length: 12}, (_, i) => String(i + 1));
+  const MINUTES = Array.from({length: 12}, (_, i) => String(i * 5).padStart(2, '0'));
+  const AMPM = ['AM', 'PM'];
+  let wp = {targetId: null, displayId: null, month: 1, day: 1, year: 2026, hour: 12, minute: 0, ampm: 'AM'};
+  const settleTimers = {};
+
+  function daysInMonth(month, year) { return new Date(year, month, 0).getDate(); }
+
+  function renderColumn(col, values, selectedIndex) {
+    col.innerHTML = '';
+    const topPad = document.createElement('div');
+    topPad.className = 'wheel-col-pad';
+    col.appendChild(topPad);
+    values.forEach(v => {
+      const item = document.createElement('div');
+      item.className = 'wheel-col-item';
+      item.textContent = v;
+      col.appendChild(item);
+    });
+    const bottomPad = document.createElement('div');
+    bottomPad.className = 'wheel-col-pad';
+    col.appendChild(bottomPad);
+    col.scrollTop = selectedIndex * ROW_H;
+  }
+
+  function renderAll() {
+    const overlay = document.getElementById('wheel-picker-overlay');
+    const dim = daysInMonth(wp.month, wp.year);
+    if (wp.day > dim) wp.day = dim;
+    const years = [wp.year - 1, wp.year, wp.year + 1, wp.year + 2].filter(y => y >= new Date().getFullYear() - 1);
+    renderColumn(overlay.querySelector('[data-col="month"]'), MONTHS, wp.month - 1);
+    renderColumn(overlay.querySelector('[data-col="day"]'), Array.from({length: dim}, (_, i) => String(i + 1)), wp.day - 1);
+    renderColumn(overlay.querySelector('[data-col="year"]'), years.map(String), years.indexOf(wp.year));
+    renderColumn(overlay.querySelector('[data-col="hour"]'), HOURS, wp.hour - 1);
+    renderColumn(overlay.querySelector('[data-col="minute"]'), MINUTES, Math.round(wp.minute / 5));
+    renderColumn(overlay.querySelector('[data-col="ampm"]'), AMPM, AMPM.indexOf(wp.ampm));
+  }
+
+  function onColumnScroll(colName, col, values) {
+    clearTimeout(settleTimers[colName]);
+    settleTimers[colName] = setTimeout(() => {
+      const idx = Math.max(0, Math.min(values.length - 1, Math.round(col.scrollTop / ROW_H)));
+      col.scrollTo({top: idx * ROW_H, behavior: 'smooth'});
+      const value = values[idx];
+      if (colName === 'month') wp.month = MONTHS.indexOf(value) + 1;
+      else if (colName === 'day') wp.day = parseInt(value, 10);
+      else if (colName === 'year') wp.year = parseInt(value, 10);
+      else if (colName === 'hour') wp.hour = parseInt(value, 10);
+      else if (colName === 'minute') wp.minute = parseInt(value, 10);
+      else if (colName === 'ampm') wp.ampm = value;
+      if (colName === 'month' || colName === 'year') renderAll();
+    }, 120);
+  }
+
+  function wireColumns() {
+    const overlay = document.getElementById('wheel-picker-overlay');
+    overlay.querySelectorAll('.wheel-col').forEach(col => {
+      const colName = col.dataset.col;
+      col.addEventListener('scroll', () => {
+        const values = colName === 'month' ? MONTHS
+          : colName === 'day' ? Array.from({length: daysInMonth(wp.month, wp.year)}, (_, i) => String(i + 1))
+          : colName === 'year' ? [wp.year - 1, wp.year, wp.year + 1, wp.year + 2].filter(y => y >= new Date().getFullYear() - 1).map(String)
+          : colName === 'hour' ? HOURS
+          : colName === 'minute' ? MINUTES
+          : AMPM;
+        onColumnScroll(colName, col, values);
+      });
+    });
+  }
+
+  window.openWheelPicker = function(hiddenInputId, displayId) {
+    wp.targetId = hiddenInputId;
+    wp.displayId = displayId;
+    const existing = document.getElementById(hiddenInputId).value;
+    let d;
+    if (existing) {
+      d = new Date(existing);
+    } else {
+      d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
+    }
+    wp.month = d.getMonth() + 1;
+    wp.day = d.getDate();
+    wp.year = d.getFullYear();
+    const h24 = d.getHours();
+    wp.hour = h24 % 12 === 0 ? 12 : h24 % 12;
+    wp.ampm = h24 < 12 ? 'AM' : 'PM';
+    wp.minute = Math.round(d.getMinutes() / 5) * 5 % 60;
+    document.getElementById('wheel-picker-overlay').classList.add('open');
+    renderAll();
+    wireColumns();
+  };
+
+  window.closeWheelPicker = function() {
+    document.getElementById('wheel-picker-overlay').classList.remove('open');
+  };
+
+  function formatFriendly(isoLike) {
+    const m = String(isoLike).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!m) return isoLike;
+    const [, year, month, day, hour24, minute] = m;
+    const h = parseInt(hour24, 10);
+    const hour12 = h % 12 === 0 ? 12 : h % 12;
+    const ampm = h < 12 ? 'AM' : 'PM';
+    return `${MONTHS[parseInt(month, 10) - 1]} ${parseInt(day, 10)}, ${year} at ${hour12}:${minute} ${ampm}`;
+  }
+
+  window.confirmWheelPicker = function() {
+    let hour24 = wp.ampm === 'AM' ? (wp.hour % 12) : (wp.hour % 12) + 12;
+    const pad = n => String(n).padStart(2, '0');
+    const isoLike = `${wp.year}-${pad(wp.month)}-${pad(wp.day)}T${pad(hour24)}:${pad(wp.minute)}`;
+    document.getElementById(wp.targetId).value = isoLike;
+    document.getElementById(wp.displayId).textContent = formatFriendly(isoLike);
+    closeWheelPicker();
+  };
+
+  // Reformat any already-saved value into the same friendly display on page load, so a
+  // returning visitor doesn't see the raw "2026-09-24T17:10" stored format.
+  ['site_visit_at_value', 'future_follow_up_at_value'].forEach(id => {
+    const input = document.getElementById(id);
+    const displayEl = document.getElementById(id.replace('_value', '_display'));
+    if (input && input.value && displayEl) displayEl.textContent = formatFriendly(input.value);
+  });
+})();
+</script>
+
 {% if current_role and current_role.can_access_admin %}
 <script>
 async function deleteCustomer() {

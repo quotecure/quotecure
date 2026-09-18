@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-18 — Custom Apple-style scrolling-wheel date/time picker
+
+Jim: the Meeting and Park It date/time fields used a plain `datetime-local` input, which shows a nice native scrolling wheel on iOS but a clunky calendar-and-spinner widget on desktop -- and he specifically wanted the wheel look everywhere, not just on phones. Desktop browsers have no native wheel picker to fall back on, so this is a from-scratch component: a bottom sheet with 6 scrollable columns (Month/Day/Year/Hour/Minute/AM-PM), CSS `scroll-snap` for the native-feeling snap-to-center behavior, and a mask-image fade at the top/bottom of each column mimicking the way iOS's own wheel recedes at the edges.
+
+Each hidden input still gets written in the exact same `YYYY-MM-DDTHH:MM` format a real `datetime-local` input would produce, so `schedule_meeting`/`schedule_future_followup` on the backend needed zero changes -- only the two form fields on the customer profile now trigger this shared modal instead of the native browser widget. Day recalculates correctly per month/year (no picking Feb 30th), and re-opening an already-set field starts the wheels at the existing value instead of defaulting to "tomorrow."
+
+Scoped to just these two fields, not every date/time input in the app, per Jim's call. Browser-verified end to end: scrolling and snapping, Done writing the correct value, the backend actually saving it, and reopening correctly restoring the previously-saved date/time.
+
+---
+
 ## 2026-09-18 — Fix: New Lead cards weren't actually moving to Qualifying
 
 Jim: "the new leads came in, and the email did go out, but the cards didn't move to Qualifying." Two real gaps, both in the New Lead handler added during Phase 1:
