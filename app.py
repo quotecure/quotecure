@@ -3758,7 +3758,23 @@ def add_replacement_item(quote_id):
     total_margin_pct = round(((total_price - total_cost) / total_price * 100) if total_price else 0, 1)
     sort_order = db.execute("SELECT COUNT(*) FROM quote_line_items WHERE quote_id=?", (quote_id,)).fetchone()[0]
 
-    db.execute(
+    # A credit row needs to negate the source item's modifiers too, not just its labor+
+    # material -- otherwise a modifier applied to the source (e.g. Leak Detection) keeps
+    # charging on the Main item while never getting cancelled out here, so the "net" swap
+    # price silently overcounts it by exactly that modifier's cost. _modifier_cost() already
+    # scales percent/per_unit modifiers off this row's own (already-negated) material_total_
+    # cost/labor_quantity, so copying those through unchanged auto-negates correctly -- but a
+    # flat modifier is a constant dollar figure that doesn't scale with quantity at all, so
+    # its own amount has to be negated explicitly or it wouldn't flip sign like the rest.
+    src_quals = json.loads(src['modifiers_json'] or '[]')
+    credit_quals = []
+    for q in src_quals:
+        q_copy = dict(q)
+        if _modifier_unit_type(q) == 'flat':
+            q_copy['amount'] = -float(q['amount'])
+        credit_quals.append(q_copy)
+
+    cur = db.execute(
         "INSERT INTO quote_line_items "
         "(quote_id, work_type_id, work_type_label, cost_structure, "
         "sub_id, sub_name, labor_quantity, labor_unit, "
@@ -3766,8 +3782,9 @@ def add_replacement_item(quote_id):
         "material_id, material_label, material_quantity, material_unit, "
         "material_cost_per_unit, material_total_cost, material_markup_pct, material_margin_pct, material_total_price, material_min_markup, "
         "product_id, product_label, total_cost, total_price, total_margin_pct, sort_order, description, "
-        "is_optional, replaces_item_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "is_optional, replaces_item_id, modifiers_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        "RETURNING id",
         (quote_id, src['work_type_id'], src['work_type_label'], src['cost_structure'],
          src['sub_id'], src['sub_name'], -float(src['labor_quantity'] or 0), src['labor_unit'],
          src['labor_cost_per_unit'], labor_total_cost, src['labor_markup_pct'], labor_margin_pct,
@@ -3777,8 +3794,22 @@ def add_replacement_item(quote_id):
          material_total_price, src['material_min_markup'],
          src['product_id'], src['product_label'],
          total_cost, total_price, total_margin_pct, sort_order, src['description'],
-         1, source_id))
+         1, source_id, json.dumps(credit_quals)))
+    new_id = cur.fetchone()[0]
     db.commit()
+    # Folds the (now-negated) modifiers into total_cost/total_price on top of the labor+
+    # material figures just inserted -- same path toggle_modifier uses, so this row keeps
+    # computing correctly under any later edit too, not just at creation time.
+    db.execute("UPDATE quote_line_items SET modifiers_total_cost=? WHERE id=?",
+               (round(sum(_modifier_cost(q, {'labor_quantity': -float(src['labor_quantity'] or 0),
+                                              'material_total_cost': material_total_cost})
+                          for q in credit_quals), 2), new_id))
+    _rollup_item_totals(db, new_id)
+    db.commit()
+    # Every other line-item-mutating route recalcs the quote's cached totals/commission
+    # after changing quote_line_items -- this one was missing it, so the quote-level numbers
+    # could go stale until some unrelated later edit happened to trigger a recalc.
+    _recalc_quote(db, quote_id)
     return jsonify({'success': True})
 
 @app.route('/quotes/<int:quote_id>/line_items/<int:item_id>/markup', methods=['POST'])

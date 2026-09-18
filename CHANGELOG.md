@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-18 — Fix: Optional replacement item overcharged by the modifier on the item it replaces
+
+Jim: a Main surface item at $9287.18 (with a Leak Detection modifier applied) replaced by an Optional surface item at $9745.45 (same modifier) should show a $458.27 difference, but showed $1038.27 — off by exactly $580.00, the modifier's own dollar contribution to the Main item.
+
+Root cause in `add_replacement_item()`: replacing an item creates a second "credit" row in Optional Add-Ons with the Main item's labor and material quantities negated, so the new option's price plus the credit sum to the real net swap cost. But the credit row never carried over the Main item's modifiers — only its labor+material was negated. So the Leak Detection modifier kept charging on the Main item, charged again via the new Optional item's own copy of the same modifier, and the credit that was supposed to cancel one of those two charges never touched it at all.
+
+Fix: the credit row now carries a negated copy of the source item's modifiers, then runs through the same `_rollup_item_totals` path `toggle_modifier` already uses, so it keeps computing correctly under any later edit too. A flat-dollar modifier's amount has to be explicitly negated (it's a constant, doesn't scale with quantity); a percent-of-material or per-unit modifier already auto-negates correctly through the row's own negated quantity/material cost, so those are copied unchanged. Also added the quote-level recalc this route was missing (every sibling line-item route already had it), so the quote's cached totals/commission don't go stale after a replacement is added.
+
+Tested against `quotecure_dev`: reproduces Jim's exact bug shape (flat modifier undercounted in the credit) and confirms the fix for both flat and percent-type modifiers, plus the full end-to-end swap math nets to the correct difference. Full existing suite re-run clean.
+
+---
+
 ## 2026-09-18 — Custom Apple-style scrolling-wheel date/time picker
 
 Jim: the Meeting and Park It date/time fields used a plain `datetime-local` input, which shows a nice native scrolling wheel on iOS but a clunky calendar-and-spinner widget on desktop -- and he specifically wanted the wheel look everywhere, not just on phones. Desktop browsers have no native wheel picker to fall back on, so this is a from-scratch component: a bottom sheet with 6 scrollable columns (Month/Day/Year/Hour/Minute/AM-PM), CSS `scroll-snap` for the native-feeling snap-to-center behavior, and a mask-image fade at the top/bottom of each column mimicking the way iOS's own wheel recedes at the edges.
