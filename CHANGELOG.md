@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-19 — Version History now shows whether the current quote has actually been sent
+
+Jim: after sending a quote and getting a revision request, there was no way to tell from the quote itself whether what's currently on screen has actually gone out to the customer, or if he's made edits since the last send that they've never seen -- `quotes.status` just says "sent" forever after the first send, regardless of anything changed afterward.
+
+The Version History panel (already existed -- every entry there is created only by an actual send, via `_snapshot_quote_version`, so every listed version genuinely was sent) now makes that explicit: each version gets a green "Sent" tag, and a new "Current — Not sent" row appears at the top, in amber, whenever the live quote's total no longer matches the most recently sent version's total. Sending again naturally makes it disappear, since the new version now represents what's on screen.
+
+Simple price-based comparison (Jim's call, not a full line-item diff) -- won't catch a wording-only edit that happens to leave the total unchanged, but catches the common case of adding, removing, or repricing a line item since the last send.
+
+Browser-verified: the amber row appears when current total ≠ latest version's total, and disappears once they match again. Full existing suite re-run clean (pure additive change, no existing route logic touched).
+
+---
+
 ## 2026-09-18 — Fix: Email Quote panel wiped a customized subject/body on reopen
 
 Jim: customize the email subject/body, then go tweak something else in the quote, and the customization was just gone with no way to get it back. `openEmailPanel()` unconditionally re-fetched and overwrote both fields on every open, with no check for whether the user had already typed something -- so reopening the panel after editing a line item elsewhere on the same page (or just Cancel-then-reopen) silently clobbered it.

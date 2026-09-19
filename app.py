@@ -3180,6 +3180,12 @@ def edit_quote(quote_id):
     contract_total = float(quote['total_price'] or 0) + signed_co_net
     change_orders = db.execute("SELECT * FROM change_orders WHERE quote_id=? ORDER BY co_number", (quote_id,)).fetchall()
     versions = db.execute("SELECT * FROM quote_versions WHERE quote_id=? ORDER BY version_number DESC", (quote_id,)).fetchall()
+    # A version only ever gets created by an actual send (see _snapshot_quote_version) --
+    # quotes.status just stays 'sent' forever after the first one, with nothing distinguishing
+    # "what's on screen still matches the last thing the customer was emailed" from "I've
+    # edited this since and they've never seen it." Simple price-based check, not a full
+    # line-item diff (Jim's call: good enough for the common case of adding/repricing items).
+    has_unsent_changes = bool(versions) and abs(float(versions[0]['total_price'] or 0) - float(quote['total_price'] or 0)) > 0.01
     manufacturers = db.execute("SELECT * FROM surface_manufacturers WHERE active='Y' ORDER BY manufacturer_name").fetchall()
     applicators = db.execute("SELECT * FROM surface_applicators WHERE active='Y' ORDER BY name").fetchall()
     # Add manufacturer_id to surface application line items
@@ -3312,6 +3318,7 @@ def edit_quote(quote_id):
                            current_role=g.role, schedule=schedule, schedule_json=schedule_json,
                            schedule_total=schedule_total, schedule_mismatch=schedule_mismatch, schedule_diff=schedule_diff,
                            contract_total=contract_total, change_orders=change_orders, versions=versions,
+                           has_unsent_changes=has_unsent_changes,
                            manufacturers=manufacturers, applicators=applicators, materials=materials,
                            collection_work_type_ids=collection_work_type_ids, collections_by_wt=collections_by_wt,
                            coping_eligible_material_ids=coping_eligible_material_ids,
