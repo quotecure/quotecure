@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-20 — Manual "I followed up" pause for the automated Quote Sent follow-up emails
+
+Jim: sales sometimes calls/texts a customer personally after a quote goes out, but QuoteCure has no way to know that happened, so the automated follow-up sequence (`_ghl_webhook_quote_follow_up_due`) can still fire an email on top of it — redundant and "funky" from the customer's side.
+
+Discussed two designs first: pause the whole sequence outright, or just skip the next scheduled round and let the cadence keep running. Jim chose the full pause (simpler, matches how Lost already works — manual override, no auto-resolution) and asked for the control to live on the customer profile page rather than the quote page or the Needs Follow-up list.
+
+Added a "Follow-up" column to the Quotes & Contracts table on the customer profile: any quote with status `sent` gets an "I followed up — pause emails" button. Clicking it (behind a confirm) stamps `quotes.follow_up_paused_at`/`follow_up_paused_by` and stops `_ghl_webhook_quote_follow_up_due` cold for that quote — no more automated emails, and no auto-unqualify either, exactly like an explicit Lost. A "🙋 Handling personally" badge replaces the button, with a "Resume auto follow-up" action to undo it. New migration `add_quote_follow_up_pause`.
+
+Tested via `app.test_client()`: pausing sets the timestamp and blocks the webhook (no email sent, no state change); resuming clears it and normal round-1 sending resumes. Browser-verified the full pause/resume toggle on the customer profile page at desktop width.
+
+---
+
 ## 2026-09-19 — Version History now shows whether the current quote has actually been sent
 
 Jim: after sending a quote and getting a revision request, there was no way to tell from the quote itself whether what's currently on screen has actually gone out to the customer, or if he's made edits since the last send that they've never seen -- `quotes.status` just says "sent" forever after the first send, regardless of anything changed afterward.

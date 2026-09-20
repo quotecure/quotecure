@@ -531,6 +531,10 @@ def _ghl_webhook_quote_follow_up_due(db, data):
     quote = db.execute("SELECT * FROM quotes WHERE ghl_opportunity_id=?", (opportunity_id,)).fetchone()
     if not quote:
         return jsonify({'error': 'unknown opportunity_id'}), 404
+    if quote['follow_up_paused_at']:
+        # Sales followed up personally (customer profile page) -- stop the automation
+        # entirely for this quote, same as Lost: no more emails, no auto-unqualify.
+        return jsonify({'success': True, 'skipped': 'follow-up paused -- sales handling personally'})
     already_resolved = (quote['status'] in ('contract', 'in_progress', 'complete')
                          or (quote['archived_reason'] or '') != '')
     if already_resolved:
@@ -890,6 +894,34 @@ def unqualify_customer(customer_id):
     _sync_customer_to_ghl(db, customer_id, _GHL_STAGE_UNQUALIFIED,
                            note_text='Marked Unqualified by Sales', mark_status='abandoned')
     return redirect(url_for('customer_detail', customer_id=customer_id))
+
+@app.route('/quotes/<int:quote_id>/follow_up/pause', methods=['POST'])
+@login_required
+def pause_quote_follow_up(quote_id):
+    """Sales followed up with the customer personally -- stop the automated Quote Sent
+    follow-up sequence for this quote entirely (see _ghl_webhook_quote_follow_up_due).
+    A full pause, not "skip just the next round": Jim's call, matches how Lost already
+    works everywhere else in this system -- resuming or resolving the deal is manual."""
+    db = get_db()
+    quote = db.execute("SELECT customer_id FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return redirect(url_for('customers_list'))
+    by = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+    db.execute("UPDATE quotes SET follow_up_paused_at=now()::text, follow_up_paused_by=? WHERE quote_id=?",
+               (by, quote_id))
+    db.commit()
+    return redirect(url_for('customer_detail', customer_id=quote['customer_id']))
+
+@app.route('/quotes/<int:quote_id>/follow_up/resume', methods=['POST'])
+@login_required
+def resume_quote_follow_up(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT customer_id FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return redirect(url_for('customers_list'))
+    db.execute("UPDATE quotes SET follow_up_paused_at='', follow_up_paused_by='' WHERE quote_id=?", (quote_id,))
+    db.commit()
+    return redirect(url_for('customer_detail', customer_id=quote['customer_id']))
 
 @app.route('/customers/<int:customer_id>/schedule_meeting', methods=['POST'])
 @login_required

@@ -4047,6 +4047,22 @@ def add_quote_followup_round_two(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_2_template_id INTEGER")
 
 
+@migration
+def add_quote_follow_up_pause(conn):
+    """Jim: sales sometimes calls/texts a customer personally after a quote goes out, but
+    QuoteCure has no way to know that happened, so the automated follow-up email
+    (_ghl_webhook_quote_follow_up_due) still fires on top of it -- redundant and "funky."
+    This adds a manual pause switch (customer profile page, one button per sent quote):
+    once set, the webhook skips that quote entirely -- no more automated emails, and no
+    auto-unqualify either, same as Lost -- until someone resumes it or the deal resolves
+    normally. Deliberately a full pause (not "skip just the next round") per Jim's call."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'follow_up_paused_at' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_paused_at TEXT DEFAULT ''")
+    if 'follow_up_paused_by' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_paused_by TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
