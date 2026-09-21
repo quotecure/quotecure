@@ -104,7 +104,9 @@
 
   <!-- Print bar -->
   <div class="print-bar">
+    {% if current_role %}
     <a href="/quotes/{{ quote.quote_id }}" class="back-btn">← Back to Quote</a>
+    {% endif %}
     <button class="print-btn" onclick="window.print()">🖨 Save as PDF</button>
   </div>
 
@@ -344,7 +346,7 @@
         <div class="no-print" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input id="sig-name" type="text" placeholder="Printed name" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;width:160px;">
           <button type="button" onclick="clearSig()" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #cbd5e1;background:white;cursor:pointer;">Clear</button>
-          <button type="button" onclick="saveSig({{ quote.quote_id }})" style="font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;padding:6px 14px;border-radius:6px;border:none;background:#1d4ed8;color:white;cursor:pointer;">Sign</button>
+          <button type="button" onclick="saveSig()" style="font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;padding:6px 14px;border-radius:6px;border:none;background:#1d4ed8;color:white;cursor:pointer;">Sign</button>
         </div>
         {% endif %}
       </div>
@@ -450,11 +452,11 @@ async function includeItem(itemId) {
     hasStroke = false;
   };
 
-  window.saveSig = async function(quoteId) {
+  window.saveSig = async function() {
     const name = document.getElementById('sig-name').value.trim();
     if (!hasStroke) { alert('Please sign above before submitting.'); return; }
     if (!name) { alert('Please enter a printed name.'); return; }
-    const resp = await fetch('/quotes/' + quoteId + '/sign', {
+    const resp = await fetch({{ sign_action_url|tojson }}, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({signature: canvas.toDataURL('image/png'), printed_name: name})
     });

@@ -372,6 +372,9 @@
       {% endif %}
       <a href="/quotes/{{ quote.quote_id }}/preview" class="btn btn-primary" target="_blank">📄 Preview</a>
       <button class="btn btn-secondary" type="button" onclick="openEmailPanel()" id="email-quote-btn">✉️ Email Quote</button>
+      {% if quote.status in ('draft', 'sent') %}
+      <button class="btn btn-secondary" type="button" onclick="copySignLink({{ quote.quote_id }})">🔗 Sign Link</button>
+      {% endif %}
       <a href="/quotes/{{ quote.quote_id }}/visualize" class="btn btn-secondary">🎨 Visualize</a>
       <a href="/quotes/{{ quote.quote_id }}/edit_details" class="btn btn-secondary">Edit Details</a>
       <button class="btn btn-secondary" type="button" onclick="duplicateQuote()">⧉ Duplicate</button>
@@ -1426,6 +1429,19 @@ function updateRowDOM(id, d) {
     document.getElementById('price-mat-' + id).textContent = fmtMoney(d.material_total_price);
   if (d.material_margin_pct !== undefined && document.getElementById('margin-mat-' + id))
     document.getElementById('margin-mat-' + id).textContent = d.material_margin_pct.toFixed(0) + '%';
+}
+
+// ── Customer sign link ───────────────────────────────────────────────────
+async function copySignLink(quoteId) {
+  const r = await fetch('/quotes/' + quoteId + '/sign_link');
+  const d = await r.json();
+  if (!r.ok) { alert(d.error || 'Could not get the sign link.'); return; }
+  try {
+    await navigator.clipboard.writeText(d.url);
+    alert('Sign link copied to clipboard:\n\n' + d.url);
+  } catch (e) {
+    prompt('Copy this link to send to the customer:', d.url);
+  }
 }
 
 // ── Email quote ───────────────────────────────────────────────────

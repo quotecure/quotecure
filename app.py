@@ -5585,8 +5585,23 @@ def admin_followup_results():
 # ══════════════════════════════════════════════════════════════════════════════
 # CUSTOMER QUOTE VIEW (print-to-PDF)
 # ══════════════════════════════════════════════════════════════════════════════
-def _quote_preview_html(quote_id):
-    """Shared renderer for the customer quote page — used by the /preview route and email PDF export."""
+def _get_or_create_sign_token(db, quote_id):
+    """Unguessable per-quote token so a customer can open/sign a quote with no QuoteCure
+    login at all (see add_quote_public_sign_token) -- same idiom as password_resets' token.
+    No expiry, generated once and reused -- matches how the emailed PDF never expires."""
+    row = db.execute("SELECT public_sign_token FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if row and row['public_sign_token']:
+        return row['public_sign_token']
+    token = secrets.token_urlsafe(32)
+    db.execute("UPDATE quotes SET public_sign_token=? WHERE quote_id=?", (token, quote_id))
+    db.commit()
+    return token
+
+def _quote_preview_html(quote_id, sign_action_url=None):
+    """Shared renderer for the customer quote page — used by the /preview route, the public
+    /sign/<token> link, and email PDF export. sign_action_url overrides where the page's
+    signature pad submits to (the public link posts to /sign/<token>, no login needed;
+    everywhere else defaults to the staff-only /quotes/<id>/sign)."""
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     all_items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
@@ -5614,12 +5629,64 @@ def _quote_preview_html(quote_id):
                            schedule=schedule, settings=settings, current_role=g.role,
                            terms_doc=terms_doc, visualization=visualization,
                            today=today.strftime('%B %d, %Y'),
-                           valid_until=valid_until.strftime('%B %d, %Y'))
+                           valid_until=valid_until.strftime('%B %d, %Y'),
+                           sign_action_url=sign_action_url or url_for('sign_quote', quote_id=quote_id))
 
 @app.route('/quotes/<int:quote_id>/preview')
 @login_required
 def quote_preview(quote_id):
     return _quote_preview_html(quote_id)
+
+@app.route('/quotes/<int:quote_id>/sign_link')
+@login_required
+def quote_sign_link(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT quote_id FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote:
+        return jsonify({'error': 'Quote not found'}), 404
+    token = _get_or_create_sign_token(db, quote_id)
+    return jsonify({'url': url_for('public_sign', token=token, _external=True)})
+
+def _capture_signature(db, quote_id, signature_data, printed_name):
+    """Shared by the staff-side /sign route and the public /sign/<token> link -- exact same
+    effect either way: the status flip to 'contract' commits immediately, before the
+    PDF/GHL steps that follow, so the contract is durably recorded even if those fail."""
+    from datetime import datetime
+    signed_at = datetime.now().strftime('%B %d, %Y %I:%M %p')
+    db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=?,status='contract' WHERE quote_id=?",
+               (signature_data, signed_at, printed_name, quote_id))
+    db.commit()
+    quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    signed_pdf_bytes = None
+    try:
+        signed_pdf_bytes = _generate_quote_pdf_bytes(_quote_preview_html(quote_id))
+    except Exception as e:
+        print(f'[GHL] quote {quote_id} signed-PDF render for GHL attach failed: {e}')
+    _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_WON, mark_status='won',
+                        note_text=f"QT-{quote_id:04d} signed by {printed_name}, {_usd(quote['total_price'])}",
+                        pdf_bytes=signed_pdf_bytes, pdf_filename=f'QT-{quote_id:04d}-signed.pdf')
+    return signed_at
+
+@app.route('/sign/<token>', methods=['GET', 'POST'])
+def public_sign(token):
+    """The customer-facing signing link -- no login, scoped to exactly one quote by an
+    unguessable token (see add_quote_public_sign_token). GET shows the same quote preview
+    page staff see (already customer-safe content -- it's the same page the emailed PDF is
+    rendered from); POST captures the signature."""
+    db = get_db()
+    quote = db.execute("SELECT quote_id FROM quotes WHERE public_sign_token=?", (token,)).fetchone()
+    if not quote:
+        return render_template('denied.html'), 404
+    quote_id = quote['quote_id']
+    if request.method == 'GET':
+        return _quote_preview_html(quote_id, sign_action_url=url_for('public_sign', token=token))
+    data = request.json or {}
+    signature_data = data.get('signature', '')
+    printed_name = (data.get('printed_name') or '').strip()
+    if not signature_data or not printed_name:
+        return jsonify({'error': 'Signature and printed name are required'}), 400
+    signed_at = _capture_signature(db, quote_id, signature_data, printed_name)
+    return jsonify({'success': True, 'signed_at': signed_at})
 
 def _resolve_materials_from_quote(db, quote_id):
     """Materials currently selected on this quote's actual line items."""
@@ -5951,12 +6018,14 @@ def delete_visualization(quote_id, viz_id):
     db.commit()
     return jsonify({'success': True})
 
-def _default_quote_email(quote, settings, quote_id):
+def _default_quote_email(quote, settings, quote_id, sign_url=None):
     company_name = settings['company_name'] if settings else 'Your Company'
     subject = f"Your Quote from {company_name} — QT-{quote_id:04d}"
     # First name only in the greeting -- reads more like a real note from the person who
     # quoted the job than a form letter with the customer's full name.
     first_name = (quote['customer_name'] or '').strip().split(' ')[0] or quote['customer_name']
+    sign_line = (f"When you're ready to move forward, you can review and sign electronically here: {sign_url}\n\n"
+                 if sign_url else "")
     body = (f"Hi {first_name},\n\n"
             f"Please find your quote attached.\n\n"
             f"We know you may be gathering a few quotes for this project — we always recommend "
@@ -5964,6 +6033,7 @@ def _default_quote_email(quote, settings, quote_id):
             f"getting real value, not just a lower number on paper. If you have any questions "
             f"about what's included, or want to talk through fitting this into your budget, "
             f"we're here to help.\n\n"
+            f"{sign_line}"
             f"Thank you,\n{quote['salesperson'] or company_name}")
     return subject, body
 
@@ -5975,7 +6045,11 @@ def quote_email_defaults(quote_id):
     if not quote:
         return jsonify({'error': 'Quote not found'}), 404
     settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
-    subject, body = _default_quote_email(quote, settings, quote_id)
+    sign_url = None
+    if quote['status'] in ('draft', 'sent'):
+        token = _get_or_create_sign_token(db, quote_id)
+        sign_url = url_for('public_sign', token=token, _external=True)
+    subject, body = _default_quote_email(quote, settings, quote_id, sign_url=sign_url)
     return jsonify({'subject': subject, 'body': body})
 
 @app.route('/quotes/<int:quote_id>/email', methods=['POST'])
@@ -5993,7 +6067,11 @@ def email_quote(quote_id):
     gmail_app_password = settings['gmail_app_password'] if settings else ''
     if not gmail_address or not gmail_app_password:
         return jsonify({'error': 'Email sending isn\'t set up yet. Add your Gmail address and App Password in Admin → Company Settings.'}), 400
-    default_subject, default_body = _default_quote_email(quote, settings, quote_id)
+    sign_url = None
+    if quote['status'] in ('draft', 'sent'):
+        token = _get_or_create_sign_token(db, quote_id)
+        sign_url = url_for('public_sign', token=token, _external=True)
+    default_subject, default_body = _default_quote_email(quote, settings, quote_id, sign_url=sign_url)
     data = request.get_json(silent=True) or {}
     subject = (data.get('subject') or '').strip() or default_subject
     body = data.get('body') if data.get('body') is not None and data.get('body').strip() else default_body
@@ -6193,20 +6271,7 @@ def sign_quote(quote_id):
     printed_name = (data.get('printed_name') or '').strip()
     if not signature_data or not printed_name:
         return jsonify({'error': 'Signature and printed name are required'}), 400
-    from datetime import datetime
-    signed_at = datetime.now().strftime('%B %d, %Y %I:%M %p')
-    db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=?,status='contract' WHERE quote_id=?",
-               (signature_data, signed_at, printed_name, quote_id))
-    db.commit()
-    quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    signed_pdf_bytes = None
-    try:
-        signed_pdf_bytes = _generate_quote_pdf_bytes(_quote_preview_html(quote_id))
-    except Exception as e:
-        print(f'[GHL] quote {quote_id} signed-PDF render for GHL attach failed: {e}')
-    _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_WON, mark_status='won',
-                        note_text=f"QT-{quote_id:04d} signed by {printed_name}, {_usd(quote['total_price'])}",
-                        pdf_bytes=signed_pdf_bytes, pdf_filename=f'QT-{quote_id:04d}-signed.pdf')
+    signed_at = _capture_signature(db, quote_id, signature_data, printed_name)
     return jsonify({'success': True, 'signed_at': signed_at})
 
 @app.route('/quotes/<int:quote_id>/unsign', methods=['POST'])

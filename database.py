@@ -4063,6 +4063,23 @@ def add_quote_follow_up_pause(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_paused_by TEXT DEFAULT ''")
 
 
+@migration
+def add_quote_public_sign_token(conn):
+    """Jim built a customer-facing signature pad on quote_preview.html back on day one, but
+    that page (and the /sign POST it submits to) has always required a staff QuoteCure
+    login -- there's no customer account system in this app. A customer with no login,
+    opening it on their own phone, just bounces to the staff login screen. This was never
+    actually noticed until a real remote deal (QT-0035) tried to use it and silently
+    couldn't -- the customer told Jim they'd signed, but nothing ever reached the server.
+
+    Fix: an unguessable per-quote token (same idiom as password_resets' token), so a
+    customer can open /sign/<token> and sign with no login at all -- scoped to just that
+    one quote, no expiry (Jim's call, matches how the emailed PDF never expires either)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'public_sign_token' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN public_sign_token TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()
