@@ -4,6 +4,20 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-21 — Fixed the actual root cause of the fake-PDF-signature problem, reworked Mark Signed, cleaned up the quote toolbar
+
+The "Robert Henry" signature Doug got by email turned out to be a customer using their own PDF tool (the perfectly-kerned cursive font was the giveaway — nothing our real canvas pad produces) to type a signature onto the emailed PDF and mail it back, completely bypassing QuoteCure. Root cause: the emailed PDF used the exact same markup as the live signing page, including a blank line under "Customer Signature" — a static file can't run the canvas's JS, so all that blank line ever did was look exactly like something a PDF annotator is supposed to fill in.
+
+**Fix:** `_quote_preview_html(quote_id, for_pdf=True)` — used only for the actual emailed/GHL-attached PDF, never the live interactive page — swaps that dead blank line for a real clickable link ("→ Click here to sign electronically") pointing at the quote's public `/sign/<token>` URL. Chromium's PDF export keeps `<a href>` tags clickable, so this isn't just cosmetic — clicking it from inside Acrobat/Preview/whatever actually opens the real signable page in the customer's browser. `email_quote()` now generates the sign token up front and threads the same URL into both the email body text and this embedded PDF link. Also added a plain warning line: "Signing or annotating this PDF file directly does not submit anything to us."
+
+**Reworked "Mark Signed" after Jim's pushback** ("so now i have to 'pretend' to sign it to get it to move to Contracts?") — fair complaint, since the original version just took a typed name on faith. It's now **"🖊️ Mark Signed — attach proof"**: requires actually uploading the evidence (the customer's signed PDF, a photo of a paper contract, whatever exists) alongside the name. That file saves to the customer's own record (`customer_attachments`, tagged `category='signed_proof'`) — a real receipt on file, not a bare assertion. `_capture_signature` gained a `via` label so the GHL note is honest about how a contract actually got signed ("manually — proof on file" vs. "electronically").
+
+**Toolbar cleanup** — the quote editor had grown to 9 buttons in one row. Kept the three used on every visit (Preview, Email Quote, Edit Details) plus navigation (← Quotes) always visible; everything else (Visualize, Duplicate, Copy Sign Link, Mark Signed, Mark as Lost) moved into a new "⋯ More" dropdown, styled and behaving like the existing Admin nav dropdown but click-toggled (works on touch, not just hover) with click-outside-to-close.
+
+Tested: an empty proof-file submission is rejected (closes the exact "pretending" gap), a real name+file submission locks the contract and saves the attachment, double-signing (manual or electronic) is blocked, permission gate holds. Confirmed the live interactive preview page is untouched (still has the real pad) while `for_pdf=True` render has no dead canvas and does carry the real per-quote public link — checked all the way through `email_quote()`'s actual generated PDF HTML, not just the template in isolation. Full suite (14 files) passes. Browser-verified the new dropdown menu and the Mark Signed panel's file-upload UI.
+
+---
+
 ## 2026-09-21 — Manual "Signed (Paper)" button for pen-and-paper contracts
 
 Jim, right after the public sign link shipped: "I think I need a way to manually move it to Contract if someone wants to sign pen to paper too" -- not every customer will use the electronic pad, and there was no way to record a paper-signed deal as a real Contract without faking an electronic signature.

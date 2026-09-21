@@ -2,6 +2,24 @@
 {% block title %}{{ quote.customer_name }} — QuoteCure{% endblock %}
 {% block extra_css %}
 <style>
+/* ── Quote header "More" menu ─────────────────────────────────────── */
+.qmenu { position: relative; display: inline-block; }
+.qmenu-panel {
+  display: none; position: absolute; top: 100%; right: 0; margin-top: 6px;
+  min-width: 220px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 100; overflow: hidden; padding: 4px 0;
+}
+.qmenu-panel.open { display: block; }
+.qmenu-item {
+  display: block; width: 100%; text-align: left; box-sizing: border-box;
+  padding: 9px 14px; font-size: 13px; font-weight: 500; color: var(--text2);
+  background: none; border: none; cursor: pointer; text-decoration: none;
+  font-family: inherit;
+}
+.qmenu-item:hover { background: var(--surface2); color: var(--text); text-decoration: none; }
+.qmenu-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+
 /* ── Spreadsheet table ─────────────────────────────────────────── */
 .qt { width:100%; border-collapse:collapse; font-size:13px; }
 .qt thead th {
@@ -372,18 +390,24 @@
       {% endif %}
       <a href="/quotes/{{ quote.quote_id }}/preview" class="btn btn-primary" target="_blank">📄 Preview</a>
       <button class="btn btn-secondary" type="button" onclick="openEmailPanel()" id="email-quote-btn">✉️ Email Quote</button>
-      {% if quote.status in ('draft', 'sent') %}
-      <button class="btn btn-secondary" type="button" onclick="copySignLink({{ quote.quote_id }})">🔗 Sign Link</button>
-      {% endif %}
-      <a href="/quotes/{{ quote.quote_id }}/visualize" class="btn btn-secondary">🎨 Visualize</a>
       <a href="/quotes/{{ quote.quote_id }}/edit_details" class="btn btn-secondary">Edit Details</a>
-      <button class="btn btn-secondary" type="button" onclick="duplicateQuote()">⧉ Duplicate</button>
-      {% if not is_archived and quote.status in ('draft', 'sent') %}
-      <button class="btn btn-secondary" type="button" onclick="openLostPanel()">Mark as Lost</button>
-      {% if current_role and current_role.can_override_min_markup %}
-      <button class="btn btn-secondary" type="button" onclick="markSignedManual({{ quote.quote_id }})">✍️ Signed (Paper)</button>
-      {% endif %}
-      {% endif %}
+      <div class="qmenu">
+        <button class="btn btn-secondary" type="button" onclick="toggleQuoteMenu(event)">⋯ More</button>
+        <div class="qmenu-panel" id="quote-more-menu">
+          <a href="/quotes/{{ quote.quote_id }}/visualize" class="qmenu-item">🎨 Visualize</a>
+          <button type="button" class="qmenu-item" onclick="closeQuoteMenu();duplicateQuote()">⧉ Duplicate</button>
+          {% if quote.status in ('draft', 'sent') %}
+          <button type="button" class="qmenu-item" onclick="closeQuoteMenu();copySignLink({{ quote.quote_id }})">🔗 Copy Sign Link</button>
+          {% endif %}
+          {% if not is_archived and quote.status in ('draft', 'sent') %}
+          <hr class="qmenu-divider">
+          {% if current_role and current_role.can_override_min_markup %}
+          <button type="button" class="qmenu-item" onclick="closeQuoteMenu();openMarkSignedPanel()">🖊️ Mark Signed — attach proof</button>
+          {% endif %}
+          <button type="button" class="qmenu-item" style="color:var(--red);" onclick="closeQuoteMenu();openLostPanel()">✕ Mark as Lost</button>
+          {% endif %}
+        </div>
+      </div>
       <a href="/quotes" class="btn btn-secondary">← Quotes</a>
     </div>
   </div>
@@ -398,6 +422,23 @@
       <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn btn-secondary btn-sm" type="button" onclick="closeEmailPanel()">Cancel</button>
         <button class="btn btn-primary btn-sm" type="button" onclick="sendEmailQuote()" id="email-send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mark Signed (manual, w/ proof attachment) panel (inline, hidden by default) -->
+  <div id="mark-signed-panel-row" style="display:none;margin-bottom:20px;">
+    <div class="product-picker open">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">
+        For a signature captured outside QuoteCure (pen and paper, a PDF the customer signed and emailed back, etc.) -- attach the actual proof so it's on file, not just a typed name.
+      </div>
+      <label class="nr-label">Customer's printed name</label>
+      <input class="nr-input" id="mark-signed-name-inp" style="width:100%;" placeholder="e.g. Robert Henry">
+      <label class="nr-label" style="margin-top:10px;">Proof of signature (PDF, photo, etc.)</label>
+      <input class="nr-input" id="mark-signed-file-inp" type="file" style="width:100%;">
+      <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" type="button" onclick="closeMarkSignedPanel()">Cancel</button>
+        <button class="btn btn-primary btn-sm" type="button" onclick="submitMarkSignedManual({{ quote.quote_id }})" id="mark-signed-send-btn">Mark Signed</button>
       </div>
     </div>
   </div>
@@ -1447,18 +1488,41 @@ async function copySignLink(quoteId) {
   }
 }
 
-async function markSignedManual(quoteId) {
-  const name = prompt('Customer signed a paper contract in person -- printed name?');
-  if (!name || !name.trim()) return;
-  if (!confirm('Mark this quote as a signed Contract for "' + name.trim() + '"? This locks the quote (Change Orders only from here) and cannot be undone from this button.')) return;
-  const resp = await fetch('/quotes/' + quoteId + '/mark_signed_manual', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({printed_name: name.trim()})
-  });
+function openMarkSignedPanel() {
+  document.getElementById('mark-signed-panel-row').style.display = 'block';
+  document.getElementById('mark-signed-name-inp').focus();
+}
+function closeMarkSignedPanel() {
+  document.getElementById('mark-signed-panel-row').style.display = 'none';
+}
+async function submitMarkSignedManual(quoteId) {
+  const name = document.getElementById('mark-signed-name-inp').value.trim();
+  const fileInp = document.getElementById('mark-signed-file-inp');
+  const file = fileInp.files[0];
+  if (!name) { alert('Printed name is required.'); return; }
+  if (!file) { alert('Please attach proof of signature (the signed PDF, a photo, etc.).'); return; }
+  if (!confirm('Mark this quote as a signed Contract for "' + name + '"? This locks the quote (Change Orders only from here).')) return;
+  const formData = new FormData();
+  formData.append('printed_name', name);
+  formData.append('proof_file', file);
+  const resp = await fetch('/quotes/' + quoteId + '/mark_signed_manual', {method: 'POST', body: formData});
   const d = await resp.json();
   if (resp.ok) location.reload();
   else alert(d.error || 'Could not mark this quote as signed.');
 }
+
+// ── Quote header "More" menu ───────────────────────────────────────
+function toggleQuoteMenu(e) {
+  e.stopPropagation();
+  document.getElementById('quote-more-menu').classList.toggle('open');
+}
+function closeQuoteMenu() {
+  document.getElementById('quote-more-menu').classList.remove('open');
+}
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('quote-more-menu');
+  if (menu && menu.classList.contains('open') && !menu.contains(e.target)) closeQuoteMenu();
+});
 
 // ── Email quote ───────────────────────────────────────────────────
 let lastEmailDefaults = null; // {subject, body} last fetched -- lets a reopen tell "still

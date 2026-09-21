@@ -342,6 +342,14 @@
         {% if current_role and current_role.can_override_min_markup %}
         <button type="button" class="no-print" onclick="resetSig({{ quote.quote_id }})" style="margin-top:8px;font-family:'DM Sans',sans-serif;font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;background:white;color:#64748b;cursor:pointer;">Reset signature</button>
         {% endif %}
+        {% elif for_pdf %}
+        <div style="border-bottom:1px solid #334155;height:60px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;">
+          <a href="{{ sign_action_url }}" style="font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:#1d4ed8;text-decoration:none;">→ Click here to sign electronically</a>
+        </div>
+        <div class="sig-label">Customer Signature</div>
+        <div style="font-size:10px;color:#94a3b8;margin-top:6px;max-width:280px;">
+          Signing or annotating this PDF file directly does not submit anything to us — use the link above.
+        </div>
         {% else %}
         <canvas id="sig-canvas" width="360" height="70" style="border-bottom:1px solid #334155;touch-action:none;cursor:crosshair;display:block;"></canvas>
         <div class="sig-label">Customer Signature</div>

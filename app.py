@@ -5597,11 +5597,19 @@ def _get_or_create_sign_token(db, quote_id):
     db.commit()
     return token
 
-def _quote_preview_html(quote_id, sign_action_url=None):
+def _quote_preview_html(quote_id, sign_action_url=None, for_pdf=False):
     """Shared renderer for the customer quote page — used by the /preview route, the public
     /sign/<token> link, and email PDF export. sign_action_url overrides where the page's
     signature pad submits to (the public link posts to /sign/<token>, no login needed;
-    everywhere else defaults to the staff-only /quotes/<id>/sign)."""
+    everywhere else defaults to the staff-only /quotes/<id>/sign).
+
+    for_pdf=True (only for a real, unsigned static file -- the emailed/GHL-attached PDF)
+    swaps the live interactive canvas for a plain clickable link to sign_action_url instead.
+    A static PDF can't run the canvas's JS at all, so what a customer actually saw there
+    was just a blank-looking line under "Customer Signature" -- which several PDF readers
+    (Adobe Fill & Sign, Apple Markup) happily let someone type a fake signature onto,
+    fully bypassing QuoteCure. A real link (Chromium's PDF export keeps <a href> tags
+    clickable) sends them to the one place that can actually capture and record it."""
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     all_items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
@@ -5630,7 +5638,8 @@ def _quote_preview_html(quote_id, sign_action_url=None):
                            terms_doc=terms_doc, visualization=visualization,
                            today=today.strftime('%B %d, %Y'),
                            valid_until=valid_until.strftime('%B %d, %Y'),
-                           sign_action_url=sign_action_url or url_for('sign_quote', quote_id=quote_id))
+                           sign_action_url=sign_action_url or url_for('sign_quote', quote_id=quote_id),
+                           for_pdf=for_pdf)
 
 @app.route('/quotes/<int:quote_id>/preview')
 @login_required
@@ -6081,7 +6090,7 @@ def email_quote(quote_id):
     subject = (data.get('subject') or '').strip() or default_subject
     body = data.get('body') if data.get('body') is not None and data.get('body').strip() else default_body
     try:
-        html = _quote_preview_html(quote_id)
+        html = _quote_preview_html(quote_id, sign_action_url=sign_url, for_pdf=True)
         pdf_bytes = _generate_quote_pdf_bytes(html)
         terms_doc = db.execute("SELECT * FROM terms_documents WHERE id=?", (quote['terms_document_id'],)).fetchone() if quote['terms_document_id'] else None
         pdf_bytes = _append_terms_pdf(pdf_bytes, terms_doc)
@@ -6284,19 +6293,41 @@ def sign_quote(quote_id):
 @app.route('/quotes/<int:quote_id>/mark_signed_manual', methods=['POST'])
 @login_required
 def mark_signed_manual(quote_id):
-    """Jim: some customers still sign pen-to-paper -- this records that as a real Contract
-    (same lock, same GHL Won push, same Job Ledger/Change Orders unlock as an electronic
-    signature) without a drawn signature image. Gated the same as Reset Signature/Unsign --
-    it's the same kind of manual override of the signing state."""
+    """Jim: a signature captured outside QuoteCure -- pen and paper, or (the case that
+    actually prompted this) a customer signing the emailed PDF with their own tool and
+    emailing it back -- still needs to become a real Contract. Requires the actual proof
+    file (saved to the customer's record, same table as their photos/documents) rather
+    than just a typed name from memory -- "mark it signed" should mean "here's the receipt,"
+    not a bare assertion. Gated the same as Reset Signature/Unsign -- same kind of manual
+    override of the signing state."""
     if not (g.role and g.role['can_override_min_markup']):
         return jsonify({'error': 'Not permitted'}), 403
     db = get_db()
     if _is_locked_contract(db, quote_id):
         return jsonify({'error': 'This quote has already been signed.'}), 409
-    printed_name = (request.json.get('printed_name') or '').strip() if request.json else ''
+    printed_name = (request.form.get('printed_name') or '').strip()
     if not printed_name:
         return jsonify({'error': 'Printed name is required'}), 400
-    signed_at = _capture_signature(db, quote_id, '', printed_name, via='in person (paper contract)')
+    proof_file = request.files.get('proof_file')
+    if not proof_file or not proof_file.filename:
+        return jsonify({'error': 'Please attach proof of signature (the signed PDF, a photo, etc.)'}), 400
+    quote = db.execute("SELECT customer_id FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote or not quote['customer_id']:
+        return jsonify({'error': 'This quote has no linked customer record to attach proof to.'}), 400
+    file_bytes = proof_file.read()
+    ext = _validate_file_upload(file_bytes, proof_file.filename)
+    if not ext:
+        return jsonify({'error': 'Unsupported file type or file too large (15MB max).'}), 400
+    import base64
+    author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+    db.execute(
+        "INSERT INTO customer_attachments (customer_id, filename, mime_type, file_data, created_by, category) "
+        "VALUES (?,?,?,?,?,'signed_proof')",
+        (quote['customer_id'], proof_file.filename, ATTACHMENT_MIME_TYPES[ext],
+         base64.b64encode(file_bytes).decode('utf-8'), author)
+    )
+    db.commit()
+    signed_at = _capture_signature(db, quote_id, '', printed_name, via='manually — proof on file')
     return jsonify({'success': True, 'signed_at': signed_at})
 
 @app.route('/quotes/<int:quote_id>/unsign', methods=['POST'])
