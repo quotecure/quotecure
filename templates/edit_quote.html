@@ -380,6 +380,9 @@
       <button class="btn btn-secondary" type="button" onclick="duplicateQuote()">⧉ Duplicate</button>
       {% if not is_archived and quote.status in ('draft', 'sent') %}
       <button class="btn btn-secondary" type="button" onclick="openLostPanel()">Mark as Lost</button>
+      {% if current_role and current_role.can_override_min_markup %}
+      <button class="btn btn-secondary" type="button" onclick="markSignedManual({{ quote.quote_id }})">✍️ Signed (Paper)</button>
+      {% endif %}
       {% endif %}
       <a href="/quotes" class="btn btn-secondary">← Quotes</a>
     </div>
@@ -1442,6 +1445,19 @@ async function copySignLink(quoteId) {
   } catch (e) {
     prompt('Copy this link to send to the customer:', d.url);
   }
+}
+
+async function markSignedManual(quoteId) {
+  const name = prompt('Customer signed a paper contract in person -- printed name?');
+  if (!name || !name.trim()) return;
+  if (!confirm('Mark this quote as a signed Contract for "' + name.trim() + '"? This locks the quote (Change Orders only from here) and cannot be undone from this button.')) return;
+  const resp = await fetch('/quotes/' + quoteId + '/mark_signed_manual', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({printed_name: name.trim()})
+  });
+  const d = await resp.json();
+  if (resp.ok) location.reload();
+  else alert(d.error || 'Could not mark this quote as signed.');
 }
 
 // ── Email quote ───────────────────────────────────────────────────

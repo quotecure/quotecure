@@ -330,12 +330,14 @@
     <div class="sig-title">Authorization</div>
     <div class="sig-grid">
       <div>
+        {% if quote.status in ('contract', 'in_progress', 'complete') %}
         {% if quote.signature_data %}
         <img src="{{ quote.signature_data }}" style="height:60px;display:block;margin-bottom:4px;">
-        <div class="sig-line" style="border-bottom:1px solid #334155;"></div>
+        {% endif %}
+        <div class="sig-line" style="border-bottom:1px solid #334155;{% if not quote.signature_data %}height:60px;{% endif %}"></div>
         <div class="sig-label">Customer Signature</div>
         <div style="font-size:11px;color:#64748b;margin-top:6px;">
-          {{ quote.signed_name }} &middot; Signed {{ quote.signed_at }}
+          {{ quote.signed_name }} &middot; Signed {{ quote.signed_at }}{% if not quote.signature_data %} (in person){% endif %}
         </div>
         {% if current_role and current_role.can_override_min_markup %}
         <button type="button" class="no-print" onclick="resetSig({{ quote.quote_id }})" style="margin-top:8px;font-family:'DM Sans',sans-serif;font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;background:white;color:#64748b;cursor:pointer;">Reset signature</button>

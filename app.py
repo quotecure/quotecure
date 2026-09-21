@@ -5647,10 +5647,13 @@ def quote_sign_link(quote_id):
     token = _get_or_create_sign_token(db, quote_id)
     return jsonify({'url': url_for('public_sign', token=token, _external=True)})
 
-def _capture_signature(db, quote_id, signature_data, printed_name):
-    """Shared by the staff-side /sign route and the public /sign/<token> link -- exact same
-    effect either way: the status flip to 'contract' commits immediately, before the
-    PDF/GHL steps that follow, so the contract is durably recorded even if those fail."""
+def _capture_signature(db, quote_id, signature_data, printed_name, via='electronically'):
+    """Shared by the staff-side /sign route, the public /sign/<token> link, and the manual
+    "pen and paper" override -- exact same effect either way: the status flip to 'contract'
+    commits immediately, before the PDF/GHL steps that follow, so the contract is durably
+    recorded even if those fail. signature_data is '' for a manual/paper mark -- there's no
+    drawn image, just a name and a date (quote_preview.html shows that state without an
+    <img>, see the Authorization section)."""
     from datetime import datetime
     signed_at = datetime.now().strftime('%B %d, %Y %I:%M %p')
     db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=?,status='contract' WHERE quote_id=?",
@@ -5663,7 +5666,7 @@ def _capture_signature(db, quote_id, signature_data, printed_name):
     except Exception as e:
         print(f'[GHL] quote {quote_id} signed-PDF render for GHL attach failed: {e}')
     _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_WON, mark_status='won',
-                        note_text=f"QT-{quote_id:04d} signed by {printed_name}, {_usd(quote['total_price'])}",
+                        note_text=f"QT-{quote_id:04d} signed {via} by {printed_name}, {_usd(quote['total_price'])}",
                         pdf_bytes=signed_pdf_bytes, pdf_filename=f'QT-{quote_id:04d}-signed.pdf')
     return signed_at
 
@@ -5680,6 +5683,8 @@ def public_sign(token):
     quote_id = quote['quote_id']
     if request.method == 'GET':
         return _quote_preview_html(quote_id, sign_action_url=url_for('public_sign', token=token))
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote has already been signed.'}), 409
     data = request.json or {}
     signature_data = data.get('signature', '')
     printed_name = (data.get('printed_name') or '').strip()
@@ -6266,12 +6271,32 @@ def restore_declined_item(quote_id, item_id):
 @login_required
 def sign_quote(quote_id):
     db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote has already been signed.'}), 409
     data = request.json
     signature_data = data.get('signature', '')
     printed_name = (data.get('printed_name') or '').strip()
     if not signature_data or not printed_name:
         return jsonify({'error': 'Signature and printed name are required'}), 400
     signed_at = _capture_signature(db, quote_id, signature_data, printed_name)
+    return jsonify({'success': True, 'signed_at': signed_at})
+
+@app.route('/quotes/<int:quote_id>/mark_signed_manual', methods=['POST'])
+@login_required
+def mark_signed_manual(quote_id):
+    """Jim: some customers still sign pen-to-paper -- this records that as a real Contract
+    (same lock, same GHL Won push, same Job Ledger/Change Orders unlock as an electronic
+    signature) without a drawn signature image. Gated the same as Reset Signature/Unsign --
+    it's the same kind of manual override of the signing state."""
+    if not (g.role and g.role['can_override_min_markup']):
+        return jsonify({'error': 'Not permitted'}), 403
+    db = get_db()
+    if _is_locked_contract(db, quote_id):
+        return jsonify({'error': 'This quote has already been signed.'}), 409
+    printed_name = (request.json.get('printed_name') or '').strip() if request.json else ''
+    if not printed_name:
+        return jsonify({'error': 'Printed name is required'}), 400
+    signed_at = _capture_signature(db, quote_id, '', printed_name, via='in person (paper contract)')
     return jsonify({'success': True, 'signed_at': signed_at})
 
 @app.route('/quotes/<int:quote_id>/unsign', methods=['POST'])

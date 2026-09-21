@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-21 — Manual "Signed (Paper)" button for pen-and-paper contracts
+
+Jim, right after the public sign link shipped: "I think I need a way to manually move it to Contract if someone wants to sign pen to paper too" -- not every customer will use the electronic pad, and there was no way to record a paper-signed deal as a real Contract without faking an electronic signature.
+
+New "✍️ Signed (Paper)" button on the quote editor (next to Mark as Lost, same visibility rule: draft/sent, not archived), gated behind `can_override_min_markup` -- the same permission Reset Signature and Unsign already use, since this is the same kind of manual override of the signing state. Prompts for the customer's printed name, confirms, then does exactly what an electronic signature does -- locks the quote to Contract, unlocks Change Orders/Job Ledger, pushes the GHL Won stage -- just with no drawn image. `_capture_signature` (shared by the staff pad, the public link, and this) now takes a `via` label so the GHL note correctly says "signed in person (paper contract)" instead of implying an electronic signature happened.
+
+Also fixed two related gaps while touching this code: (1) `quote_preview.html`'s Authorization section now branches on the quote's *status* rather than whether a signature image exists, so a paper-signed contract shows "signed in person" cleanly instead of a broken image or a blank pad; (2) both signing routes (staff `/sign` and public `/sign/<token>`) now reject a second signature attempt on an already-locked contract (409) instead of silently overwriting who signed it -- closes a small gap the public link's no-expiry design opened (an old link could otherwise still be clicked after the deal was already paper-signed).
+
+Tested: empty name rejected, a real mark locks the quote with no signature_data, the preview page shows the correct signed-in-person state with no active pad, a second sign attempt (manual or electronic) is refused with the original signature intact, and a role without the permission gets a 403. Full suite (14 files) passes. Browser-verified: marked a real test quote signed via the button's flow, confirmed the preview page's Authorization section and its appearance on the Contracts list.
+
+---
+
 ## 2026-09-21 — Customers can now actually sign a quote remotely (public sign link)
 
 Jim, in a panic: "the first customer just signed... but it's not showing up in Contracts." Traced it to QT-0035 -- the quote's own page still showed "Sent," meaning no signature had ever reached the server. He was adamant the customer-facing signature pad had existed since day one, and he was right -- but checking git history back to the very first commit showed `/quotes/<id>/preview` and `/quotes/<id>/sign` have *always* been `@login_required`. There's no customer account system in this app at all (just the 3 staff logins). A real customer opening either link on their own device, with no QuoteCure login, has only ever hit the staff login screen and gotten stuck -- silently, with no error either side could see. An earlier CHANGELOG entry (mobile-responsive work) had claimed this page was "the page a customer actually opens and signs on their own phone, independent of any staff-side work" -- that verification was run from an already-logged-in browser, so it never actually tested a true anonymous visitor. This has likely never worked remotely, ever; it only ever worked when Jim was logged in on the same device (in person or screen-sharing).
