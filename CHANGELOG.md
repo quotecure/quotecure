@@ -4,6 +4,20 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-22 — "+ Add Modifier" lets Leak Detection (and similar bundled work) get its own Schedule/Ledger tracking
+
+Jim: "Need to have leak detection on there." Root cause: he normally adds Leak Detection via the $400/$500 checkbox bundled onto Surface Application (a modifier), not as its own catalog line item — and only real `quote_line_items` rows show up on the Job Schedule or Ledger. A modifier is just a price adjustment tucked inside its parent item's `modifiers_json`, with nowhere to hold a sub, a date, or an actual cost of its own.
+
+Talked through two heavier options first (switch to the standalone "Leak Detection" catalog work type that already exists and is already fully schedulable, or teach modifiers themselves to carry schedule/actual-cost fields) before landing on what Jim actually asked for: a **"+ Add Modifier"** button on the Schedule page. It lists the modifier labels actually present on the contract's line items; picking one (e.g. "Leak Detection") adds a real Schedule/Ledger row for it — own sub, own dates, own actual-cost entry against the real sub payment — tagged `schedule_only=1` so it contributes nothing to the contract's frozen price and never appears back on the signed quote itself (only a genuinely new document should ever add a priced line). If the label matches a real catalog work type (Leak Detection does — the standalone one), it inherits that work type's typical duration so the end-date math works exactly like any other item. New rows default to the very front of the list (Jim's stated real-world case — leak detection has to happen before everything else) without renumbering any of the actual signed line items.
+
+**Bonus, since it's now trackable separately:** the flat $400/$500 modifier is what's charged to the customer, but the real cost paid to the leak-detection sub can differ — entering that in the Ledger's actual-cost field for this row now correctly shows up in the job's real profitability, distinct from the quoted number.
+
+Also fixed a real correctness gap found while building this: an untouched `schedule_only` tracking row (if staff never gets around to entering its actual dates) could otherwise block a real job from ever reaching "complete" — excluded from that specific check.
+
+Tested: the modifier picker correctly surfaces "Leak Detection" from a Surface Application item's `modifiers_json`; adding it creates a zero-priced row matched to the real catalog work type, placed ahead of existing items; it shows on the Schedule but never leaks back onto the signed quote page or changes the contract's frozen total; an untouched tracking row doesn't block job completion. Full suite passes. Browser-verified the full flow: opened the panel, added Leak Detection, confirmed it appeared first with a "tracking only" badge, then confirmed the quote page itself was completely unchanged.
+
+---
+
 ## 2026-09-22 — Fixed Schedule/Ledger items reordering themselves on their own
 
 Jim: "I entered in the surface removal date, and it bounced it down to like the middle for some reason." Root cause: `_contract_effective_items` (shared by both the Job Schedule and the Job Ledger) queried `quote_line_items` with no `ORDER BY` at all — Postgres makes no promise about row order without one, and an `UPDATE` touching a row (like saving a schedule date) can genuinely change what order a plain `SELECT *` comes back in afterward.

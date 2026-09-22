@@ -14,8 +14,35 @@
       <div class="page-title">Schedule — {{ quote.customer_name }}</div>
       <div class="page-subtitle">QT-{{ '%04d'|format(quote.quote_id) }} — signed {{ quote.signed_at }} — status: {{ 'in progress' if quote.status == 'in_progress' else quote.status }}</div>
     </div>
-    <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Contract</a>
+    <div style="display:flex;gap:8px;">
+      {% if can_edit and modifier_labels %}
+      <button class="btn btn-secondary" type="button" onclick="toggleAddModifier()">+ Add Modifier</button>
+      {% endif %}
+      <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Contract</a>
+    </div>
   </div>
+
+  {% if can_edit and modifier_labels %}
+  <div id="add-modifier-row" style="display:none;margin-bottom:16px;">
+    <div class="product-picker open">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">
+        Tracks a modifier bundled onto a line item (e.g. Leak Detection) as its own row here and on the Ledger — its own sub, dates, and actual cost — without adding a second price to the contract.
+      </div>
+      <form method="POST" action="/quotes/{{ quote.quote_id }}/schedule/add_modifier" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div>
+          <label class="form-label">Modifier</label>
+          <select class="form-control sched-input" name="label" required>
+            {% for label in modifier_labels %}
+            <option value="{{ label }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Add</button>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="toggleAddModifier()">Cancel</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
 
   <div class="table-wrap">
     <table>
@@ -32,7 +59,10 @@
       <tbody>
         {% for item in items %}
         <tr>
-          <td>{{ item.work_type_label or item.label }}</td>
+          <td>
+            {{ item.work_type_label or item.label }}
+            {% if item.schedule_only %}<span class="badge badge-gray" style="font-size:10px;margin-left:6px;" title="Tracking only — not a separate charge on the contract">tracking only</span>{% endif %}
+          </td>
           <td>{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</td>
           <td class="mono">{{ item.scheduled_start_date or '—' }}</td>
           <td class="mono">{{ item.estimated_end_date or '—' }}</td>
@@ -108,6 +138,10 @@
 function toggleScheduleForm(id) {
   const row = document.getElementById('edit-' + id);
   row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+function toggleAddModifier() {
+  const row = document.getElementById('add-modifier-row');
+  row.style.display = row.style.display === 'none' ? 'block' : 'none';
 }
 </script>
 {% endblock %}

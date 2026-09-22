@@ -1253,7 +1253,12 @@ def duplicate_quote(quote_id):
                     orig['discount_type'], orig['discount_value']))
     new_id = cur.fetchone()[0]
 
-    items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
+    # schedule_only rows (see add_schedule_modifier) are internal post-signature tracking on
+    # THIS contract, not a fact about the customer's pool -- never carried onto a duplicate.
+    items = db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND (schedule_only=0 OR schedule_only IS NULL) ORDER BY sort_order",
+        (quote_id,)
+    ).fetchall()
     for it in items:
         db.execute("""INSERT INTO quote_line_items (
             quote_id, work_type_id, work_type_label, cost_structure, sub_id, sub_name,
@@ -2265,7 +2270,9 @@ def job_schedule(quote_id):
     items = _schedule_items(db, quote_id)
     subs = db.execute("SELECT sub_id, name FROM subs WHERE active='Y' ORDER BY name").fetchall()
     can_edit = bool(g.role and g.role['can_enter_actuals'])
-    return render_template('job_schedule.html', quote=quote, items=items, subs=subs, can_edit=can_edit)
+    modifier_labels = _contract_modifier_labels(db, quote_id)
+    return render_template('job_schedule.html', quote=quote, items=items, subs=subs, can_edit=can_edit,
+                           modifier_labels=modifier_labels)
 
 def _owned_schedule_item(db, quote_id, item_id, source):
     """Same ownership-verification pattern as save_ledger_actual: confirms item_id actually
@@ -3191,7 +3198,12 @@ def select_material_surface(quote_id):
 def edit_quote(quote_id):
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    line_items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
+    # schedule_only rows (see add_schedule_modifier) are a post-signature scheduling/tracking
+    # addition, not part of the actual signed document -- never shown back on the quote itself.
+    line_items = db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND (schedule_only=0 OR schedule_only IS NULL) ORDER BY sort_order",
+        (quote_id,)
+    ).fetchall()
     work_types = db.execute("SELECT * FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
     # Pass-through work types (Electrician, Deck Stabilization, ...) only ever get added
     # from their own section's picker -- excluded here so they can't accidentally end up
@@ -4127,6 +4139,54 @@ def _schedule_items(db, quote_id):
         items.append(d)
     return items
 
+def _contract_modifier_labels(db, quote_id):
+    """Distinct modifier labels currently bundled onto this contract's real line items
+    (e.g. "Leak Detection" on Surface Application) -- these have no sub/date/actual-cost
+    fields of their own (a modifier is just a price adjustment inside its parent item's
+    modifiers_json), so they never show up on the Job Schedule or Ledger on their own. This
+    is what powers the "+ Add Modifier" picker on the Schedule page (add_schedule_modifier)."""
+    labels = []
+    seen = set()
+    for row in _contract_effective_items(db, quote_id).values():
+        for m in json.loads(row.get('modifiers_json') or '[]'):
+            label = (m.get('label') or '').strip()
+            if label and label not in seen:
+                seen.add(label)
+                labels.append(label)
+    return labels
+
+@app.route('/quotes/<int:quote_id>/schedule/add_modifier', methods=['POST'])
+@require_permission('can_enter_actuals')
+def add_schedule_modifier(quote_id):
+    """Jim: Leak Detection (and any other modifier bundled onto a line item) needs its own
+    sub/date/actual-cost tracking on the Schedule and Ledger, without becoming a second
+    priced line on the customer's contract. Inserts a zero-priced, schedule_only=1 line item
+    -- rides the exact same Schedule/Ledger machinery as any real item from here on, just
+    contributes nothing to the contract's price and never shows back on the quote itself.
+
+    Placed at the front (a low negative sort_order) by default -- Jim's real case (Leak
+    Detection) always needs to happen first, before existing work starts, and this avoids
+    renumbering any of the actual signed line items' sort_order to insert it anywhere else."""
+    db = get_db()
+    if not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    label = (request.form.get('label') or '').strip()
+    if not label:
+        return redirect(url_for('job_schedule', quote_id=quote_id))
+    # Matches a real catalog work type by name if one exists (Leak Detection does) so the
+    # estimated-days-based end-date math works the same as any other schedule item.
+    wt = db.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (label,)).fetchone()
+    min_sort = db.execute(
+        "SELECT COALESCE(MIN(sort_order), 0) FROM quote_line_items WHERE quote_id=?", (quote_id,)
+    ).fetchone()[0]
+    db.execute(
+        "INSERT INTO quote_line_items (quote_id, work_type_id, work_type_label, is_optional, schedule_only, sort_order) "
+        "VALUES (?,?,?,0,1,?)",
+        (quote_id, wt['work_type_id'] if wt else None, label, min_sort - 1)
+    )
+    db.commit()
+    return redirect(url_for('job_schedule', quote_id=quote_id))
+
 def _maybe_advance_quote_status(db, quote_id):
     """contract -> in_progress the first time any schedulable item gets an actual start
     date; in_progress -> complete once every schedulable item has an actual finish date.
@@ -4135,7 +4195,10 @@ def _maybe_advance_quote_status(db, quote_id):
     quote = db.execute("SELECT status FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if not quote or quote['status'] not in ('contract', 'in_progress'):
         return
-    items = _schedule_items(db, quote_id)
+    # schedule_only rows (see add_schedule_modifier) are supplementary tracking, not part of
+    # the actual signed scope -- excluded here so an untouched one can't block a real job
+    # from ever reaching 'complete'.
+    items = [i for i in _schedule_items(db, quote_id) if not i.get('schedule_only')]
     if not items:
         return
     if quote['status'] == 'contract' and any(i.get('actual_start_date') for i in items):
@@ -5618,7 +5681,12 @@ def _quote_preview_html(quote_id, sign_action_url=None, for_pdf=False):
     clickable) sends them to the one place that can actually capture and record it."""
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    all_items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
+    # schedule_only rows (see add_schedule_modifier) are internal Schedule/Ledger tracking
+    # entries, never part of the actual signed/customer-facing document.
+    all_items = db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND (schedule_only=0 OR schedule_only IS NULL) ORDER BY sort_order",
+        (quote_id,)
+    ).fetchall()
     all_items = [dict(i) for i in all_items]
     for i in all_items:
         i['modifiers'] = json.loads(i.get('modifiers_json') or '[]')

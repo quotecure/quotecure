@@ -4064,6 +4064,25 @@ def add_quote_follow_up_pause(conn):
 
 
 @migration
+def add_quote_line_item_schedule_only(conn):
+    """Jim: modifiers bundled onto a line item (Leak Detection's $400/$500 checkbox on
+    Surface Application is the real case) don't show up on the Job Schedule or Ledger at
+    all -- only real quote_line_items rows do, and a modifier is just a price adjustment
+    tucked inside its parent item's modifiers_json, with nowhere to hold a sub/date/actual
+    cost of its own. Rather than teach modifiers themselves to be schedulable (a much
+    bigger change), staff can now add a zero-priced, schedule_only=1 line item for one
+    (see add_schedule_modifier in app.py) -- it rides the exact same Schedule/Ledger
+    machinery as any real item (sub assignment, dates, actual-cost entry against the real
+    sub payment, which can genuinely differ from the flat customer-facing modifier charge)
+    but contributes nothing to the contract price and is hidden from the normal quote-editor
+    line items list (still a locked, signed document -- this is purely an operational
+    tracking addition after the fact, never a price change)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'schedule_only' not in cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN schedule_only INTEGER DEFAULT 0")
+
+
+@migration
 def add_quote_public_sign_token(conn):
     """Jim built a customer-facing signature pad on quote_preview.html back on day one, but
     that page (and the /sign POST it submits to) has always required a staff QuoteCure
