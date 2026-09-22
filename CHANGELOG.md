@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-21 — Owner can now see commission on other salespeople's quotes
+
+Jim: "I need to be able to see what the commission is going to be on a quote assigned to Doug or another sales person." Root cause: commission visibility was one flat role-level switch (`roles.show_commission`), and the Owner role has always had it off — sensible when Jim was the only salesperson ("the owner gets the profit, not a commission"), but it meant he couldn't see commission on *anyone's* quotes, including Doug's, now that Doug closes deals under his own name.
+
+Confirmed the fix with Jim before building: show commission whenever a quote is assigned to someone other than whoever's viewing it, regardless of role. Your own quotes are unchanged (Gross Profit is still what you see there) — this only reveals commission on quotes belonging to other salespeople. No change to the actual commission math (`_compute_commission`/`_net_commission`) at all, purely a visibility fix, across the three places it shows: the quote page itself (a "Commission (Rep: Doug)" card), the Quotes list, and the Contracts list (both get the column whenever the viewer has admin access, with a dash on rows that are the viewer's own).
+
+Tested: the quote page shows commission on another rep's quote (labeled with their name) and hides it on the viewer's own or an unassigned quote; the Quotes list shows the column for an admin role. Full suite (15 files) passes. Browser-verified all three surfaces with real Doug-assigned vs. Owner-assigned test quotes.
+
+**Noted for later, not built yet (Jim wants to see the Job Ledger in real use first):** commission should eventually live in the Ledger and update as the job actually progresses — same idea as margin already does there (quoted vs. actual), just carried one step further to commission. Also flagged: once a contract is signed, Jim wants per-sub work breakdowns (each sub's scope, estimated labor cost) surfaced somewhere in the Schedule phase, with room for custom notes per sub.
+
+---
+
 ## 2026-09-21 — Fixed the actual root cause of the fake-PDF-signature problem, reworked Mark Signed, cleaned up the quote toolbar
 
 The "Robert Henry" signature Doug got by email turned out to be a customer using their own PDF tool (the perfectly-kerned cursive font was the giveaway — nothing our real canvas pad produces) to type a signature onto the emailed PDF and mail it back, completely bypassing QuoteCure. Root cause: the emailed PDF used the exact same markup as the live signing page, including a blank line under "Customer Signature" — a static file can't run the canvas's JS, so all that blank line ever did was look exactly like something a PDF annotator is supposed to fill in.

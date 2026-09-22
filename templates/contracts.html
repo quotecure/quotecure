@@ -24,7 +24,7 @@
             <th class="right">Total Cost</th>
             <th class="right">Total Price</th>
             <th class="right">Margin</th>
-            {% if current_role and current_role.show_commission %}
+            {% if current_role and (current_role.show_commission or current_role.can_access_admin) %}
             <th class="right">Commission</th>
             {% endif %}
             <th>Signed</th>
@@ -47,8 +47,11 @@
             <td class="right mono">{{ q.total_cost|usd }}</td>
             <td class="right mono" style="font-weight:600">{{ q.total_price|usd }}</td>
             <td class="right"><span class="pill pill-margin">{{ '%.0f'|format(q.total_margin) }}%</span></td>
-            {% if current_role and current_role.show_commission %}
-            <td class="right mono" style="color:var(--text2)">{{ net_commissions.get(q.quote_id, 0)|usd }}</td>
+            {% if current_role and (current_role.show_commission or current_role.can_access_admin) %}
+            {% set q_is_mine = q.salesperson and (q.salesperson|trim|lower == (current_user.display_name or '')|trim|lower) %}
+            <td class="right mono" style="color:var(--text2)">
+              {% if current_role.show_commission or (q.salesperson and not q_is_mine) %}{{ net_commissions.get(q.quote_id, 0)|usd }}{% else %}—{% endif %}
+            </td>
             {% endif %}
             <td style="color:var(--text3); font-size:12px">{{ q.signed_at or '—' }}</td>
             <td></td>
