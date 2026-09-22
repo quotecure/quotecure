@@ -2065,9 +2065,15 @@ def _contract_effective_items(db, quote_id):
     Amend isn't a separate case -- it's just a 'remove' row for the old spec followed
     by an 'add' row for the new spec, both tagged to the same work_type_id, so walking
     add/remove in signed order handles it automatically. Returns {work_type_id: row_dict}.
-    Freeform CO lines never key by work_type_id and aren't part of this resolver."""
+    Freeform CO lines never key by work_type_id and aren't part of this resolver.
+
+    ORDER BY sort_order matters here -- without it, Postgres has no guaranteed row order,
+    and can (and does) return a different order after any UPDATE touches a row (Jim: "I
+    entered in the surface removal date, and it bounced it down to like the middle"). This
+    is also what fixes the same issue for the Ledger, which reuses this same resolver."""
     rows = db.execute(
-        "SELECT * FROM quote_line_items WHERE quote_id=? AND (is_optional=0 OR is_optional IS NULL)",
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND (is_optional=0 OR is_optional IS NULL) "
+        "ORDER BY sort_order",
         (quote_id,)
     ).fetchall()
     effective = {r['work_type_id']: dict(r) for r in rows}

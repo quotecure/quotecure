@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-22 — Fixed Schedule/Ledger items reordering themselves on their own
+
+Jim: "I entered in the surface removal date, and it bounced it down to like the middle for some reason." Root cause: `_contract_effective_items` (shared by both the Job Schedule and the Job Ledger) queried `quote_line_items` with no `ORDER BY` at all — Postgres makes no promise about row order without one, and an `UPDATE` touching a row (like saving a schedule date) can genuinely change what order a plain `SELECT *` comes back in afterward.
+
+Fix: `ORDER BY sort_order` — the same field that already controls the order items appear in on the quote editor itself. Since Jim already lays work out in the real order of operations when building a quote (Leak Detection, then Surface Removal, then Surface Application, etc.), this makes the Schedule and Ledger start in that same deliberate order and — the actual bug — *stay* there regardless of what gets edited afterward.
+
+Tested: a 3-item contract (Leak Detection → Surface Removal → Surface Application, deliberately out of alphabetical/id order to catch a lazy fix) stays in that exact order both before any dates are entered and after saving a date on the first and the middle item. Full suite passes.
+
+---
+
 ## 2026-09-21 — Owner can now see commission on other salespeople's quotes
 
 Jim: "I need to be able to see what the commission is going to be on a quote assigned to Doug or another sales person." Root cause: commission visibility was one flat role-level switch (`roles.show_commission`), and the Owner role has always had it off — sensible when Jim was the only salesperson ("the owner gets the profit, not a commission"), but it meant he couldn't see commission on *anyone's* quotes, including Doug's, now that Doug closes deals under his own name.
