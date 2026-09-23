@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-23 — Add a brand-new supplier when the work type already exists
+
+Jim: "if I'm trying to add material/equipment, how do I add a new supplier that's not in the list?" Turned out the only place in the whole app that could create a brand-new supplier was the **Quick Add Work Type** wizard — which always creates a new work type alongside it. Fine for setting up something brand new, wrong for the common case of adding a second supplier's product to a work type that already exists (e.g. a new paver supplier under the existing "Paver Installation" work type) — there was no path for that at all.
+
+Fix: the plain **Add Single Material** form (`/admin/materials`) now has the same "…or a brand-new supplier" text field Quick Add already has, backed by the same `_find_or_create_supplier` helper (case-insensitive match against an existing supplier; otherwise creates one) — typing a name takes priority over the dropdown, same convention as every other "type a new one inline" field in this app (subs, suppliers, materials). No new work type gets created; the material attaches to whatever Work Type is already selected on the form.
+
+Tested: typing a brand-new name creates the supplier and attaches the material to the existing work type (work type count unchanged); typing the same name again (different case) reuses it rather than duplicating; submitting with neither a pick nor a typed name fails gracefully with nothing half-created; the existing dropdown-pick path is unchanged. Full suite passes.
+
+---
+
 ## 2026-09-22 — "+ Add Modifier" lets Leak Detection (and similar bundled work) get its own Schedule/Ledger tracking
 
 Jim: "Need to have leak detection on there." Root cause: he normally adds Leak Detection via the $400/$500 checkbox bundled onto Surface Application (a modifier), not as its own catalog line item — and only real `quote_line_items` rows show up on the Job Schedule or Ledger. A modifier is just a price adjustment tucked inside its parent item's `modifiers_json`, with nowhere to hold a sub, a date, or an actual cost of its own.

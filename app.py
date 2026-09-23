@@ -5098,14 +5098,27 @@ def admin_materials():
 @app.route('/admin/materials/add', methods=['POST'])
 @require_permission('can_edit_sub_rates')
 def add_material():
+    """Jim: adding a material for a brand-new supplier under a work type that already
+    exists had no path except Quick Add Work Type -- which always creates a whole new work
+    type alongside it, wrong when the work type is already set up (e.g. a second supplier's
+    Paver Installation product). new_supplier_name (typed) takes priority over the Supplier
+    dropdown, same pattern as Quick Add and add_sub -- typing a name that doesn't exist yet
+    creates it via _find_or_create_supplier rather than requiring a separate admin step."""
     db = get_db()
     raw_price = float(request.form['raw_price'])
     conv = float(request.form['conversion_factor'])
     cost_per_qu = raw_price * conv
+    new_supplier_name = request.form.get('new_supplier_name', '').strip()
+    if new_supplier_name:
+        supplier_id = _find_or_create_supplier(db, new_supplier_name)
+    else:
+        supplier_id = request.form.get('supplier_id') or None
+        if not supplier_id:
+            return redirect(url_for('admin_materials'))
     db.execute("""INSERT INTO materials (supplier_id,category,subcategory,series,item_code,raw_price,
                   price_unit,conversion_factor,quote_unit,cost_per_quote_unit,work_type_id,collection_id,active)
                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-               (request.form['supplier_id'], request.form['category'],
+               (supplier_id, request.form['category'],
                 request.form.get('subcategory') or None, request.form['series'],
                 request.form.get('item_code',''), raw_price, request.form['price_unit'],
                 conv, request.form['quote_unit'], round(cost_per_qu,4),
