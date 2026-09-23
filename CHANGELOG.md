@@ -4,6 +4,18 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-23 — Automated Quote Sent follow-up flipped from opt-out to opt-in
+
+Jim: "instead of it auto-triggering unless we add the follow-up thing, we want it to be the opposite, to not trigger unless we click the button." The automated follow-up sequence (`_ghl_webhook_quote_follow_up_due`) used to fire for every sent quote by default, with a "🙋 I followed up — pause emails" button (shipped 2026-09-20) as the only way to stop it. Flipped entirely: nothing fires for any quote now unless staff explicitly clicks **"📧 Schedule Automated Follow-up"** on it first.
+
+GHL's Wait→Webhook chain still calls QuoteCure the same way it always has for every quote reaching Quote Sent — that part is unchanged and doesn't need any GHL-side reconfiguration. The gate just moved: the webhook now checks a new `quotes.follow_up_enabled_at` column first and silently no-ops unless it's set. Replaced the pause/resume routes with `schedule`/`unschedule` — same button slot on the customer profile's Quotes & Contracts table, same toggle interaction, just inverted default and re-labeled. Added a new column rather than reinterpreting the old `follow_up_paused_at` in place, since flipping that column's meaning would have silently un-paused every quote that already had it set from the old behavior.
+
+**Heads up, not something to fix, just to know:** any quote already mid-sequence under the old always-on behavior (already got round 1) will stop at round 2 once this ships, since it won't have the new flag set — schedule it manually if you want one of those to keep going.
+
+Tested: a freshly-sent quote gets zero automated emails by default; clicking Schedule turns it on and the webhook then sends normally; clicking Turn Off (unschedule) stops it again. Full suite passes. Browser-verified the button toggling between "📧 Schedule Automated Follow-up" and the green "📧 Follow-up scheduled" badge + Turn Off action.
+
+---
+
 ## 2026-09-23 — Add a brand-new supplier when the work type already exists
 
 Jim: "if I'm trying to add material/equipment, how do I add a new supplier that's not in the list?" Turned out the only place in the whole app that could create a brand-new supplier was the **Quick Add Work Type** wizard — which always creates a new work type alongside it. Fine for setting up something brand new, wrong for the common case of adding a second supplier's product to a work type that already exists (e.g. a new paver supplier under the existing "Paver Installation" work type) — there was no path for that at all.

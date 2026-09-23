@@ -524,17 +524,21 @@ def _ghl_webhook_quote_follow_up_due(db, data):
     customer up and simply forget to drag the card to Won, and a check against GHL's own
     stage would send an awkward "still interested?" email to someone who already signed.
     Instead this checks QuoteCure's own status, which flips to 'contract' automatically the
-    moment a signature is captured, no manual step required."""
+    moment a signature is captured, no manual step required.
+
+    Opt-IN, not opt-out (Jim's call, flipping the original design): GHL's Wait->Webhook chain
+    still fires this for every quote that reaches Quote Sent, same as before, but nothing
+    actually happens unless staff explicitly clicked "Schedule Automated Follow-up" on that
+    quote first (follow_up_enabled_at) -- the opposite of the old default-on-unless-paused
+    behavior."""
     opportunity_id = data.get('opportunity_id')
     if not opportunity_id:
         return jsonify({'error': 'missing opportunity_id'}), 400
     quote = db.execute("SELECT * FROM quotes WHERE ghl_opportunity_id=?", (opportunity_id,)).fetchone()
     if not quote:
         return jsonify({'error': 'unknown opportunity_id'}), 404
-    if quote['follow_up_paused_at']:
-        # Sales followed up personally (customer profile page) -- stop the automation
-        # entirely for this quote, same as Lost: no more emails, no auto-unqualify.
-        return jsonify({'success': True, 'skipped': 'follow-up paused -- sales handling personally'})
+    if not quote['follow_up_enabled_at']:
+        return jsonify({'success': True, 'skipped': 'automated follow-up not scheduled for this quote'})
     already_resolved = (quote['status'] in ('contract', 'in_progress', 'complete')
                          or (quote['archived_reason'] or '') != '')
     if already_resolved:
@@ -895,31 +899,31 @@ def unqualify_customer(customer_id):
                            note_text='Marked Unqualified by Sales', mark_status='abandoned')
     return redirect(url_for('customer_detail', customer_id=customer_id))
 
-@app.route('/quotes/<int:quote_id>/follow_up/pause', methods=['POST'])
+@app.route('/quotes/<int:quote_id>/follow_up/schedule', methods=['POST'])
 @login_required
-def pause_quote_follow_up(quote_id):
-    """Sales followed up with the customer personally -- stop the automated Quote Sent
-    follow-up sequence for this quote entirely (see _ghl_webhook_quote_follow_up_due).
-    A full pause, not "skip just the next round": Jim's call, matches how Lost already
-    works everywhere else in this system -- resuming or resolving the deal is manual."""
+def schedule_quote_follow_up(quote_id):
+    """Opt-IN, per Jim's call: the automated Quote Sent follow-up sequence
+    (_ghl_webhook_quote_follow_up_due) does nothing at all for a quote until staff
+    explicitly turns it on here -- the opposite of the original always-on-unless-paused
+    design. Same toggle switches it back off (see unschedule_quote_follow_up)."""
     db = get_db()
     quote = db.execute("SELECT customer_id FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if not quote:
         return redirect(url_for('customers_list'))
     by = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
-    db.execute("UPDATE quotes SET follow_up_paused_at=now()::text, follow_up_paused_by=? WHERE quote_id=?",
+    db.execute("UPDATE quotes SET follow_up_enabled_at=now()::text, follow_up_enabled_by=? WHERE quote_id=?",
                (by, quote_id))
     db.commit()
     return redirect(url_for('customer_detail', customer_id=quote['customer_id']))
 
-@app.route('/quotes/<int:quote_id>/follow_up/resume', methods=['POST'])
+@app.route('/quotes/<int:quote_id>/follow_up/unschedule', methods=['POST'])
 @login_required
-def resume_quote_follow_up(quote_id):
+def unschedule_quote_follow_up(quote_id):
     db = get_db()
     quote = db.execute("SELECT customer_id FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if not quote:
         return redirect(url_for('customers_list'))
-    db.execute("UPDATE quotes SET follow_up_paused_at='', follow_up_paused_by='' WHERE quote_id=?", (quote_id,))
+    db.execute("UPDATE quotes SET follow_up_enabled_at='', follow_up_enabled_by='' WHERE quote_id=?", (quote_id,))
     db.commit()
     return redirect(url_for('customer_detail', customer_id=quote['customer_id']))
 

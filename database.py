@@ -4099,6 +4099,24 @@ def add_quote_public_sign_token(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN public_sign_token TEXT DEFAULT ''")
 
 
+@migration
+def add_quote_follow_up_opt_in(conn):
+    """Jim: flipping the automated Quote Sent follow-up sequence from opt-out to opt-in --
+    it used to fire automatically for every sent quote unless staff clicked "I followed up"
+    to pause it (add_quote_follow_up_pause); now nothing fires at all unless staff
+    explicitly clicks "Schedule Automated Follow-up" first. A new column rather than
+    reinterpreting follow_up_paused_at -- flipping that column's meaning in place would
+    silently invert the real state of any quote that already has it set (a genuinely-paused
+    quote would suddenly read as "enabled"). follow_up_paused_at/by are left in the schema,
+    unused going forward -- the new enabled flag is now the single on/off switch, and
+    turning it off covers what pausing used to do."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'follow_up_enabled_at' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_enabled_at TEXT DEFAULT ''")
+    if 'follow_up_enabled_by' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_enabled_by TEXT DEFAULT ''")
+
+
 def init_pebble_pros_surfaces(conn):
     """Seed Pebble Pros surface products and rates. Safe to run multiple times."""
     c = conn.cursor()

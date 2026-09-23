@@ -160,17 +160,17 @@
             </td>
             <td>
               {% if q.status == 'sent' and q.quote_id not in archived_ids %}
-                {% if q.follow_up_paused_at %}
+                {% if q.follow_up_enabled_at %}
                 <div style="display:flex;align-items:center;gap:6px;">
-                  <span class="badge badge-gray" title="{% if q.follow_up_paused_by %}Paused by {{ q.follow_up_paused_by }}{% endif %}">🙋 Handling personally</span>
-                  <form method="POST" action="/quotes/{{ q.quote_id }}/follow_up/resume" style="display:inline;">
-                    <button class="btn btn-secondary btn-sm" type="submit" style="font-size:11px;padding:2px 6px;">Resume auto follow-up</button>
+                  <span class="badge badge-green" title="{% if q.follow_up_enabled_by %}Scheduled by {{ q.follow_up_enabled_by }}{% endif %}">📧 Follow-up scheduled</span>
+                  <form method="POST" action="/quotes/{{ q.quote_id }}/follow_up/unschedule"
+                        onsubmit="return confirm('Turn off automated follow-up emails for this quote?')">
+                    <button class="btn btn-secondary btn-sm" type="submit" style="font-size:11px;padding:2px 6px;">Turn off</button>
                   </form>
                 </div>
                 {% else %}
-                <form method="POST" action="/quotes/{{ q.quote_id }}/follow_up/pause"
-                      onsubmit="return confirm('Stop the automated follow-up emails for this quote? Use this once you\'ve followed up with the customer yourself.')">
-                  <button class="btn btn-secondary btn-sm" type="submit" style="font-size:11px;padding:2px 6px;">I followed up — pause emails</button>
+                <form method="POST" action="/quotes/{{ q.quote_id }}/follow_up/schedule">
+                  <button class="btn btn-secondary btn-sm" type="submit" style="font-size:11px;padding:2px 6px;">📧 Schedule Automated Follow-up</button>
                 </form>
                 {% endif %}
               {% else %}
