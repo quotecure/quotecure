@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-24 — Collapsed the GoHighLevel CRM Sync card on Company Settings
+
+Jim: "omg, can we collapse this GoHighLevel CRM Sync section somehow" -- it had grown into the longest card on the page (API token/Location ID form, the webhook URL, and full numbered trigger docs with JSON payload examples for all 4 pipeline stages plus 2 optional ones), config that's set once and rarely revisited. Click-to-toggle card header, collapsed by default, chevron flips ▸/▾. Scoped to just this one card, not a page-wide pattern -- the other cards (Terms Library, Follow-up Emails, Pipeline Emails) are things staff actually edit regularly.
+
+---
+
 ## 2026-09-23 — Automated Quote Sent follow-up flipped from opt-out to opt-in
 
 Jim: "instead of it auto-triggering unless we add the follow-up thing, we want it to be the opposite, to not trigger unless we click the button." The automated follow-up sequence (`_ghl_webhook_quote_follow_up_due`) used to fire for every sent quote by default, with a "🙋 I followed up — pause emails" button (shipped 2026-09-20) as the only way to stop it. Flipped entirely: nothing fires for any quote now unless staff explicitly clicks **"📧 Schedule Automated Follow-up"** on it first.
