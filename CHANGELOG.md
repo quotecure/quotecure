@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-24 — Fixed PebbleTec's catalog: 4 fake product lines were really 1 real line with 4 price tiers
+
+Jim: "what is PebbleTec Elite?" ... "that's not a line" ... "those are all PebbleTec Original." On the Surfaces admin page, PebbleTec's catalog showed as 4 separate product lines — Pebble Tec Standard, Upgraded, Premium, and Elite — as if they were 4 different manufacturer products. They're actually one real line ("PebbleTec Original") with 4 internal price tiers (Standard $12.72/sqft up through Elite $16.82/sqft). These rows were staff-entered directly through the admin page (not part of this file's seed data), so the mislabeling was a data-entry artifact, not a code bug.
+
+New migration renames `product_line` to `Original` for all 16 finishes across those 4 mislabeled groupings, scoped to the PebbleTec manufacturer specifically. Pure catalog-display fix — each finish keeps its own distinct rate exactly as before, and confirmed zero existing quote line items reference any of these 16 products yet, so nothing on a real quote is affected. Also updated the static seed-data list these came from so a fresh install would use the correct name too, though that list only backfills product photo URLs onto already-existing rows and never created these particular ones itself.
+
+Verified directly against the database: all 16 PebbleTec finishes (Black Marble, Black Pearl, Blue Lagoon, Blue Wave, Caribbean Blue, Crème de Menthe, Emerald Bay, Jade, Midnight Blue, Moonlight Grey, Sandy Beach, Sky Blue, Soft White, Tahoe Blue, Tropical Breeze, White Pearl) now show under `Original` with their rates unchanged. Browser-confirmed on `/admin/surfaces`.
+
+---
+
 ## 2026-09-24 — Collapsed the GoHighLevel CRM Sync card on Company Settings
 
 Jim: "omg, can we collapse this GoHighLevel CRM Sync section somehow" -- it had grown into the longest card on the page (API token/Location ID form, the webhook URL, and full numbered trigger docs with JSON payload examples for all 4 pipeline stages plus 2 optional ones), config that's set once and rarely revisited. Click-to-toggle card header, collapsed by default, chevron flips ▸/▾. Scoped to just this one card, not a page-wide pattern -- the other cards (Terms Library, Follow-up Emails, Pipeline Emails) are things staff actually edit regularly.

@@ -1561,21 +1561,21 @@ SURFACE_PRODUCT_URLS = [
     ('PebbleTec', 'Pebble Sheen Upgraded (SWPF)', 'Blue Surf', 'https://pebbletec.com/product/pebblesheen/blue-surf/'),
     ('PebbleTec', 'Pebble Sheen Upgraded (SWPF)', 'Bordeaux', 'https://pebbletec.com/product/pebblesheen/bordeaux/'),
     ('PebbleTec', 'Pebble Sheen Upgraded (SWPF)', 'Irish Mist', 'https://pebbletec.com/product/pebblesheen/irish-mist/'),
-    ('PebbleTec', 'Pebble Tec Elite', 'Crème de Menthe', 'https://pebbletec.com/product/pebbletec/creme-de-menthe/'),
-    ('PebbleTec', 'Pebble Tec Elite', 'Emerald Bay', 'https://pebbletec.com/product/pebbletec/emerald-bay/'),
-    ('PebbleTec', 'Pebble Tec Elite', 'Moonlight Grey', 'https://pebbletec.com/product/pebbletec/moonlight-grey/'),
-    ('PebbleTec', 'Pebble Tec Elite', 'Sky Blue', 'https://pebbletec.com/product/pebbletec/sky-blue/'),
-    ('PebbleTec', 'Pebble Tec Elite', 'Soft White', 'https://pebbletec.com/product/pebbletec/soft-white/'),
-    ('PebbleTec', 'Pebble Tec Elite', 'Tropical Breeze', 'https://pebbletec.com/product/pebbletec/tropical-breeze/'),
-    ('PebbleTec', 'Pebble Tec Premium', 'Black Marble', 'https://pebbletec.com/product/pebbletec/black-marble/'),
-    ('PebbleTec', 'Pebble Tec Premium', 'Black Pearl', 'https://pebbletec.com/product/pebbletec/black-pearl/'),
-    ('PebbleTec', 'Pebble Tec Premium', 'Blue Lagoon', 'https://pebbletec.com/product/pebbletec/blue-lagoon/'),
-    ('PebbleTec', 'Pebble Tec Premium', 'Midnight Blue', 'https://pebbletec.com/product/pebbletec/midnight-blue/'),
-    ('PebbleTec', 'Pebble Tec Standard', 'Caribbean Blue', 'https://pebbletec.com/product/pebbletec/caribbean-blue/'),
-    ('PebbleTec', 'Pebble Tec Standard', 'Sandy Beach', 'https://pebbletec.com/product/pebbletec/sandy-beach/'),
-    ('PebbleTec', 'Pebble Tec Standard', 'Tahoe Blue', 'https://pebbletec.com/product/pebbletec/tahoe-blue/'),
-    ('PebbleTec', 'Pebble Tec Standard', 'White Pearl', 'https://pebbletec.com/product/pebbletec/white-pearl/'),
-    ('PebbleTec', 'Pebble Tec Upgraded', 'Blue Wave', 'https://pebbletec.com/product/pebbletec/blue-wave/'),
+    ('PebbleTec', 'Original', 'Crème de Menthe', 'https://pebbletec.com/product/pebbletec/creme-de-menthe/'),
+    ('PebbleTec', 'Original', 'Emerald Bay', 'https://pebbletec.com/product/pebbletec/emerald-bay/'),
+    ('PebbleTec', 'Original', 'Moonlight Grey', 'https://pebbletec.com/product/pebbletec/moonlight-grey/'),
+    ('PebbleTec', 'Original', 'Sky Blue', 'https://pebbletec.com/product/pebbletec/sky-blue/'),
+    ('PebbleTec', 'Original', 'Soft White', 'https://pebbletec.com/product/pebbletec/soft-white/'),
+    ('PebbleTec', 'Original', 'Tropical Breeze', 'https://pebbletec.com/product/pebbletec/tropical-breeze/'),
+    ('PebbleTec', 'Original', 'Black Marble', 'https://pebbletec.com/product/pebbletec/black-marble/'),
+    ('PebbleTec', 'Original', 'Black Pearl', 'https://pebbletec.com/product/pebbletec/black-pearl/'),
+    ('PebbleTec', 'Original', 'Blue Lagoon', 'https://pebbletec.com/product/pebbletec/blue-lagoon/'),
+    ('PebbleTec', 'Original', 'Midnight Blue', 'https://pebbletec.com/product/pebbletec/midnight-blue/'),
+    ('PebbleTec', 'Original', 'Caribbean Blue', 'https://pebbletec.com/product/pebbletec/caribbean-blue/'),
+    ('PebbleTec', 'Original', 'Sandy Beach', 'https://pebbletec.com/product/pebbletec/sandy-beach/'),
+    ('PebbleTec', 'Original', 'Tahoe Blue', 'https://pebbletec.com/product/pebbletec/tahoe-blue/'),
+    ('PebbleTec', 'Original', 'White Pearl', 'https://pebbletec.com/product/pebbletec/white-pearl/'),
+    ('PebbleTec', 'Original', 'Blue Wave', 'https://pebbletec.com/product/pebbletec/blue-wave/'),
     ('StoneScapes', 'Mini Pebble Elite', 'Aqua Blue', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpabm/'),
     ('StoneScapes', 'Mini Pebble Elite', 'Black', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpbm/'),
     ('StoneScapes', 'Mini Pebble Elite', 'Cameroon', 'https://www.nptpool.com/pool-finishes/all-finishes/ssmpcm/'),
@@ -4115,6 +4115,24 @@ def add_quote_follow_up_opt_in(conn):
         conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_enabled_at TEXT DEFAULT ''")
     if 'follow_up_enabled_by' not in cols:
         conn.execute("ALTER TABLE quotes ADD COLUMN follow_up_enabled_by TEXT DEFAULT ''")
+
+
+@migration
+def rename_pebbletec_tiers_to_original(conn):
+    """Jim: 'Elite, Standard, Upgrade, Premium... those are all PebbleTec Original' -- these
+    4 product_line values were staff-entered (through the admin Surfaces page, not seeded in
+    this file) as if they were 4 separate PebbleTec product lines, when they're really just
+    4 internal price tiers of ONE real line, PebbleTec Original. Each finish already carries
+    its own distinct rate on surface_applicator_rates (Standard $12.72/sqft up to Elite
+    $16.82/sqft), so renaming the grouping label doesn't touch pricing at all -- purely a
+    catalog-display fix, collapsing 4 fake "product lines" in the admin/quote picker down to
+    the 1 real one. Confirmed zero existing quote_line_items reference any of these
+    product_ids yet, so nothing on a real quote changes either."""
+    conn.execute(
+        "UPDATE surface_products SET product_line='Original' "
+        "WHERE manufacturer_id=(SELECT manufacturer_id FROM surface_manufacturers WHERE manufacturer_name='PebbleTec') "
+        "AND product_line IN ('Pebble Tec Standard','Pebble Tec Upgraded','Pebble Tec Premium','Pebble Tec Elite')"
+    )
 
 
 def init_pebble_pros_surfaces(conn):
