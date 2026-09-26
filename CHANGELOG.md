@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-27 (later) — Ledger no longer starts out "under by $699" on QT-0035
+
+Jim: the Ledger showed cost so far under by $699 with nothing entered. Pulled the real breakdown with a temporary read-only diagnostic (now removed): quoted total $26,334.06 vs. a running total of $25,635.00. Two separate bugs that partly cancelled: (1) **modifier costs were never in any Ledger item** — the per-item fallback used only labor and material, so Drain Pool, Remove Tile, Cantilever Cut, Tax, Freight and Trash Removal ($1,599.06 on this job) were in the quote total but nowhere in the running actual; (2) the **pass-through Bond beam repair ($900) was counted** in the running actual though it's billed at cost separately and was never part of the quoted total. $1,599.06 − $900 = $699.06.
+
+Fix: each modifier's cost now folds into an item's quoted amount on the side its invoice would land on — tax (percent) and freight with material, everything else with labor (`ledger_mod_labor`/`ledger_mod_material` in `_ledger_items`) — and an actual entered for a side replaces that whole side, modifiers included, so a sub's invoice that covers the extras isn't double counted. Pass-through items stay visible on the Ledger (with a "pass-through" tag, and can still hold invoices) but are left out of the job's cost-vs-quote total. Auto-tracked modifiers (Leak Detection) stay on their own row as before. The Edit form's "quoted" placeholders show the combined figures.
+
+Tested with QT-0035's own Surface Removal, Coping and Paver numbers plus a pass-through: nothing entered gives a running actual equal to the quoted total, every item's diff is $0, tax/freight land on material and the per-lf cut on labor, and a $1,500 labor invoice replaces labor and the cut but leaves material, tax and freight at quoted.
+
+---
+
 ## 2026-09-27 — Sub invoices can be attached to each Ledger work item
 
 Jim asked whether attaching the actual sub invoices (usually 1–2 per item) to Ledger items would be too much space or effort — he'd already hit Render limits, so talked through which limit matters first: bandwidth is unaffected (a file only loads when clicked), memory barely (a few MB held briefly during upload; the PDF-generating browser is the real memory user), and **database storage** is the one that accumulates, since files live base64-encoded inside Postgres. Built accordingly.

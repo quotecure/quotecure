@@ -2123,9 +2123,31 @@ def _ledger_items(db, quote_id):
     # the parent's quoted cost -- otherwise it's counted twice (parent's quoted total_cost
     # includes its modifiers, the tracking row carries the same cost again).
     carved = {}
+    tracked_mods = {}
     for it in items:
         if it.get('schedule_only') and it.get('parent_item_id'):
             carved[it['parent_item_id']] = carved.get(it['parent_item_id'], 0.0) + float(it.get('total_cost') or 0)
+            tracked_mods.setdefault(it['parent_item_id'], set()).add(it.get('source_modifier_id'))
+    freight_ids = {r['modifier_id'] for r in db.execute("SELECT modifier_id FROM modifiers WHERE is_freight=1").fetchall()}
+    for it in items:
+        if it['source'] != 'quote_line_item' and 'modifiers_json' not in it:
+            continue
+        # Modifier costs are part of the item's quoted total_cost but not of its labor/material
+        # columns, so the running actual used to leave them out entirely. Fold each one into
+        # whichever side the invoice for it would land on: tax (percent) and freight ride with
+        # material, everything else (Drain Pool, Trash Removal, per-lf cuts...) with labor. An
+        # actual entered for a side then replaces that whole side, modifiers included.
+        skip = tracked_mods.get(it['id'], set()) if it['source'] == 'quote_line_item' else set()
+        lab = mat = 0.0
+        for m in json.loads(it.get('modifiers_json') or '[]'):
+            if m.get('id') in skip:
+                continue
+            cost = _modifier_cost(m, it)
+            if it['has_material'] and (m.get('id') in freight_ids or _modifier_unit_type(m) == 'percent'):
+                mat += cost
+            else:
+                lab += cost
+        it['ledger_mod_labor'], it['ledger_mod_material'] = round(lab, 2), round(mat, 2)
     for it in items:
         if it['id'] in carved and it['source'] == 'quote_line_item':
             it['total_cost'] = round(float(it.get('total_cost') or 0) - carved[it['id']], 2)
@@ -2155,6 +2177,9 @@ def _ledger_item_actuals(item):
     quoted_total = float(item.get('total_cost') or 0)
     if quoted_labor == 0 and quoted_material == 0 and quoted_total != 0:
         quoted_labor = quoted_total
+    else:
+        quoted_labor += float(item.get('ledger_mod_labor') or 0)
+        quoted_material += float(item.get('ledger_mod_material') or 0)
     actual_labor = item.get('actual_labor_cost')
     actual_material = item.get('actual_material_cost')
     labor_entered = actual_labor is not None
@@ -2188,7 +2213,10 @@ def _ledger_totals(db, quote_id, items):
     entered_count = 0
     for item in items:
         _, _, item_total, fully_entered = _ledger_item_actuals(item)
-        total_actual_cost += item_total
+        # Pass-through items (Bond beam repair) are billed at cost separately and were never part
+        # of the quoted total, so counting them made "over/under" compare unlike things.
+        if not item.get('is_passthrough'):
+            total_actual_cost += item_total
         if fully_entered:
             entered_count += 1
 
@@ -4338,35 +4366,6 @@ def _contract_modifier_labels(db, quote_id):
         if label not in labels:
             labels.append(label)
     return labels
-
-@app.route('/admin/debug_ledger/<int:quote_id>')
-@require_permission('can_access_admin')
-def debug_ledger(quote_id):
-    """TEMPORARY read-only diagnostic: why does the Ledger's running actual differ from the
-    quoted total when nothing has been entered? Shows every line item on the quote, which ones
-    the Ledger counts, and the per-item numbers it sums. Changes nothing."""
-    db = get_db()
-    q = db.execute("SELECT total_cost, total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    if not q:
-        return jsonify({'error': 'not found'}), 404
-    all_rows = db.execute(
-        "SELECT id, work_type_label, work_type_id, is_optional, is_passthrough, schedule_only, labor_total_cost, "
-        "material_total_cost, modifiers_total_cost, total_cost FROM quote_line_items WHERE quote_id=? ORDER BY sort_order",
-        (quote_id,)).fetchall()
-    ledger = _ledger_items(db, quote_id)
-    counted = []
-    for it in ledger:
-        _, _, actual, _ = _ledger_item_actuals(it)
-        counted.append({'id': it['id'], 'label': it.get('work_type_label') or it.get('label'), 'source': it['source'],
-                        'labor': it.get('labor_total_cost'), 'material': it.get('material_total_cost'),
-                        'modifiers': it.get('modifiers_total_cost'), 'total_cost': it.get('total_cost'),
-                        'is_passthrough': it.get('is_passthrough'), 'ledger_actual_fallback': actual})
-    return jsonify({
-        'quote_total_cost': q['total_cost'], 'quote_total_price': q['total_price'],
-        'ledger_sum_of_actuals': round(sum(c['ledger_actual_fallback'] for c in counted), 2),
-        'ledger_items_counted': counted,
-        'all_line_items_on_quote': [dict(r) for r in all_rows],
-    })
 
 @app.route('/quotes/<int:quote_id>/schedule/add_work_item', methods=['POST'])
 @require_permission('can_enter_actuals')
