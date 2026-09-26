@@ -102,6 +102,7 @@
         <tr>
           <td>
             {{ item.work_type_label or item.label }}
+            {% if item.schedule_only %}<span class="badge badge-gray" style="font-size:10px;margin-left:6px;" title="Tracked separately from its line item -- not a separate charge on the contract">tracking only</span>{% endif %}
             {% if item.has_material %}<div style="font-size:11px;color:var(--text3);">labor + material</div>{% endif %}
           </td>
           <td class="right mono">{{ item.total_cost|usd }}</td>

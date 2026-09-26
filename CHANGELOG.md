@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-26 — Leak Detection now gets its own Schedule/Ledger line automatically
+
+Jim: Leak Detection is tied to Surface Application only, so the manual "+ Add Modifier" step was the wrong tool for it — it should just be its own line whenever it's on the quote, at the top (it happens before everything else), and the Ledger needed the same. New `modifiers.track_separately` flag (set for both Leak Detection variants; no admin UI for it yet) makes `_ensure_tracked_modifier_rows` create a "Leak Detection (Surface Application)" tracking row — sub, dates, actual cost — for any signed contract with it checked. It runs at signing and whenever the Schedule or Ledger is opened, so contracts signed earlier (QT-0035) pick it up too. Idempotent via new `parent_item_id`/`source_modifier_id` columns.
+
+**Ledger money fix:** the Ledger's per-item numbers only counted labor and material, never modifier cost, so Leak Detection's $400/$500 was in the frozen quote total but missing from the running actual. The tracking row now carries the modifier's cost as its quoted cost (the sub's real invoice replaces it), and `_ledger_items` takes that same amount back out of the parent so it isn't counted twice. Verified: $400 + $1,100 + $3,000 = $4,500 quoted, "over by $0". Other modifiers that aren't tracked still aren't in the running actual, as before; "+ Add Modifier" now carries their cost too and no longer offers Leak Detection or anything already added.
+
+Also fixed a bug in the Add Modifier I shipped 2026-09-22: `_contract_effective_items` keyed items by work_type_id, so two tracking rows with no matching work type (both None) collapsed into one. Tracking rows now key uniquely. Tested: auto-creation at the top, idempotency, ledger carve-out, signing path, manual add for other modifiers, completion not blocked, contract totals frozen.
+
+---
+
 ## 2026-09-24 — Fixed PebbleTec's catalog: 4 fake product lines were really 1 real line with 4 price tiers
 
 Jim: "what is PebbleTec Elite?" ... "that's not a line" ... "those are all PebbleTec Original." On the Surfaces admin page, PebbleTec's catalog showed as 4 separate product lines — Pebble Tec Standard, Upgraded, Premium, and Elite — as if they were 4 different manufacturer products. They're actually one real line ("PebbleTec Original") with 4 internal price tiers (Standard $12.72/sqft up through Elite $16.82/sqft). These rows were staff-entered directly through the admin page (not part of this file's seed data), so the mislabeling was a data-entry artifact, not a code bug.

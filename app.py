@@ -2085,7 +2085,10 @@ def _contract_effective_items(db, quote_id):
         "ORDER BY sort_order",
         (quote_id,)
     ).fetchall()
-    effective = {r['work_type_id']: dict(r) for r in rows}
+    # schedule_only tracking rows (and any row with no work_type_id) get a unique key -- keyed by
+    # work_type_id they'd collapse into each other (all None) or over a real item of the same type.
+    effective = {(('id', r['id']) if (r['schedule_only'] or r['work_type_id'] is None) else r['work_type_id']): dict(r)
+                 for r in rows}
     co_items = db.execute(
         "SELECT coi.* FROM change_order_items coi "
         "JOIN change_orders co ON coi.change_order_id = co.id "
@@ -2116,6 +2119,16 @@ def _ledger_items(db, quote_id):
         return d
 
     items = [_tag(row) for row in _contract_effective_items(db, quote_id).values()]
+    # A tracked modifier's cost (Leak Detection) lives on its own row, so take it back out of
+    # the parent's quoted cost -- otherwise it's counted twice (parent's quoted total_cost
+    # includes its modifiers, the tracking row carries the same cost again).
+    carved = {}
+    for it in items:
+        if it.get('schedule_only') and it.get('parent_item_id'):
+            carved[it['parent_item_id']] = carved.get(it['parent_item_id'], 0.0) + float(it.get('total_cost') or 0)
+    for it in items:
+        if it['id'] in carved and it['source'] == 'quote_line_item':
+            it['total_cost'] = round(float(it.get('total_cost') or 0) - carved[it['id']], 2)
     freeform = db.execute(
         "SELECT coi.* FROM change_order_items coi "
         "JOIN change_orders co ON coi.change_order_id = co.id "
@@ -2227,6 +2240,7 @@ def job_ledger(quote_id):
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if not quote or not _is_locked_contract(db, quote_id):
         return redirect(url_for('edit_quote', quote_id=quote_id))
+    _ensure_tracked_modifier_rows(db, quote_id)
     items = _ledger_items(db, quote_id)
     for item in items:
         item['actual_labor'], item['actual_material'], item['actual_total'], item['fully_entered'] = _ledger_item_actuals(item)
@@ -2271,6 +2285,7 @@ def job_schedule(quote_id):
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if not quote or not _is_locked_contract(db, quote_id):
         return redirect(url_for('edit_quote', quote_id=quote_id))
+    _ensure_tracked_modifier_rows(db, quote_id)
     items = _schedule_items(db, quote_id)
     subs = db.execute("SELECT sub_id, name FROM subs WHERE active='Y' ORDER BY name").fetchall()
     can_edit = bool(g.role and g.role['can_enter_actuals'])
@@ -4143,51 +4158,102 @@ def _schedule_items(db, quote_id):
         items.append(d)
     return items
 
-def _contract_modifier_labels(db, quote_id):
-    """Distinct modifier labels currently bundled onto this contract's real line items
-    (e.g. "Leak Detection" on Surface Application) -- these have no sub/date/actual-cost
-    fields of their own (a modifier is just a price adjustment inside its parent item's
-    modifiers_json), so they never show up on the Job Schedule or Ledger on their own. This
-    is what powers the "+ Add Modifier" picker on the Schedule page (add_schedule_modifier)."""
-    labels = []
-    seen = set()
-    for row in _contract_effective_items(db, quote_id).values():
+def _insert_tracking_row(db, quote_id, parent, mod):
+    """Zero-priced, schedule_only=1 line item for one modifier on one parent line item --
+    its own sub/dates/actual cost on the Schedule and Ledger, nothing added to the contract
+    price, hidden from the quote itself. Carries the modifier's cost as its quoted cost (so
+    the Ledger's running actual isn't missing it -- see _ledger_items for the matching
+    carve-out on the parent) and links back via parent_item_id/source_modifier_id so it's
+    only ever created once. Placed at the front (a low negative sort_order): Jim's real case,
+    Leak Detection, happens before everything else, and this never renumbers a signed item.
+    Returns the new id, or None if this (parent, modifier) already has one."""
+    exists = db.execute(
+        "SELECT id FROM quote_line_items WHERE quote_id=? AND parent_item_id=? AND source_modifier_id=?",
+        (quote_id, parent['id'], mod['id'])
+    ).fetchone()
+    if exists:
+        return None
+    label = (mod.get('label') or '').strip()
+    cost = round(_modifier_cost(mod, parent), 2)
+    # Matches a real catalog work type by name if one exists (Leak Detection does) so the
+    # estimated-days-based end-date math works like any other schedule item.
+    wt = db.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (label.split(' – ')[0].strip(),)).fetchone()
+    min_sort = db.execute(
+        "SELECT COALESCE(MIN(sort_order), 0) FROM quote_line_items WHERE quote_id=?", (quote_id,)
+    ).fetchone()[0]
+    cur = db.execute(
+        "INSERT INTO quote_line_items (quote_id, work_type_id, work_type_label, labor_total_cost, total_cost, "
+        "is_optional, schedule_only, sort_order, parent_item_id, source_modifier_id) "
+        "VALUES (?,?,?,?,?,0,1,?,?,?) RETURNING id",
+        (quote_id, wt['work_type_id'] if wt else None,
+         f"{label} ({parent.get('work_type_label') or 'line item'})", cost, cost, min_sort - 1,
+         parent['id'], mod['id'])
+    )
+    return cur.fetchone()[0]
+
+def _tracked_modifier_ids(db):
+    return {r['modifier_id'] for r in db.execute("SELECT modifier_id FROM modifiers WHERE track_separately=1").fetchall()}
+
+def _ensure_tracked_modifier_rows(db, quote_id):
+    """Auto-creates the Schedule/Ledger tracking row for every modifier flagged
+    track_separately (Leak Detection) that's checked on a signed contract's line items.
+    Idempotent -- safe to call on every Schedule/Ledger view, which is also how contracts
+    that were signed before this existed (QT-0035) pick their rows up."""
+    if not _is_locked_contract(db, quote_id):
+        return
+    tracked_ids = _tracked_modifier_ids(db)
+    if not tracked_ids:
+        return
+    changed = False
+    for row in list(_contract_effective_items(db, quote_id).values()):
+        if row.get('schedule_only') or 'change_order_id' in row:
+            continue
         for m in json.loads(row.get('modifiers_json') or '[]'):
-            label = (m.get('label') or '').strip()
-            if label and label not in seen:
-                seen.add(label)
-                labels.append(label)
+            if m.get('id') in tracked_ids and _insert_tracking_row(db, quote_id, row, m):
+                changed = True
+    if changed:
+        db.commit()
+
+def _untracked_modifiers(db, quote_id):
+    """(parent_row, modifier) pairs bundled on this contract's real line items that don't have
+    a tracking row yet and aren't auto-tracked -- what the manual "+ Add Modifier" picker offers."""
+    auto_ids = _tracked_modifier_ids(db)
+    have = {(r['parent_item_id'], r['source_modifier_id']) for r in db.execute(
+        "SELECT parent_item_id, source_modifier_id FROM quote_line_items WHERE quote_id=? AND schedule_only=1",
+        (quote_id,)).fetchall()}
+    out = []
+    for row in _contract_effective_items(db, quote_id).values():
+        if row.get('schedule_only') or 'change_order_id' in row:
+            continue
+        for m in json.loads(row.get('modifiers_json') or '[]'):
+            if m.get('id') not in auto_ids and (row['id'], m.get('id')) not in have and (m.get('label') or '').strip():
+                out.append((row, m))
+    return out
+
+def _contract_modifier_labels(db, quote_id):
+    """Distinct labels for the "+ Add Modifier" picker (add_schedule_modifier): modifiers
+    bundled onto this contract's line items that have no sub/date/actual-cost fields of their
+    own (a modifier is just a price adjustment inside its parent's modifiers_json). Leaves out
+    the auto-tracked ones (Leak Detection) and any already added."""
+    labels = []
+    for _, m in _untracked_modifiers(db, quote_id):
+        label = m['label'].strip()
+        if label not in labels:
+            labels.append(label)
     return labels
 
 @app.route('/quotes/<int:quote_id>/schedule/add_modifier', methods=['POST'])
 @require_permission('can_enter_actuals')
 def add_schedule_modifier(quote_id):
-    """Jim: Leak Detection (and any other modifier bundled onto a line item) needs its own
-    sub/date/actual-cost tracking on the Schedule and Ledger, without becoming a second
-    priced line on the customer's contract. Inserts a zero-priced, schedule_only=1 line item
-    -- rides the exact same Schedule/Ledger machinery as any real item from here on, just
-    contributes nothing to the contract's price and never shows back on the quote itself.
-
-    Placed at the front (a low negative sort_order) by default -- Jim's real case (Leak
-    Detection) always needs to happen first, before existing work starts, and this avoids
-    renumbering any of the actual signed line items' sort_order to insert it anywhere else."""
+    """Manual version of the tracking row for modifiers that aren't auto-tracked (Jim's
+    call: Leak Detection is automatic, anything else stays a button). See _insert_tracking_row."""
     db = get_db()
     if not _is_locked_contract(db, quote_id):
         return redirect(url_for('edit_quote', quote_id=quote_id))
     label = (request.form.get('label') or '').strip()
-    if not label:
-        return redirect(url_for('job_schedule', quote_id=quote_id))
-    # Matches a real catalog work type by name if one exists (Leak Detection does) so the
-    # estimated-days-based end-date math works the same as any other schedule item.
-    wt = db.execute("SELECT work_type_id FROM work_types WHERE work_type=?", (label,)).fetchone()
-    min_sort = db.execute(
-        "SELECT COALESCE(MIN(sort_order), 0) FROM quote_line_items WHERE quote_id=?", (quote_id,)
-    ).fetchone()[0]
-    db.execute(
-        "INSERT INTO quote_line_items (quote_id, work_type_id, work_type_label, is_optional, schedule_only, sort_order) "
-        "VALUES (?,?,?,0,1,?)",
-        (quote_id, wt['work_type_id'] if wt else None, label, min_sort - 1)
-    )
+    for parent, mod in _untracked_modifiers(db, quote_id):
+        if mod['label'].strip() == label:
+            _insert_tracking_row(db, quote_id, parent, mod)
     db.commit()
     return redirect(url_for('job_schedule', quote_id=quote_id))
 
@@ -5759,6 +5825,7 @@ def _capture_signature(db, quote_id, signature_data, printed_name, via='electron
     db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=?,status='contract' WHERE quote_id=?",
                (signature_data, signed_at, printed_name, quote_id))
     db.commit()
+    _ensure_tracked_modifier_rows(db, quote_id)
     quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     signed_pdf_bytes = None
     try:

@@ -4118,6 +4118,26 @@ def add_quote_follow_up_opt_in(conn):
 
 
 @migration
+def add_tracked_modifier_rows(conn):
+    """Jim: Leak Detection is tied to Surface Application only and always needs its own
+    line on the Schedule and Ledger -- "+ Add Modifier" (add_quote_line_item_schedule_only)
+    was too manual for it. modifiers.track_separately marks a modifier as one that gets its
+    own tracking row automatically whenever it's checked on a signed contract (see
+    _ensure_tracked_modifier_rows); parent_item_id/source_modifier_id record which line item
+    and which modifier a tracking row came from, so it's created exactly once. Leak
+    Detection (both variants) is the only one flagged today; no admin UI for the flag yet."""
+    qli_cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_line_items)").fetchall()}
+    if 'parent_item_id' not in qli_cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN parent_item_id INTEGER")
+    if 'source_modifier_id' not in qli_cols:
+        conn.execute("ALTER TABLE quote_line_items ADD COLUMN source_modifier_id INTEGER")
+    mod_cols = {r[1] for r in conn.execute("PRAGMA table_info(modifiers)").fetchall()}
+    if 'track_separately' not in mod_cols:
+        conn.execute("ALTER TABLE modifiers ADD COLUMN track_separately INTEGER DEFAULT 0")
+    conn.execute("UPDATE modifiers SET track_separately=1 WHERE label LIKE ?", ('Leak Detection%',))
+
+
+@migration
 def rename_pebbletec_tiers_to_original(conn):
     """Jim: 'Elite, Standard, Upgrade, Premium... those are all PebbleTec Original' -- these
     4 product_line values were staff-entered (through the admin Surfaces page, not seeded in
