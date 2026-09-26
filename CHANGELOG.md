@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-27 — Sub invoices can be attached to each Ledger work item
+
+Jim asked whether attaching the actual sub invoices (usually 1–2 per item) to Ledger items would be too much space or effort — he'd already hit Render limits, so talked through which limit matters first: bandwidth is unaffected (a file only loads when clicked), memory barely (a few MB held briefly during upload; the PDF-generating browser is the real memory user), and **database storage** is the one that accumulates, since files live base64-encoded inside Postgres. Built accordingly.
+
+Each item's Edit panel on the Ledger gets a "Sub invoices" section: attach (PDF, photo, or the same file types as customer attachments), open in a new tab, or delete; every row shows its invoices as 📎 links to anyone who can view the Ledger. Photos are shrunk on upload to 1800px / 80% JPEG (a 10.9MB test photo became 843KB) via Pillow, added to `requirements.txt`; PDFs and anything else are stored untouched. 15MB per file (existing validator, including the PDF magic-byte check), 10 files per item, signed contracts only, and an invoice can only be opened from the quote it belongs to. New `ledger_invoices` table (migration `add_ledger_invoices`). Tested: PDF intact and inline, photo shrink, refusal of another quote's item / fake PDF / .exe, the cap, delete, and that contract totals never move.
+
+---
+
 ## 2026-09-26 (evening) — "+ Add Work Item" on the Schedule; QT-0035 diagnosis
 
 The diagnostic showed QT-0035's Surface Application has no modifiers checked at all — Leak Detection was never on that quote, so the auto-tracking had nothing to find (the feature was fine: both variants flagged, contract locked). Jim confirmed the work is being done anyway. New **+ Add Work Item** button on the Schedule: name it, pick top or end of the list, and it becomes a zero-priced `schedule_only` row with its own sub, dates and actual cost on the Schedule and Ledger — the Ledger shows the real cost against a $0 quote. If the name matches a catalog work type (Leak Detection does) it inherits its typical duration. Added items get a Remove button in their Edit panel; real line items and auto-created modifier rows can't be removed. Removed the temporary `/admin/debug_quote_tracking` diagnostic. Tested placement, blank names, a $350 actual landing in the Ledger with contract totals untouched, and Remove's limits.

@@ -2245,8 +2245,95 @@ def job_ledger(quote_id):
     for item in items:
         item['actual_labor'], item['actual_material'], item['actual_total'], item['fully_entered'] = _ledger_item_actuals(item)
     totals = _ledger_totals(db, quote_id, items)
+    invoices = {}
+    for inv in db.execute("SELECT id, item_id, source, filename, size_bytes, created_at, created_by FROM ledger_invoices "
+                          "WHERE quote_id=? ORDER BY id", (quote_id,)).fetchall():
+        invoices.setdefault((inv['source'], inv['item_id']), []).append(dict(inv))
+    for item in items:
+        item['invoices'] = invoices.get((item['source'], item['id']), [])
     can_edit = bool(g.role and g.role['can_enter_actuals'])
     return render_template('job_ledger.html', quote=quote, items=items, totals=totals, can_edit=can_edit)
+
+MAX_INVOICES_PER_ITEM = 10
+
+def _shrink_image(file_bytes, ext):
+    """A phone photo of an invoice doesn't need full resolution. Downscale to 1800px on the long
+    side as a ~80% JPEG (typically 4-10MB -> a few hundred KB) before it's stored -- Render's
+    database storage is what fills up, and every file is base64 in Postgres. Returns
+    (bytes, ext); anything that isn't a plain photo, or that fails, is stored untouched."""
+    if ext not in ('jpg', 'jpeg', 'png', 'webp'):
+        return file_bytes, ext
+    try:
+        import io
+        from PIL import Image, ImageOps
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(file_bytes)))
+        img.thumbnail((1800, 1800))
+        if img.mode in ('RGBA', 'LA', 'P'):
+            img = img.convert('RGBA')
+            flat = Image.new('RGB', img.size, (255, 255, 255))
+            flat.paste(img, mask=img.split()[-1])
+            img = flat
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        out = io.BytesIO()
+        img.save(out, 'JPEG', quality=80, optimize=True)
+        if len(out.getvalue()) < len(file_bytes):
+            return out.getvalue(), 'jpg'
+    except Exception:
+        pass
+    return file_bytes, ext
+
+@app.route('/quotes/<int:quote_id>/ledger/<int:item_id>/invoices', methods=['POST'])
+@require_permission('can_enter_actuals')
+def add_ledger_invoices(quote_id, item_id):
+    db = get_db()
+    if not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    source = request.form.get('source')
+    _, owned = _owned_schedule_item(db, quote_id, item_id, source)
+    if owned:
+        import base64
+        author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+        have = db.execute("SELECT COUNT(*) FROM ledger_invoices WHERE quote_id=? AND item_id=? AND source=?",
+                          (quote_id, item_id, source)).fetchone()[0]
+        for f in request.files.getlist('file'):
+            if not f or not f.filename or have >= MAX_INVOICES_PER_ITEM:
+                continue
+            raw = f.read()
+            ext = _validate_file_upload(raw, f.filename)
+            if not ext:
+                continue
+            data, out_ext = _shrink_image(raw, ext)
+            name = f.filename if out_ext == ext else f.filename.rsplit('.', 1)[0] + '.jpg'
+            db.execute(
+                "INSERT INTO ledger_invoices (quote_id, item_id, source, filename, mime_type, file_data, size_bytes, created_by) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (quote_id, item_id, source, name, ATTACHMENT_MIME_TYPES[out_ext],
+                 base64.b64encode(data).decode('utf-8'), len(data), author))
+            have += 1
+        db.commit()
+    return redirect(url_for('job_ledger', quote_id=quote_id))
+
+@app.route('/quotes/<int:quote_id>/ledger/invoices/<int:invoice_id>')
+@login_required
+def download_ledger_invoice(quote_id, invoice_id):
+    db = get_db()
+    row = db.execute("SELECT * FROM ledger_invoices WHERE id=? AND quote_id=?", (invoice_id, quote_id)).fetchone()
+    if not row:
+        return redirect(url_for('job_ledger', quote_id=quote_id))
+    import base64
+    inline = row['mime_type'] == 'application/pdf' or row['mime_type'] in INLINE_IMAGE_MIME_TYPES
+    safe_name = row['filename'].replace('"', '')
+    return Response(base64.b64decode(row['file_data']), mimetype=row['mime_type'],
+                     headers={'Content-Disposition': f'{"inline" if inline else "attachment"}; filename="{safe_name}"'})
+
+@app.route('/quotes/<int:quote_id>/ledger/invoices/<int:invoice_id>/delete', methods=['POST'])
+@require_permission('can_enter_actuals')
+def delete_ledger_invoice(quote_id, invoice_id):
+    db = get_db()
+    db.execute("DELETE FROM ledger_invoices WHERE id=? AND quote_id=?", (invoice_id, quote_id))
+    db.commit()
+    return redirect(url_for('job_ledger', quote_id=quote_id))
 
 @app.route('/quotes/<int:quote_id>/ledger/<int:item_id>/actual', methods=['POST'])
 @require_permission('can_enter_actuals')

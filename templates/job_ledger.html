@@ -104,6 +104,9 @@
             {{ item.work_type_label or item.label }}
             {% if item.schedule_only %}<span class="badge badge-gray" style="font-size:10px;margin-left:6px;" title="Tracked separately from its line item -- not a separate charge on the contract">tracking only</span>{% endif %}
             {% if item.has_material %}<div style="font-size:11px;color:var(--text3);">labor + material</div>{% endif %}
+            {% for inv in item.invoices %}
+            <div style="font-size:11px;margin-top:2px;"><a href="/quotes/{{ quote.quote_id }}/ledger/invoices/{{ inv.id }}" target="_blank" style="color:var(--blue-light);">📎 {{ inv.filename }}</a></div>
+            {% endfor %}
           </td>
           <td class="right mono">{{ item.total_cost|usd }}</td>
           <td class="right mono">
@@ -143,6 +146,23 @@
               <span style="font-size:11px;color:var(--text3);">Last entered by {{ item.actual_entered_by }} — {{ item.actual_entered_at[:16] }}</span>
               {% endif %}
             </form>
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border2);">
+              <label class="form-label">Sub invoices <span style="font-weight:400;color:var(--text3);">(PDF or photo — photos are shrunk automatically)</span></label>
+              {% for inv in item.invoices %}
+              <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:4px;">
+                <a href="/quotes/{{ quote.quote_id }}/ledger/invoices/{{ inv.id }}" target="_blank" style="color:var(--blue-light);">📎 {{ inv.filename }}</a>
+                <span style="color:var(--text3);">{{ inv.created_at[:10] }}{% if inv.created_by %} · {{ inv.created_by }}{% endif %} · {{ '%.0f'|format(inv.size_bytes / 1024) }} KB</span>
+                <form method="POST" action="/quotes/{{ quote.quote_id }}/ledger/invoices/{{ inv.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this invoice?')">
+                  <button class="btn btn-secondary btn-sm" type="submit" style="color:var(--red);padding:1px 6px;font-size:11px;">✕</button>
+                </form>
+              </div>
+              {% endfor %}
+              <form method="POST" action="/quotes/{{ quote.quote_id }}/ledger/{{ item.id }}/invoices" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;" onsubmit="return checkInvoiceSize(this)">
+                <input type="hidden" name="source" value="{{ item.source }}">
+                <input class="form-control" type="file" name="file" multiple required accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.xlsx,.xls,.csv" style="max-width:320px;">
+                <button class="btn btn-secondary btn-sm" type="submit">Attach</button>
+              </form>
+            </div>
           </td>
         </tr>
         {% endif %}
@@ -159,6 +179,15 @@
   {% endif %}
 </div>
 <script>
+function checkInvoiceSize(form) {
+  const files = form.querySelector('[name=file]').files;
+  const total = Array.from(files).reduce((sum, f) => sum + f.size, 0);
+  if (total > 40 * 1024 * 1024) {
+    alert('That is ' + (total / (1024*1024)).toFixed(0) + 'MB total -- too much for one upload. Attach them in smaller batches.');
+    return false;
+  }
+  return true;
+}
 function toggleActualForm(id) {
   const row = document.getElementById('edit-' + id);
   row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
