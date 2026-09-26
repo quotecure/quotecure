@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-26 (evening) — "+ Add Work Item" on the Schedule; QT-0035 diagnosis
+
+The diagnostic showed QT-0035's Surface Application has no modifiers checked at all — Leak Detection was never on that quote, so the auto-tracking had nothing to find (the feature was fine: both variants flagged, contract locked). Jim confirmed the work is being done anyway. New **+ Add Work Item** button on the Schedule: name it, pick top or end of the list, and it becomes a zero-priced `schedule_only` row with its own sub, dates and actual cost on the Schedule and Ledger — the Ledger shows the real cost against a $0 quote. If the name matches a catalog work type (Leak Detection does) it inherits its typical duration. Added items get a Remove button in their Edit panel; real line items and auto-created modifier rows can't be removed. Removed the temporary `/admin/debug_quote_tracking` diagnostic. Tested placement, blank names, a $350 actual landing in the Ledger with contract totals untouched, and Remove's limits.
+
+---
+
 ## 2026-09-26 (later) — Nav highlighting fixed; Leak Detection matching hardened + diagnostic
 
 Jim: the Ledger showed under Quotes in the top nav. The nav highlighted Quotes for any `/quotes...` path, and every per-quote page lives there. New `inject_nav_section` context processor: a contract's Ledger and Change Orders highlight **Contracts**, its Schedule tab highlights **Schedule**, and a signed contract's own page highlights Contracts (unsigned quotes stay under Quotes). Checked all seven cases against a real contract and a draft.

@@ -4252,32 +4252,41 @@ def _contract_modifier_labels(db, quote_id):
             labels.append(label)
     return labels
 
-@app.route('/admin/debug_quote_tracking/<int:quote_id>')
-@require_permission('can_access_admin')
-def debug_quote_tracking(quote_id):
-    """TEMPORARY read-only diagnostic: why isn't a modifier (Leak Detection) showing up as its
-    own Schedule/Ledger row on a real contract? Reports the quote's status, each effective line
-    item's modifiers as stored, which modifiers are flagged track_separately, and any existing
-    tracking rows. Changes nothing."""
+@app.route('/quotes/<int:quote_id>/schedule/add_work_item', methods=['POST'])
+@require_permission('can_enter_actuals')
+def add_schedule_work_item(quote_id):
+    """Jim: work that's being done but was never on the signed contract (QT-0035's Leak
+    Detection) still needs its own Schedule row and Ledger cost. Same zero-priced,
+    schedule_only tracking row as a modifier's, just named by hand and not tied to a parent
+    line item -- the Ledger shows the real cost against a $0 quote. Top of the list by default
+    (a low negative sort_order), or the end (max+1); neither renumbers a signed item."""
     db = get_db()
-    q = db.execute("SELECT quote_id, status FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    if not q:
-        return jsonify({'error': 'not found'}), 404
-    return jsonify({
-        'quote_status': q['status'],
-        'locked_contract': _is_locked_contract(db, quote_id),
-        'flagged_modifiers': [dict(r) for r in db.execute(
-            "SELECT modifier_id, label, track_separately FROM modifiers WHERE track_separately=1").fetchall()],
-        'leak_like_modifiers': [dict(r) for r in db.execute(
-            "SELECT modifier_id, label, track_separately, active FROM modifiers WHERE label ILIKE ?", ('%leak%',)).fetchall()],
-        'effective_items': [{'id': r.get('id'), 'label': r.get('work_type_label'), 'work_type_id': r.get('work_type_id'),
-                             'schedule_only': r.get('schedule_only'),
-                             'modifiers': json.loads(r.get('modifiers_json') or '[]')}
-                            for r in _contract_effective_items(db, quote_id).values()],
-        'tracking_rows': [dict(r) for r in db.execute(
-            "SELECT id, work_type_label, parent_item_id, source_modifier_id, sort_order FROM quote_line_items "
-            "WHERE quote_id=? AND schedule_only=1", (quote_id,)).fetchall()],
-    })
+    if not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    name = (request.form.get('name') or '').strip()
+    if name:
+        wt = db.execute("SELECT work_type_id FROM work_types WHERE LOWER(work_type)=LOWER(?)", (name,)).fetchone()
+        agg = "MAX(sort_order)+1" if request.form.get('position') == 'end' else "MIN(sort_order)-1"
+        sort_order = db.execute(f"SELECT COALESCE({agg}, 0) FROM quote_line_items WHERE quote_id=?", (quote_id,)).fetchone()[0]
+        db.execute(
+            "INSERT INTO quote_line_items (quote_id, work_type_id, work_type_label, is_optional, schedule_only, sort_order) "
+            "VALUES (?,?,?,0,1,?)",
+            (quote_id, wt['work_type_id'] if wt else None, name, sort_order)
+        )
+        db.commit()
+    return redirect(url_for('job_schedule', quote_id=quote_id))
+
+@app.route('/quotes/<int:quote_id>/schedule/<int:item_id>/remove', methods=['POST'])
+@require_permission('can_enter_actuals')
+def remove_schedule_work_item(quote_id, item_id):
+    """Undo for add_schedule_work_item only -- never a real line item, and never an auto-created
+    modifier tracking row (parent_item_id set), which would just be re-created on the next view."""
+    db = get_db()
+    if _is_locked_contract(db, quote_id):
+        db.execute("DELETE FROM quote_line_items WHERE id=? AND quote_id=? AND schedule_only=1 AND parent_item_id IS NULL",
+                   (item_id, quote_id))
+        db.commit()
+    return redirect(url_for('job_schedule', quote_id=quote_id))
 
 @app.route('/quotes/<int:quote_id>/schedule/add_modifier', methods=['POST'])
 @require_permission('can_enter_actuals')

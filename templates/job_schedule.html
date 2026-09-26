@@ -15,12 +15,40 @@
       <div class="page-subtitle">QT-{{ '%04d'|format(quote.quote_id) }} — signed {{ quote.signed_at }} — status: {{ 'in progress' if quote.status == 'in_progress' else quote.status }}</div>
     </div>
     <div style="display:flex;gap:8px;">
+      {% if can_edit %}
+      <button class="btn btn-secondary" type="button" onclick="toggleAddWorkItem()">+ Add Work Item</button>
+      {% endif %}
       {% if can_edit and modifier_labels %}
       <button class="btn btn-secondary" type="button" onclick="toggleAddModifier()">+ Add Modifier</button>
       {% endif %}
       <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Contract</a>
     </div>
   </div>
+
+  {% if can_edit %}
+  <div id="add-work-item-row" style="display:none;margin-bottom:16px;">
+    <div class="product-picker open">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">
+        Work that's being done but isn't on the signed contract. It gets its own row here and on the Ledger — its own sub, dates, and actual cost — and adds nothing to the contract price, so the Ledger shows your real cost against a $0 quote.
+      </div>
+      <form method="POST" action="/quotes/{{ quote.quote_id }}/schedule/add_work_item" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div>
+          <label class="form-label">Work item</label>
+          <input class="form-control" name="name" required placeholder="e.g. Leak Detection" style="width:240px;">
+        </div>
+        <div>
+          <label class="form-label">Position</label>
+          <select class="form-control sched-input" name="position">
+            <option value="top">At the top</option>
+            <option value="end">At the end</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Add</button>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="toggleAddWorkItem()">Cancel</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
 
   {% if can_edit and modifier_labels %}
   <div id="add-modifier-row" style="display:none;margin-bottom:16px;">
@@ -118,6 +146,12 @@
                 </div>
                 <button class="btn btn-primary btn-sm" type="submit">Save</button>
               </form>
+              {% if item.schedule_only and not item.parent_item_id %}
+              <form method="POST" action="/quotes/{{ quote.quote_id }}/schedule/{{ item.id }}/remove" style="display:flex;align-items:flex-end;"
+                    onsubmit="return confirm('Remove this work item from the Schedule and Ledger?')">
+                <button class="btn btn-secondary btn-sm" type="submit" style="color:var(--red);">Remove</button>
+              </form>
+              {% endif %}
             </div>
           </td>
         </tr>
@@ -138,6 +172,10 @@
 function toggleScheduleForm(id) {
   const row = document.getElementById('edit-' + id);
   row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+function toggleAddWorkItem() {
+  const row = document.getElementById('add-work-item-row');
+  row.style.display = row.style.display === 'none' ? 'block' : 'none';
 }
 function toggleAddModifier() {
   const row = document.getElementById('add-modifier-row');
