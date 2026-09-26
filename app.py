@@ -4252,6 +4252,35 @@ def _contract_modifier_labels(db, quote_id):
             labels.append(label)
     return labels
 
+@app.route('/admin/debug_ledger/<int:quote_id>')
+@require_permission('can_access_admin')
+def debug_ledger(quote_id):
+    """TEMPORARY read-only diagnostic: why does the Ledger's running actual differ from the
+    quoted total when nothing has been entered? Shows every line item on the quote, which ones
+    the Ledger counts, and the per-item numbers it sums. Changes nothing."""
+    db = get_db()
+    q = db.execute("SELECT total_cost, total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not q:
+        return jsonify({'error': 'not found'}), 404
+    all_rows = db.execute(
+        "SELECT id, work_type_label, work_type_id, is_optional, is_passthrough, schedule_only, labor_total_cost, "
+        "material_total_cost, modifiers_total_cost, total_cost FROM quote_line_items WHERE quote_id=? ORDER BY sort_order",
+        (quote_id,)).fetchall()
+    ledger = _ledger_items(db, quote_id)
+    counted = []
+    for it in ledger:
+        _, _, actual, _ = _ledger_item_actuals(it)
+        counted.append({'id': it['id'], 'label': it.get('work_type_label') or it.get('label'), 'source': it['source'],
+                        'labor': it.get('labor_total_cost'), 'material': it.get('material_total_cost'),
+                        'modifiers': it.get('modifiers_total_cost'), 'total_cost': it.get('total_cost'),
+                        'is_passthrough': it.get('is_passthrough'), 'ledger_actual_fallback': actual})
+    return jsonify({
+        'quote_total_cost': q['total_cost'], 'quote_total_price': q['total_price'],
+        'ledger_sum_of_actuals': round(sum(c['ledger_actual_fallback'] for c in counted), 2),
+        'ledger_items_counted': counted,
+        'all_line_items_on_quote': [dict(r) for r in all_rows],
+    })
+
 @app.route('/quotes/<int:quote_id>/schedule/add_work_item', methods=['POST'])
 @require_permission('can_enter_actuals')
 def add_schedule_work_item(quote_id):
