@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-09-26 (later) — Nav highlighting fixed; Leak Detection matching hardened + diagnostic
+
+Jim: the Ledger showed under Quotes in the top nav. The nav highlighted Quotes for any `/quotes...` path, and every per-quote page lives there. New `inject_nav_section` context processor: a contract's Ledger and Change Orders highlight **Contracts**, its Schedule tab highlights **Schedule**, and a signed contract's own page highlights Contracts (unsigned quotes stay under Quotes). Checked all seven cases against a real contract and a draft.
+
+Jim also still didn't see Leak Detection on QT-0035's Schedule or Ledger. Couldn't inspect the real quote, so: (1) tracking now matches a quote's stored modifier by **label** as well as id, since the id in a quote's snapshot can go stale if the modifier was ever re-created in Admin (tested with a made-up id); (2) new migration re-flags Leak Detection case-insensitively; (3) temporary read-only `/admin/debug_quote_tracking/<quote_id>` shows the quote's status, each item's stored modifiers, which modifiers are flagged, and any tracking rows.
+
+---
+
 ## 2026-09-26 — Leak Detection now gets its own Schedule/Ledger line automatically
 
 Jim: Leak Detection is tied to Surface Application only, so the manual "+ Add Modifier" step was the wrong tool for it — it should just be its own line whenever it's on the quote, at the top (it happens before everything else), and the Ledger needed the same. New `modifiers.track_separately` flag (set for both Leak Detection variants; no admin UI for it yet) makes `_ensure_tracked_modifier_rows` create a "Leak Detection (Surface Application)" tracking row — sub, dates, actual cost — for any signed contract with it checked. It runs at signing and whenever the Schedule or Ledger is opened, so contracts signed earlier (QT-0035) pick it up too. Idempotent via new `parent_item_id`/`source_modifier_id` columns.

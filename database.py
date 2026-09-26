@@ -4138,6 +4138,13 @@ def add_tracked_modifier_rows(conn):
 
 
 @migration
+def reflag_leak_detection_case_insensitive(conn):
+    """add_tracked_modifier_rows matched 'Leak Detection%' with a case-sensitive LIKE; re-flag
+    case-insensitively in case the real modifier is spelled differently. Idempotent."""
+    conn.execute("UPDATE modifiers SET track_separately=1 WHERE label ILIKE ?", ('Leak Detection%',))
+
+
+@migration
 def rename_pebbletec_tiers_to_original(conn):
     """Jim: 'Elite, Standard, Upgrade, Premium... those are all PebbleTec Original' -- these
     4 product_line values were staff-entered (through the admin Surfaces page, not seeded in

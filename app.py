@@ -4194,6 +4194,14 @@ def _insert_tracking_row(db, quote_id, parent, mod):
 def _tracked_modifier_ids(db):
     return {r['modifier_id'] for r in db.execute("SELECT modifier_id FROM modifiers WHERE track_separately=1").fetchall()}
 
+def _tracked_modifier_labels(db):
+    return {(r['label'] or '').strip().lower() for r in db.execute("SELECT label FROM modifiers WHERE track_separately=1").fetchall()}
+
+def _is_auto_tracked(m, tracked_ids, tracked_labels):
+    """A quote stores a snapshot of the modifier (id + label) when it's checked, so the id can
+    go stale if the modifier was ever re-created in Admin -- match by label too."""
+    return m.get('id') in tracked_ids or (m.get('label') or '').strip().lower() in tracked_labels
+
 def _ensure_tracked_modifier_rows(db, quote_id):
     """Auto-creates the Schedule/Ledger tracking row for every modifier flagged
     track_separately (Leak Detection) that's checked on a signed contract's line items.
@@ -4202,14 +4210,15 @@ def _ensure_tracked_modifier_rows(db, quote_id):
     if not _is_locked_contract(db, quote_id):
         return
     tracked_ids = _tracked_modifier_ids(db)
-    if not tracked_ids:
+    tracked_labels = _tracked_modifier_labels(db)
+    if not tracked_ids and not tracked_labels:
         return
     changed = False
     for row in list(_contract_effective_items(db, quote_id).values()):
         if row.get('schedule_only') or 'change_order_id' in row:
             continue
         for m in json.loads(row.get('modifiers_json') or '[]'):
-            if m.get('id') in tracked_ids and _insert_tracking_row(db, quote_id, row, m):
+            if _is_auto_tracked(m, tracked_ids, tracked_labels) and _insert_tracking_row(db, quote_id, row, m):
                 changed = True
     if changed:
         db.commit()
@@ -4218,6 +4227,7 @@ def _untracked_modifiers(db, quote_id):
     """(parent_row, modifier) pairs bundled on this contract's real line items that don't have
     a tracking row yet and aren't auto-tracked -- what the manual "+ Add Modifier" picker offers."""
     auto_ids = _tracked_modifier_ids(db)
+    auto_labels = _tracked_modifier_labels(db)
     have = {(r['parent_item_id'], r['source_modifier_id']) for r in db.execute(
         "SELECT parent_item_id, source_modifier_id FROM quote_line_items WHERE quote_id=? AND schedule_only=1",
         (quote_id,)).fetchall()}
@@ -4226,7 +4236,7 @@ def _untracked_modifiers(db, quote_id):
         if row.get('schedule_only') or 'change_order_id' in row:
             continue
         for m in json.loads(row.get('modifiers_json') or '[]'):
-            if m.get('id') not in auto_ids and (row['id'], m.get('id')) not in have and (m.get('label') or '').strip():
+            if not _is_auto_tracked(m, auto_ids, auto_labels) and (row['id'], m.get('id')) not in have and (m.get('label') or '').strip():
                 out.append((row, m))
     return out
 
@@ -4241,6 +4251,33 @@ def _contract_modifier_labels(db, quote_id):
         if label not in labels:
             labels.append(label)
     return labels
+
+@app.route('/admin/debug_quote_tracking/<int:quote_id>')
+@require_permission('can_access_admin')
+def debug_quote_tracking(quote_id):
+    """TEMPORARY read-only diagnostic: why isn't a modifier (Leak Detection) showing up as its
+    own Schedule/Ledger row on a real contract? Reports the quote's status, each effective line
+    item's modifiers as stored, which modifiers are flagged track_separately, and any existing
+    tracking rows. Changes nothing."""
+    db = get_db()
+    q = db.execute("SELECT quote_id, status FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not q:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({
+        'quote_status': q['status'],
+        'locked_contract': _is_locked_contract(db, quote_id),
+        'flagged_modifiers': [dict(r) for r in db.execute(
+            "SELECT modifier_id, label, track_separately FROM modifiers WHERE track_separately=1").fetchall()],
+        'leak_like_modifiers': [dict(r) for r in db.execute(
+            "SELECT modifier_id, label, track_separately, active FROM modifiers WHERE label ILIKE ?", ('%leak%',)).fetchall()],
+        'effective_items': [{'id': r.get('id'), 'label': r.get('work_type_label'), 'work_type_id': r.get('work_type_id'),
+                             'schedule_only': r.get('schedule_only'),
+                             'modifiers': json.loads(r.get('modifiers_json') or '[]')}
+                            for r in _contract_effective_items(db, quote_id).values()],
+        'tracking_rows': [dict(r) for r in db.execute(
+            "SELECT id, work_type_label, parent_item_id, source_modifier_id, sort_order FROM quote_line_items "
+            "WHERE quote_id=? AND schedule_only=1", (quote_id,)).fetchall()],
+    })
 
 @app.route('/quotes/<int:quote_id>/schedule/add_modifier', methods=['POST'])
 @require_permission('can_enter_actuals')
@@ -5070,6 +5107,36 @@ def change_password():
 @app.context_processor
 def inject_user():
     return {'current_user': g.user, 'current_role': g.role}
+
+@app.context_processor
+def inject_nav_section():
+    """Which top-nav item to highlight. Path alone isn't enough: every per-quote page lives
+    under /quotes/<id>/..., but a signed contract's own page, its Ledger and its Change Orders
+    belong under Contracts (Jim: the Ledger highlighting Quotes "doesn't make sense"), and a
+    contract's Schedule tab under Schedule."""
+    import re
+    path = request.path
+    section = ''
+    m = re.match(r'^/quotes/(\d+)(/.*)?$', path)
+    if m:
+        rest = m.group(2) or ''
+        if rest.startswith('/ledger') or rest.startswith('/change_orders'):
+            section = 'contracts'
+        elif rest.startswith('/schedule'):
+            section = 'schedule'
+        else:
+            section = 'quotes'
+            if g.user:
+                row = get_db().execute("SELECT status FROM quotes WHERE quote_id=?", (int(m.group(1)),)).fetchone()
+                if row and row['status'] in ('contract', 'in_progress', 'complete'):
+                    section = 'contracts'
+    elif path.startswith('/quotes'):
+        section = 'quotes'
+    elif path.startswith('/contracts'):
+        section = 'contracts'
+    elif path == '/schedule':
+        section = 'schedule'
+    return {'nav_section': section}
 
 NEW_LEAD_BADGE_WINDOW_DAYS = 3
 app.jinja_env.globals['NEW_LEAD_BADGE_WINDOW_DAYS'] = NEW_LEAD_BADGE_WINDOW_DAYS
