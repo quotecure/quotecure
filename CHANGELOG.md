@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-01 (evening) — Line-item descriptions keep their line breaks on the quote
+
+Jim: typing a few bulleted lines into a line item's description to spell out a unique situation came out as one run-on blob on the actual quote. The description textarea already preserves line breaks when typed (and the compact editor summary is deliberately single-line/truncated, which is correct) -- the bug was purely in `quote_preview.html`/`change_order_preview.html`, where plain HTML collapses line breaks unless told not to. Added `white-space: pre-wrap` to `.item-desc` in both. Browser-verified a 3-line bulleted description renders as 3 separate lines on the quote.
+
+---
+
 ## 2026-10-01 (later) — Fixed the Users & Passwords alignment
 
 Jim, after the username field went in: "this alignment is wooooof." Each row was its own independent flex container, so column widths drifted row to row based on each value's own length (coordinator's short fields vs. doug's longer ones) — nothing lined up. Rebuilt as one CSS grid spanning every row, with real column headers (Role / Username / Display Name / Email / Password) instead of a placeholder-only guess at what each box was. Stacks to one field per row under 900px, role name as a bold section header instead of a column. Browser-verified at desktop and mobile widths.
