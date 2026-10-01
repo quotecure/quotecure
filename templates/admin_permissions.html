@@ -1,5 +1,35 @@
 {% extends 'base.html' %}
 {% block title %}Permissions — QuoteCure{% endblock %}
+{% block extra_css %}
+<style>
+/* One grid spanning every user row -- a mini flex layout per row let column widths drift
+   independently from row to row (e.g. "coordinator" vs "doug"), so nothing lined up. */
+.users-grid {
+  display: grid;
+  grid-template-columns: 90px minmax(140px,1fr) minmax(140px,1fr) minmax(170px,1.4fr) minmax(150px,1fr);
+  gap: 10px 16px;
+  align-items: center;
+}
+.users-grid-head {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text3); padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.users-grid-role {
+  font-size: 11px; color: var(--text3); padding: 10px 0; border-bottom: 1px solid var(--border2);
+  align-self: stretch; display: flex; align-items: center;
+}
+.users-grid-cell {
+  display: flex; gap: 8px; align-items: center; padding: 6px 0;
+  border-bottom: 1px solid var(--border2);
+}
+.users-grid-cell .form-control { flex: 1; min-width: 0; }
+@media (max-width: 900px) {
+  .users-grid { grid-template-columns: 1fr; }
+  .users-grid-head:not(:first-child) { display: none; }
+  .users-grid-role { border-bottom: none; padding-bottom: 0; font-weight: 600; color: var(--text2); }
+}
+</style>
+{% endblock %}
 {% block content %}
 <div class="page">
   <div class="page-header">
@@ -128,33 +158,36 @@
   <div class="card">
     <div class="card-header"><div class="card-title">Users & Passwords</div></div>
     <div class="card-body">
+      <div class="users-grid">
+        <div class="users-grid-head">Role</div>
+        <div class="users-grid-head">Username</div>
+        <div class="users-grid-head">Display Name</div>
+        <div class="users-grid-head">Email <span style="font-weight:400;text-transform:none;">(lockout reset links)</span></div>
+        <div class="users-grid-head">Password</div>
       {% for user in users %}
-      <div style="display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--border2);flex-wrap:wrap;">
-        <div style="min-width:120px;">
-          <div style="font-size:11px;color:var(--text3)">{{ user.role_name }}</div>
-        </div>
-        <form method="POST" action="/admin/permissions/update_username" style="display:flex;gap:8px;align-items:center;">
+        <div class="users-grid-role">{{ user.role_name }}</div>
+        <form method="POST" action="/admin/permissions/update_username" class="users-grid-cell">
           <input type="hidden" name="user_id" value="{{ user.user_id }}">
-          <input class="form-control" name="username" type="text" placeholder="Login username" value="{{ user.username }}" style="width:140px;margin:0;font-weight:600;" required>
+          <input class="form-control" name="username" type="text" placeholder="Login username" value="{{ user.username }}" style="margin:0;font-weight:600;" required>
           <button class="btn btn-secondary btn-sm" type="submit">Save</button>
         </form>
-        <form method="POST" action="/admin/permissions/update_display_name" style="display:flex;gap:8px;align-items:center;">
+        <form method="POST" action="/admin/permissions/update_display_name" class="users-grid-cell">
           <input type="hidden" name="user_id" value="{{ user.user_id }}">
-          <input class="form-control" name="display_name" type="text" placeholder="Display name" value="{{ user.display_name or '' }}" style="width:180px;margin:0;">
+          <input class="form-control" name="display_name" type="text" placeholder="Display name" value="{{ user.display_name or '' }}" style="margin:0;">
           <button class="btn btn-secondary btn-sm" type="submit">Save</button>
         </form>
-        <form method="POST" action="/admin/permissions/update_email" style="display:flex;gap:8px;align-items:center;">
+        <form method="POST" action="/admin/permissions/update_email" class="users-grid-cell">
           <input type="hidden" name="user_id" value="{{ user.user_id }}">
-          <input class="form-control" name="email" type="email" placeholder="Email — for lockout reset links" value="{{ user.email or '' }}" style="width:220px;margin:0;">
+          <input class="form-control" name="email" type="email" placeholder="Email" value="{{ user.email or '' }}" style="margin:0;">
           <button class="btn btn-secondary btn-sm" type="submit">Save</button>
         </form>
-        <form method="POST" action="/admin/permissions/change_password" style="display:flex;gap:8px;align-items:center;">
+        <form method="POST" action="/admin/permissions/change_password" class="users-grid-cell">
           <input type="hidden" name="user_id" value="{{ user.user_id }}">
-          <input class="form-control" name="new_password" type="password" placeholder="New password" style="width:180px;margin:0;">
+          <input class="form-control" name="new_password" type="password" placeholder="New password" style="margin:0;">
           <button class="btn btn-secondary btn-sm" type="submit">Update</button>
         </form>
-      </div>
       {% endfor %}
+      </div>
     </div>
   </div>
 

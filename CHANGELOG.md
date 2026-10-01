@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-01 (later) — Fixed the Users & Passwords alignment
+
+Jim, after the username field went in: "this alignment is wooooof." Each row was its own independent flex container, so column widths drifted row to row based on each value's own length (coordinator's short fields vs. doug's longer ones) — nothing lined up. Rebuilt as one CSS grid spanning every row, with real column headers (Role / Username / Display Name / Email / Password) instead of a placeholder-only guess at what each box was. Stacks to one field per row under 900px, role name as a bold section header instead of a column. Browser-verified at desktop and mobile widths.
+
+---
+
 ## 2026-10-01 — Login usernames can now be renamed on the Permissions page
 
 Jim: "owner" became "jim" and the display name field already works, but "coordinator" still just said "coordinator" with no way to change it — the actual login username (what you type to sign in) had no edit field anywhere, only display name, email, and password. New inline field on each user row in Admin → Roles & Permissions → Users & Passwords, right where the username used to just sit as plain text. Case-insensitive uniqueness check up front with a clear error banner instead of a raw database error; renaming doesn't affect an active session, since login is keyed by user_id, not username.
