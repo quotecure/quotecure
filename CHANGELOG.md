@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-01 — Login usernames can now be renamed on the Permissions page
+
+Jim: "owner" became "jim" and the display name field already works, but "coordinator" still just said "coordinator" with no way to change it — the actual login username (what you type to sign in) had no edit field anywhere, only display name, email, and password. New inline field on each user row in Admin → Roles & Permissions → Users & Passwords, right where the username used to just sit as plain text. Case-insensitive uniqueness check up front with a clear error banner instead of a raw database error; renaming doesn't affect an active session, since login is keyed by user_id, not username.
+
+Tested: a successful rename, a case-insensitive collision with an existing username rejected with nothing changed, a blank username rejected, and logging in with the newly-renamed username actually works. Browser-verified the field renders correctly for all three accounts and the rename takes effect immediately.
+
+---
+
 ## 2026-09-27 (later) — Ledger no longer starts out "under by $699" on QT-0035
 
 Jim: the Ledger showed cost so far under by $699 with nothing entered. Pulled the real breakdown with a temporary read-only diagnostic (now removed): quoted total $26,334.06 vs. a running total of $25,635.00. Two separate bugs that partly cancelled: (1) **modifier costs were never in any Ledger item** — the per-item fallback used only labor and material, so Drain Pool, Remove Tile, Cantilever Cut, Tax, Freight and Trash Removal ($1,599.06 on this job) were in the quote total but nowhere in the running actual; (2) the **pass-through Bond beam repair ($900) was counted** in the running actual though it's billed at cost separately and was never part of the quoted total. $1,599.06 − $900 = $699.06.

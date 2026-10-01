@@ -5197,7 +5197,28 @@ def admin_permissions():
     users = db.execute("""SELECT u.*, r.role_name FROM users u
                           JOIN roles r ON u.role_id=r.role_id
                           ORDER BY u.user_id""").fetchall()
-    return render_template('admin_permissions.html', roles=roles, users=users)
+    return render_template('admin_permissions.html', roles=roles, users=users, error=request.args.get('error'))
+
+@app.route('/admin/permissions/update_username', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def update_username():
+    """Jim: a generic login like 'coordinator' should be rename-able to whoever's actually
+    using it, same as 'owner' became 'jim' and the display name is already editable. Case-
+    insensitive uniqueness check up front (the column itself is UNIQUE) so a collision fails
+    loudly with a message instead of a raw IntegrityError -- changing it doesn't touch the
+    active session, since Flask's login keys off user_id, not username."""
+    db = get_db()
+    user_id = request.form.get('user_id')
+    new_username = (request.form.get('username') or '').strip()
+    if not new_username:
+        return redirect(url_for('admin_permissions', error='Username cannot be blank.'))
+    clash = db.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?) AND user_id!=?",
+                        (new_username, user_id)).fetchone()
+    if clash:
+        return redirect(url_for('admin_permissions', error=f'"{new_username}" is already taken by another login.'))
+    db.execute("UPDATE users SET username=? WHERE user_id=?", (new_username, user_id))
+    db.commit()
+    return redirect(url_for('admin_permissions'))
 
 @app.route('/admin/permissions/update_role', methods=['POST'])
 @require_permission('can_edit_commission_policy')
