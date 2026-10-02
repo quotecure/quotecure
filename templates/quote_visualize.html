@@ -118,14 +118,14 @@
       <div class="viz-pair-col">
         <div class="viz-pair-label">Before</div>
         <div class="viz-img-wrap" onclick="openLightbox(this.querySelector('img').src)">
-          <img src="{{ v.original_image }}" class="viz-history-img">
+          <img src="/quotes/{{ quote.quote_id }}/visualize/{{ v.id }}/image/original" class="viz-history-img" loading="lazy">
           <span class="viz-img-hint">⤢ Tap to Enlarge</span>
         </div>
       </div>
       <div class="viz-pair-col">
         <div class="viz-pair-label">Rendered Concept</div>
         <div class="viz-img-wrap" onclick="openLightbox(this.querySelector('img').src)">
-          <img src="{{ v.generated_image }}" class="viz-history-img">
+          <img src="/quotes/{{ quote.quote_id }}/visualize/{{ v.id }}/image/generated" class="viz-history-img" loading="lazy">
           <span class="viz-img-hint">⤢ Tap to Enlarge</span>
         </div>
       </div>
@@ -170,13 +170,11 @@ fileInput.addEventListener('change', () => {
   const file = fileInput.files[0];
   if (!file) return;
   selectedFile = file;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    previewImg.src = e.target.result;
-    previewImg.style.display = 'block';
-    generateBtn.style.display = 'inline-block';
-  };
-  reader.readAsDataURL(file);
+  // An object URL, not readAsDataURL -- that built an 11MB+ base64 string in the browser
+  // just to show a thumbnail of a full-size phone photo.
+  previewImg.src = URL.createObjectURL(file);
+  previewImg.style.display = 'block';
+  generateBtn.style.display = 'inline-block';
 });
 
 document.getElementById('viz-form').addEventListener('submit', async (e) => {
@@ -201,7 +199,7 @@ document.getElementById('viz-form').addEventListener('submit', async (e) => {
 
     if (d.status === 'done') {
       document.getElementById('viz-result-original').src = previewImg.src;
-      document.getElementById('viz-result-generated').src = d.generated_image;
+      document.getElementById('viz-result-generated').src = d.generated_url;
       document.getElementById('viz-result-pair').style.display = 'grid';
       const labelEl = document.getElementById('viz-result-label');
       labelEl.textContent = d.package_label ? d.package_label + ' tier defaults' : 'Current quote selections';

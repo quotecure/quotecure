@@ -13,6 +13,8 @@ from line_item_logic import build_line_item, calc_component, price_component
 import hashlib
 import secrets
 import ghl_client
+import threading
+from image_utils import shrink_image, shrink_data_uri, split_data_uri
 
 app = Flask(__name__)
 # Every upload route here already caps a single file at 10-15MB (_validate_pdf_upload /
@@ -106,23 +108,18 @@ def check_pw(password, stored_hash):
 
 # ── Init ──────────────────────────────────────────────────────────────────────
 _initialized = False
+_init_lock = threading.Lock()
 
 @app.before_request
 def setup():
     global _initialized
     if not _initialized:
-        init_db()
-        db = get_db()
-        run_migrations(db)
-        init_auth(db)
-        init_materials(db)
-        init_company_settings(db)
-        init_pebble_pros_surfaces(db)
-        init_skimmer_material(db)
-        init_cap_tile_trim_materials(db)
-        init_finishing_flooring_pros_sub(db)
-        db.close()
-        _initialized = True
+        # gunicorn now runs threads (see Dockerfile) -- two first requests arriving together
+        # must not both run the migrations.
+        with _init_lock:
+            if not _initialized:
+                _run_init()
+                _initialized = True
     # Load current user into g
     g.user = None
     g.role = None
@@ -133,6 +130,19 @@ def setup():
         if user:
             g.user = user
             g.role = user
+
+def _run_init():
+    init_db()
+    db = get_db()
+    run_migrations(db)
+    init_auth(db)
+    init_materials(db)
+    init_company_settings(db)
+    init_pebble_pros_surfaces(db)
+    init_skimmer_material(db)
+    init_cap_tile_trim_materials(db)
+    init_finishing_flooring_pros_sub(db)
+    db.close()
 
 # ── Auth decorator ────────────────────────────────────────────────────────────
 def login_required(f):
@@ -2284,32 +2294,7 @@ def job_ledger(quote_id):
 
 MAX_INVOICES_PER_ITEM = 10
 
-def _shrink_image(file_bytes, ext):
-    """A phone photo of an invoice doesn't need full resolution. Downscale to 1800px on the long
-    side as a ~80% JPEG (typically 4-10MB -> a few hundred KB) before it's stored -- Render's
-    database storage is what fills up, and every file is base64 in Postgres. Returns
-    (bytes, ext); anything that isn't a plain photo, or that fails, is stored untouched."""
-    if ext not in ('jpg', 'jpeg', 'png', 'webp'):
-        return file_bytes, ext
-    try:
-        import io
-        from PIL import Image, ImageOps
-        img = ImageOps.exif_transpose(Image.open(io.BytesIO(file_bytes)))
-        img.thumbnail((1800, 1800))
-        if img.mode in ('RGBA', 'LA', 'P'):
-            img = img.convert('RGBA')
-            flat = Image.new('RGB', img.size, (255, 255, 255))
-            flat.paste(img, mask=img.split()[-1])
-            img = flat
-        elif img.mode != 'RGB':
-            img = img.convert('RGB')
-        out = io.BytesIO()
-        img.save(out, 'JPEG', quality=80, optimize=True)
-        if len(out.getvalue()) < len(file_bytes):
-            return out.getvalue(), 'jpg'
-    except Exception:
-        pass
-    return file_bytes, ext
+_shrink_image = shrink_image  # invoices: 1800px / q80, see image_utils
 
 @app.route('/quotes/<int:quote_id>/ledger/<int:item_id>/invoices', methods=['POST'])
 @require_permission('can_enter_actuals')
@@ -5997,6 +5982,10 @@ def _quote_preview_html(quote_id, sign_action_url=None, for_pdf=False):
         "SELECT * FROM quote_visualizations WHERE quote_id=? AND status='done' AND generated_image IS NOT NULL "
         "ORDER BY created_at DESC LIMIT 1", (quote_id,)
     ).fetchone()
+    if visualization:
+        visualization = dict(visualization)
+        for col in ('original_image', 'generated_image'):
+            visualization[col] = _shrink_stored_viz(db, visualization['id'], col)
     from datetime import date, timedelta
     today = date.today()
     valid_until = today + timedelta(days=settings['quote_validity_days'] if settings else 30)
@@ -6186,15 +6175,20 @@ def _generate_visualization_image(photo_bytes, mime_type, prompt):
     return None, None
 
 
+_pdf_lock = threading.Lock()
+
 def _generate_quote_pdf_bytes(html):
     from playwright.sync_api import sync_playwright
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        page.emulate_media(media='print')
-        page.set_content(html, wait_until='networkidle')
-        pdf_bytes = page.pdf(format='Letter', print_background=True)
-        browser.close()
+    # Chromium is the app's big memory user. The old single sync worker accidentally made
+    # PDF renders take turns; with threads, keep that explicit so two can't launch at once.
+    with _pdf_lock:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.emulate_media(media='print')
+            page.set_content(html, wait_until='networkidle')
+            pdf_bytes = page.pdf(format='Letter', print_background=True)
+            browser.close()
     return pdf_bytes
 
 def _append_terms_pdf(pdf_bytes, terms_doc):
@@ -6327,6 +6321,43 @@ def _send_plain_email(to_email, subject, body_text, gmail_address, gmail_app_pas
         server.login(gmail_address, gmail_app_password)
         server.sendmail(gmail_address, [to_email], msg.as_string())
 
+VIZ_ORIGINAL_MAX_SIDE = 1600
+VIZ_GENERATED_MAX_SIDE = 1800
+VIZ_QUALITY = 82
+# A stored image over this many base64 characters (~1.5MB) predates the shrink-on-upload fix.
+VIZ_OVERSIZE_CHARS = 2_000_000
+
+def _shrink_stored_viz(db, viz_id, column):
+    """Self-healing for renders saved before shrink-on-upload existed: the first time an
+    oversized one is viewed, previewed or emailed it gets shrunk and written back, one row at
+    a time inside a normal request -- no deploy-time bulk job to time out. Returns the data
+    URI (shrunk if it needed it)."""
+    row = db.execute(f"SELECT {column} FROM quote_visualizations WHERE id=?", (viz_id,)).fetchone()
+    uri = row[column] if row else None
+    if uri and len(uri) > VIZ_OVERSIZE_CHARS:
+        small = shrink_data_uri(uri, VIZ_ORIGINAL_MAX_SIDE if column == 'original_image' else VIZ_GENERATED_MAX_SIDE, VIZ_QUALITY)
+        if len(small) < len(uri):
+            db.execute(f"UPDATE quote_visualizations SET {column}=? WHERE id=?", (small, viz_id))
+            db.commit()
+            return small
+    return uri
+
+@app.route('/quotes/<int:quote_id>/visualize/<int:viz_id>/image/<which>')
+@login_required
+def visualization_image(quote_id, viz_id, which):
+    """One image's bytes on its own request, cached by the browser -- an image never changes
+    once saved, so the Visualize page stays tiny instead of embedding every render as base64."""
+    if which not in ('original', 'generated'):
+        return ('', 404)
+    column = 'original_image' if which == 'original' else 'generated_image'
+    db = get_db()
+    if not db.execute("SELECT 1 FROM quote_visualizations WHERE id=? AND quote_id=?", (viz_id, quote_id)).fetchone():
+        return ('', 404)
+    mime, raw = split_data_uri(_shrink_stored_viz(db, viz_id, column))
+    if raw is None:
+        return ('', 404)
+    return Response(raw, mimetype=mime, headers={'Cache-Control': 'private, max-age=86400'})
+
 @app.route('/quotes/<int:quote_id>/visualize', methods=['GET'])
 @login_required
 def quote_visualize(quote_id):
@@ -6334,8 +6365,11 @@ def quote_visualize(quote_id):
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     if not quote:
         return redirect(url_for('quotes_list'))
+    # Metadata only -- the images themselves load separately (visualization_image). SELECT *
+    # pulled every original + render for the quote into memory and into the HTML at once.
     visualizations = db.execute(
-        "SELECT * FROM quote_visualizations WHERE quote_id=? ORDER BY id DESC", (quote_id,)
+        "SELECT id, quote_id, package_label, status, error_message, created_at "
+        "FROM quote_visualizations WHERE quote_id=? ORDER BY id DESC", (quote_id,)
     ).fetchall()
     packages = db.execute("SELECT package_id, name FROM packages WHERE active='Y' ORDER BY sort_order").fetchall()
     return render_template('quote_visualize.html', quote=quote, visualizations=visualizations, packages=packages)
@@ -6361,6 +6395,13 @@ def generate_visualization(quote_id):
 
     photo_bytes = file.read()
     mime_type = file.mimetype or 'image/jpeg'
+    # A phone photo is 5-12MB; the model doesn't need that, and the full-size copy is what
+    # was being stored, inlined into pages and PDFs, and locking the app up. Shrunk once here,
+    # before it's stored or sent anywhere.
+    ext = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}.get(mime_type)
+    if ext:
+        photo_bytes, ext = shrink_image(photo_bytes, ext, VIZ_ORIGINAL_MAX_SIDE, VIZ_QUALITY)
+        mime_type = {'jpg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}[ext]
     original_b64 = f"data:{mime_type};base64,{base64.b64encode(photo_bytes).decode()}"
     prompt = _build_visualization_prompt(db, quote_id, package_id)
 
@@ -6374,6 +6415,10 @@ def generate_visualization(quote_id):
     try:
         img_bytes, out_mime = _generate_visualization_image(photo_bytes, mime_type, prompt)
         if img_bytes:
+            out_ext = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}.get(out_mime)
+            if out_ext:
+                img_bytes, out_ext = shrink_image(img_bytes, out_ext, VIZ_GENERATED_MAX_SIDE, VIZ_QUALITY)
+                out_mime = {'jpg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}[out_ext]
             generated_b64 = f"data:{out_mime};base64,{base64.b64encode(img_bytes).decode()}"
             db.execute("UPDATE quote_visualizations SET generated_image=?,status='done' WHERE id=?",
                        (generated_b64, viz_id))
@@ -6385,11 +6430,12 @@ def generate_visualization(quote_id):
                    (str(e), viz_id))
     db.commit()
 
-    result = db.execute("SELECT * FROM quote_visualizations WHERE id=?", (viz_id,)).fetchone()
+    result = db.execute("SELECT id, status, package_label, error_message FROM quote_visualizations WHERE id=?", (viz_id,)).fetchone()
     return jsonify({
         'id': result['id'],
         'status': result['status'],
-        'generated_image': result['generated_image'],
+        # A URL, not the image itself -- the response used to carry the whole base64 render.
+        'generated_url': url_for('visualization_image', quote_id=quote_id, viz_id=viz_id, which='generated'),
         'package_label': result['package_label'],
         'error_message': result['error_message'],
     })

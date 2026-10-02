@@ -12,4 +12,6 @@ RUN playwright install --with-deps chromium
 
 COPY . .
 
-CMD gunicorn app:app --bind 0.0.0.0:$PORT --timeout 150
+# One worker (memory), several threads: a slow request -- the AI render can take a minute --
+# no longer freezes every other page while it runs.
+CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 150

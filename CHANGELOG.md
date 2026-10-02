@@ -4,6 +4,20 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-02 (later) — AI visualization images no longer lock up the app
+
+Jim: the AI visualization images are too large and keep locking up the app (and earlier: Render bandwidth overage, and a promise to shrink these for email). Three causes, all fixed:
+
+1. **Images were stored and sent at full size.** A phone photo (5-12MB) went to the model and into Postgres untouched, and the model's 3-6MB PNG render was stored as-is, both base64 (+33%). Both are now shrunk before being stored (photo to 1600px, render to 1800px, JPEG q82) via a new shared `image_utils.py` that the invoice upload now uses too. The photo goes to the model shrunk, which also makes it faster.
+2. **Pages and responses embedded the images.** The Visualize page selected every original and render for the quote and inlined them all as base64 in the HTML (several renders = tens of MB of page); the generate response returned the render itself. The page now loads metadata only and shows images from a new cached `/quotes/<id>/visualize/<id>/image/<original|generated>` endpoint (lazy-loaded, browser-cached, login required); the generate response returns a URL. The upload preview uses an object URL instead of building an 11MB base64 string in the browser.
+3. **One slow request froze the whole app.** gunicorn ran a single sync worker, so while the AI call ran (up to a minute or more) nobody else could load a page. Dockerfile now runs `--workers 1 --threads 4`: still one process for memory, but other requests proceed during a long one. To protect memory with requests now overlapping, PDF rendering (Chromium) takes turns behind a lock, and the first-request database setup is lock-guarded so two simultaneous first requests can't both run migrations.
+
+**Renders saved before this fix** heal themselves: the first time an oversized one is viewed, previewed on a quote, or emailed, it's shrunk and written back to the database, one row at a time inside a normal request — deliberately not a bulk migration, since a long job on the first request after deploy could time out Render's health check and loop. Rows nobody opens stay big until they're touched.
+
+Tested with a 11MB photo and a 15MB PNG render (pure noise, the worst case for JPEG; real photos shrink more): stored sizes under ~1.3MB, generate response 145 bytes, a Visualize page with 4 renders is 17KB of HTML, endpoint caching/404s/login, an old 15MB row shrinking to 941KB on first view, and the quote preview shrinking an old render before inlining it. Verified gunicorn starts with the new flags and serves 8 simultaneous first requests cleanly.
+
+---
+
 ## 2026-10-02 — Commission always visible whenever a quote has a salesperson
 
 Jim: "I want whoever the salesperson is, whether it's owner, coordinator, sales, whoever is listed, to have the commission shown... regardless of who it is." Supersedes the 2026-09-21 rule, which hid commission on your own assigned quotes (the idea then being "the owner gets profit, not commission") and only showed it on someone else's. Jim's call now: whoever actually sold the job gets that commission off the top, so it should just always be visible — no role check, no "is this my own quote" check.
