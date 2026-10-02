@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-02 — Commission always visible whenever a quote has a salesperson
+
+Jim: "I want whoever the salesperson is, whether it's owner, coordinator, sales, whoever is listed, to have the commission shown... regardless of who it is." Supersedes the 2026-09-21 rule, which hid commission on your own assigned quotes (the idea then being "the owner gets profit, not commission") and only showed it on someone else's. Jim's call now: whoever actually sold the job gets that commission off the top, so it should just always be visible — no role check, no "is this my own quote" check.
+
+The quote page's Commission card, and the Commission column on the Quotes and Contracts lists, now show whenever `quote.salesperson` is set, period — including the viewer's own quotes. An unassigned quote (no salesperson on file) still hides it, since there's no one specific it would be owed to. Dropped the "(Rep: Doug)" qualifier on the quote page's card now that it's unconditional. The `show_commission` role permission still exists and still gates the quote editor's tier-upsell nudge, which is a different thing (a motivational hint for whoever's building the quote, not the commission figure itself) — not touched here since Jim didn't ask about it.
+
+Tested: the Owner now sees commission on their own quote, still sees it on Doug's, an unassigned quote still hides it, and both list pages always show the column. Full suite passes.
+
+---
+
 ## 2026-10-01 (evening) — Line-item descriptions keep their line breaks on the quote
 
 Jim: typing a few bulleted lines into a line item's description to spell out a unique situation came out as one run-on blob on the actual quote. The description textarea already preserves line breaks when typed (and the compact editor summary is deliberately single-line/truncated, which is correct) -- the bug was purely in `quote_preview.html`/`change_order_preview.html`, where plain HTML collapses line breaks unless told not to. Added `white-space: pre-wrap` to `.item-desc` in both. Browser-verified a 3-line bulleted description renders as 3 separate lines on the quote.
