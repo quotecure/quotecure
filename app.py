@@ -2317,6 +2317,19 @@ def job_ledger(quote_id):
     totals['line_actual'] = round(sum(i['actual_total'] for i in priced), 2)
     totals['line_profit'] = round(totals['line_price'] - totals['line_actual'], 2)
     totals['line_margin'] = round(totals['line_profit'] / totals['line_price'] * 100, 1) if totals['line_price'] else None
+    # Payments: the same payment_schedules rows (original draws plus Change Order draws) the quote
+    # page tracks collections on, so the Ledger shows money in next to cost out.
+    payments = [dict(r) for r in db.execute(
+        "SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order, id", (quote_id,)).fetchall()]
+    collected_total = round(sum(float(p['collected_amount'] or 0) for p in payments if p['collected']), 2)
+    pay_summary = {
+        'contract_total': totals['total_price'],
+        'collected': collected_total,
+        'remaining': round(totals['total_price'] - collected_total, 2),
+        'pct': round(collected_total / totals['total_price'] * 100) if totals['total_price'] else 0,
+        'count_collected': sum(1 for p in payments if p['collected']),
+    }
+    from datetime import date as _date
     invoices = {}
     for inv in db.execute("SELECT id, item_id, source, filename, size_bytes, created_at, created_by FROM ledger_invoices "
                           "WHERE quote_id=? ORDER BY id", (quote_id,)).fetchall():
@@ -2324,7 +2337,8 @@ def job_ledger(quote_id):
     for item in items:
         item['invoices'] = invoices.get((item['source'], item['id']), [])
     can_edit = bool(g.role and g.role['can_enter_actuals'])
-    return render_template('job_ledger.html', quote=quote, items=items, totals=totals, can_edit=can_edit)
+    return render_template('job_ledger.html', quote=quote, items=items, totals=totals, can_edit=can_edit,
+                           payments=payments, pay_summary=pay_summary, today=_date.today().isoformat())
 
 MAX_INVOICES_PER_ITEM = 10
 

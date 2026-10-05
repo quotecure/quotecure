@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-05 (later) — Payments collected now show on the Ledger
+
+Jim: the Ledger had nothing about collecting payments. New **Payments** card between the three summary boxes and the work-item table: every draw on the contract's payment schedule (including Change Order draws), with scheduled amount, amount collected, date and a collected/pending badge, plus "$X of $Y collected · $Z remaining" and a progress bar. Contract total there is the same one the Ledger already uses (original price plus signed Change Orders). Anyone who can enter actuals gets a **Record** button on a pending draw (amount prefilled with the scheduled figure, date defaulting to today, both editable) and **Undo** on a collected one; everyone else sees it read-only. It reads and writes the very same payment_schedules rows the quote page's Payments section does, through the existing `collect` route, so recording a payment in either place shows up in both.
+
+Tested: all draws listed as pending with $0 of the contract total collected; recording $1,000 and $1,500 gives $2,500 collected / $1,500 remaining with dates; Undo; a signed Change Order's draw listed and added to the contract total; and a role without `can_enter_actuals` seeing it without the buttons. Browser-verified.
+
+---
+
 ## 2026-10-05 — Ledger shows price and profit per line, not just cost
 
 Jim: the Ledger showed quoted cost but not quoted price, and only tracked actual cost against cost — nothing on a line said whether it was still making money. The job-level Payoff box already did that for the whole job; the per-item table didn't. Table is now **Quoted Cost | Quoted Price | Actual Cost | Diff | Profit**, where Profit is the line's price minus its running actual cost (quoted cost until an actual is entered) with the margin % underneath, muted and tagged "quoted" until a real number is in. Profit goes red when it's below that line's quoted profit and green when above. A **Job total** row sums the columns and matches the Payoff box (checked: $1,050.00 / 17.9% both places).
