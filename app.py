@@ -2158,6 +2158,20 @@ def _ledger_items(db, quote_id):
             else:
                 lab += cost
         it['ledger_mod_labor'], it['ledger_mod_material'] = round(lab, 2), round(mat, 2)
+    # Per-item PRICE, so the Ledger can show profit per line, not just cost. A tracked modifier's
+    # price is pulled out of its parent the same way its cost is (it was priced at the parent's
+    # labor markup -- see _rollup_item_totals), so the parent and the tracking row each show
+    # their own honest margin instead of the parent keeping the modifier's revenue.
+    parent_markup = {it['id']: float(it.get('labor_markup_pct') or 0) for it in items}
+    carved_price = {}
+    for it in items:
+        it['quoted_price'] = round(float(it.get('total_price') or 0), 2)
+        if it.get('schedule_only') and it.get('parent_item_id'):
+            it['quoted_price'] = round(float(it.get('total_cost') or 0) * (1 + parent_markup.get(it['parent_item_id'], 0) / 100), 2)
+            carved_price[it['parent_item_id']] = carved_price.get(it['parent_item_id'], 0.0) + it['quoted_price']
+    for it in items:
+        if it['id'] in carved_price and it['source'] == 'quote_line_item':
+            it['quoted_price'] = round(it['quoted_price'] - carved_price[it['id']], 2)
     for it in items:
         if it['id'] in carved and it['source'] == 'quote_line_item':
             it['total_cost'] = round(float(it.get('total_cost') or 0) - carved[it['id']], 2)
@@ -2283,6 +2297,26 @@ def job_ledger(quote_id):
     for item in items:
         item['actual_labor'], item['actual_material'], item['actual_total'], item['fully_entered'] = _ledger_item_actuals(item)
     totals = _ledger_totals(db, quote_id, items)
+    # An end-of-quote discount lives on the quote, not on any line, so line prices sum to the
+    # pre-discount subtotal. Spread it across the lines pro rata so per-line profit adds up to
+    # the job's real profit instead of overstating every margin.
+    priced = [i for i in items if not i.get('is_passthrough')]
+    line_sum = sum(i['quoted_price'] for i in priced)
+    scale = totals['total_price'] / line_sum if line_sum else 1.0
+    if not (0.5 <= scale < 0.995):
+        scale = 1.0
+    for item in items:
+        price = round(item['quoted_price'] * (scale if not item.get('is_passthrough') else 1.0), 2)
+        item['quoted_price'] = price
+        item['profit'] = round(price - item['actual_total'], 2)
+        item['margin_pct'] = round(item['profit'] / price * 100, 1) if price else None
+        item['quoted_profit'] = round(price - float(item.get('total_cost') or 0), 2)
+    totals['discount_spread'] = scale != 1.0
+    totals['line_cost_quoted'] = round(sum(float(i.get('total_cost') or 0) for i in priced), 2)
+    totals['line_price'] = round(sum(i['quoted_price'] for i in priced), 2)
+    totals['line_actual'] = round(sum(i['actual_total'] for i in priced), 2)
+    totals['line_profit'] = round(totals['line_price'] - totals['line_actual'], 2)
+    totals['line_margin'] = round(totals['line_profit'] / totals['line_price'] * 100, 1) if totals['line_price'] else None
     invoices = {}
     for inv in db.execute("SELECT id, item_id, source, filename, size_bytes, created_at, created_by FROM ledger_invoices "
                           "WHERE quote_id=? ORDER BY id", (quote_id,)).fetchall():

@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-05 — Ledger shows price and profit per line, not just cost
+
+Jim: the Ledger showed quoted cost but not quoted price, and only tracked actual cost against cost — nothing on a line said whether it was still making money. The job-level Payoff box already did that for the whole job; the per-item table didn't. Table is now **Quoted Cost | Quoted Price | Actual Cost | Diff | Profit**, where Profit is the line's price minus its running actual cost (quoted cost until an actual is entered) with the margin % underneath, muted and tagged "quoted" until a real number is in. Profit goes red when it's below that line's quoted profit and green when above. A **Job total** row sums the columns and matches the Payoff box (checked: $1,050.00 / 17.9% both places).
+
+Details so the numbers are honest: a tracked modifier's price (Leak Detection, priced at the parent's labor markup) comes out of its parent line along with its cost, so the parent and the tracking row each show their own margin instead of the parent keeping the revenue; an end-of-quote discount, which lives on the quote and not on any line, is spread pro rata across the lines (marked * in the header) so line profits add up to the job's real profit; pass-through lines show "at cost" and stay out of the totals; unquoted work added with + Add Work Item shows $0 price, a negative profit equal to what you spent, and "no price".
+
+Tested: Leak Detection price carve (4,420 → 3,900 + 520), line prices and costs summing to the contract's, a $1,400 actual on a $1,430 line (= $30, 2.1%), pass-through exclusion, job total = Payoff box, a 10% discount, and unquoted work. Browser-verified.
+
+---
+
 ## 2026-10-02 (later) — AI visualization images no longer lock up the app
 
 Jim: the AI visualization images are too large and keep locking up the app (and earlier: Render bandwidth overage, and a promise to shrink these for email). Three causes, all fixed:
