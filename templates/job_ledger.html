@@ -224,7 +224,7 @@
               {% if diff > 0 %}+{{ diff|usd }}{% elif diff < 0 %}-{{ (-diff)|usd }}{% else %}$0.00{% endif %}
             {% else %}—{% endif %}
           </td>
-          <td class="right mono" style="{% if item.is_passthrough %}{% elif item.profit < item.quoted_profit - 0.5 %}color:#f87171;{% elif item.profit > item.quoted_profit + 0.5 %}color:#4ade80;{% endif %}">
+          <td class="right mono" style="{% if item.is_passthrough %}{% elif item.profit < 0 %}color:#f87171;{% elif item.profit > 0 %}color:#4ade80;{% endif %}">
             {% if item.is_passthrough %}<span style="color:var(--text3);">—</span>
             {% else %}{{ item.profit|usd }}
             <div style="font-size:10px;font-weight:400;{% if not item.fully_entered %}color:var(--text3);{% endif %}">{% if item.margin_pct is not none %}{{ item.margin_pct }}%{% else %}no price{% endif %}{% if not item.fully_entered %} · quoted{% endif %}</div>
