@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-08 — GHL qualifying notes now come over when the customer is created
+
+Jim: when qualifying a lead he writes notes in GHL, then moves the card to Qualified — and the notes didn't come over with the customer. Cause: the only note path was the optional `note_added` GHL workflow (not built), and even that ignores contacts that have no customer yet, so a note typed during qualifying had nowhere to land. New `ghl_client.list_notes` and `_import_ghl_notes`: when the Qualified webhook (or On-site Scheduled) creates or resolves the customer, QuoteCure pulls the contact's notes from GHL into the customer's History — oldest first, with their original GHL timestamps, author shown as "GHL" — so nothing in the GHL workflow needs to change. It skips notes already imported, blanks, and notes **QuoteCure itself wrote** into GHL ("Welcome email sent", "QT-0035 sent to…", stage-change notes): new ones are recorded by id in `ghl_pushed_notes` as they're pushed, and a pattern list covers ones written before that existed. Repeatable and never raises, so a GHL problem can't stop the customer being created. A **↻ Pull notes from GHL** button on the customer's History does the same on demand — that's also how to backfill customers who were already created without their notes — and reports "Pulled in N notes", "No new notes", or the real GHL error. The `note_added` workflow is now only needed for notes added after Qualified (Admin docs updated).
+
+**Not verified against live GHL** — tested with mocked API responses (the 3 real notes imported with timestamps, system/blank/already-pushed ones skipped, no duplicates on repeat, the button, a GHL failure not breaking creation). The assumption that needs a real check: GHL's `GET /contacts/{id}/notes` returns `{"notes":[{"id","body","dateAdded"}]}`, and that Jim's GHL private integration has permission to read contact notes; if either is off, the button shows GHL's actual error text.
+
+---
+
 ## 2026-10-07 (later) — Schedule end dates are editable: filled from estimated days, or entered by hand
 
 Jim, after asking how the end date works: if a work item has estimated days, pre-fill the end date from them but keep it editable; if it doesn't, leave it blank and make the user enter it. Before, the end date was never stored — it was recomputed on every page load as start + the work type's estimated days (business days), couldn't be changed, and silently showed the *start date* as the end when there was no estimate, which made an unestimated job look like a one-day job.

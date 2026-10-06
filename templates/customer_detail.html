@@ -194,8 +194,16 @@
 
   <!-- 3. Notes -->
   <div class="card" style="margin-top:24px;">
-    <div class="card-header"><div class="card-title">History</div></div>
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title">History</div>
+      {% if customer.ghl_contact_id %}
+      <form method="POST" action="/customers/{{ customer.customer_id }}/pull_ghl_notes" style="margin:0;">
+        <button class="btn btn-secondary btn-sm" type="submit" title="Bring over notes written on this contact in GoHighLevel (e.g. while qualifying) that aren't here yet">↻ Pull notes from GHL</button>
+      </form>
+      {% endif %}
+    </div>
     <div class="card-body">
+      {% if notes_msg %}<div style="font-size:12px;padding:8px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);">{{ notes_msg }}</div>{% endif %}
       <form method="POST" action="/customers/{{ customer.customer_id }}/notes/add" style="margin-bottom:20px;">
         <label class="form-label">Add a Note</label>
         <textarea class="form-control" name="note_text" rows="2" placeholder="e.g. Wants pebble finish instead of quartz, budget around $70k..." required></textarea>

@@ -157,7 +157,7 @@
             <strong>Optional, not currently built:</strong>
             <div style="margin-top:8px;"><strong>Trigger: Opportunity stage changed to "On-site scheduled"</strong></div>
             <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"on_site_scheduled","contact_id":"{{ '{{contact.id}}' }}","site_visit_at":"{{ '{{appointment.start_time}}' }}"}</pre>
-            <div style="margin-top:8px;"><strong>Trigger: Note added on a contact</strong></div>
+            <div style="margin-top:8px;"><strong>Trigger: Note added on a contact</strong> — only needed for notes added <em>after</em> a lead reaches Qualified. Notes written while qualifying are pulled in automatically when the customer is created (and any time via "Pull notes from GHL" on the customer's History).</div>
             <pre class="mono" style="background:var(--bg2);padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;">{"event":"note_added","contact_id":"{{ '{{contact.id}}' }}","note_id":"{{ '{{note.id}}' }}","note_text":"{{ '{{note.body}}' }}","created_by":"{{ '{{note.userName}}' }}"}</pre>
           </div>
         </div>

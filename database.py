@@ -4187,6 +4187,15 @@ def add_scheduled_end_date(conn):
 
 
 @migration
+def add_ghl_pushed_notes(conn):
+    """Ids of every note QuoteCure itself writes into GHL (add_note records them). When notes are
+    pulled back FROM GHL at Qualified (see _import_ghl_notes), these are skipped so
+    QuoteCure's own system notes ("QT-0035 sent to...", "Welcome email sent") don't come back
+    as if a person had typed them."""
+    conn.execute("CREATE TABLE IF NOT EXISTS ghl_pushed_notes (note_id TEXT PRIMARY KEY, created_at TEXT DEFAULT (now()::text))")
+
+
+@migration
 def reflag_leak_detection_case_insensitive(conn):
     """add_tracked_modifier_rows matched 'Leak Detection%' with a case-sensitive LIKE; re-flag
     case-insensitively in case the real modifier is spelled differently. Idempotent."""

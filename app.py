@@ -1,4 +1,5 @@
 import json
+import re
 import math
 import os
 from pathlib import Path
@@ -356,6 +357,50 @@ def _convert_ghl_lead(db, contact_id, customer_id):
     db.execute("UPDATE ghl_leads SET converted_customer_id=?, converted_at=now()::text "
                "WHERE ghl_contact_id=? AND converted_at=''", (customer_id, contact_id))
 
+# Notes QuoteCure writes into GHL itself (stage pushes, sends, signatures). New ones are recorded by id
+# (ghl_pushed_notes); these patterns catch the ones written before that existed.
+_QC_SYSTEM_NOTE = re.compile(
+    r'^(QT-\d+ (sent to|signed)|Welcome email sent|New lead received|Follow-up email sent|Second follow-up email sent|'
+    r'No response after|Marked Unqualified|Marked lost:|Meeting scheduled:|Not ready yet|First site-visit photo uploaded)')
+
+def _import_ghl_notes(db, customer_id, contact_id):
+    """Pulls a GHL contact's notes into the customer's History. Qualifying happens in GHL, so the
+    notes written there ("wants pebble, budget 60k...") exist only on the GHL contact until the
+    card reaches Qualified and QuoteCure makes the customer -- and the note_added webhook can't
+    help for those, since it ignores contacts with no customer yet. Safe to run repeatedly:
+    skips notes already imported, notes QuoteCure wrote itself, and blanks. Returns
+    (imported, error_message_or_None); never raises."""
+    try:
+        notes = ghl_client.list_notes(db, contact_id)
+    except Exception as e:
+        print(f'[GHL] customer {customer_id} note import failed: {e}')
+        return 0, str(e)
+    pushed = {r['note_id'] for r in db.execute("SELECT note_id FROM ghl_pushed_notes").fetchall()}
+    have = {r['ghl_note_id'] for r in db.execute(
+        "SELECT ghl_note_id FROM customer_notes WHERE customer_id=? AND ghl_note_id != ''", (customer_id,)).fetchall()}
+    imported = 0
+    for n in sorted(notes, key=lambda n: n.get('dateAdded') or ''):
+        nid, body = n.get('id') or '', (n.get('body') or '').strip()
+        if not nid or not body or nid in have or nid in pushed or _QC_SYSTEM_NOTE.match(body):
+            continue
+        added = (n.get('dateAdded') or '').replace('T', ' ')[:19]
+        db.execute("INSERT INTO customer_notes (customer_id, note_text, created_by, ghl_note_id, created_at) "
+                   "VALUES (?,?,?,?, COALESCE(NULLIF(?, ''), now()::text))", (customer_id, body, 'GHL', nid, added))
+        imported += 1
+    db.commit()
+    return imported, None
+
+@app.route('/customers/<int:customer_id>/pull_ghl_notes', methods=['POST'])
+@login_required
+def pull_ghl_notes(customer_id):
+    db = get_db()
+    row = db.execute("SELECT ghl_contact_id FROM customers WHERE customer_id=?", (customer_id,)).fetchone()
+    if not row or not row['ghl_contact_id']:
+        return redirect(url_for('customer_detail', customer_id=customer_id, notes_msg='This customer isn\'t linked to a GoHighLevel contact.'))
+    n, err = _import_ghl_notes(db, customer_id, row['ghl_contact_id'])
+    msg = f"Couldn't reach GHL: {err}" if err else (f"Pulled in {n} note{'s' if n != 1 else ''} from GHL." if n else "No new notes in GHL.")
+    return redirect(url_for('customer_detail', customer_id=customer_id, notes_msg=msg))
+
 def _ghl_webhook_ready_for_quote(db, data):
     contact_id = data.get('contact_id')
     if not contact_id:
@@ -366,6 +411,8 @@ def _ghl_webhook_ready_for_quote(db, data):
     if lead_source:
         db.execute("UPDATE customers SET lead_source=? WHERE customer_id=?", (lead_source, customer_id))
     db.commit()
+    # The qualifying notes were written in GHL, before this customer existed here.
+    _import_ghl_notes(db, customer_id, contact_id)
     return jsonify({'success': True, 'customer_id': customer_id})
 
 def _ghl_webhook_on_site_scheduled(db, data):
@@ -378,6 +425,7 @@ def _ghl_webhook_on_site_scheduled(db, data):
         db, contact_id, data.get('name'), data.get('email'), data.get('phone'), data.get('address'), data.get('city'))
     db.execute("UPDATE customers SET site_visit_at=? WHERE customer_id=?", (data.get('site_visit_at') or '', customer_id))
     db.commit()
+    _import_ghl_notes(db, customer_id, contact_id)
     return jsonify({'success': True, 'customer_id': customer_id})
 
 def _ghl_webhook_note_added(db, data):
@@ -1410,7 +1458,8 @@ def customer_detail(customer_id):
     return render_template('customer_detail.html', customer=customer, quotes=quotes,
                            archived_ids=archived_ids, photos=photos, history=history, current_role=g.role,
                            competitor_quotes=competitor_quotes, competitors=competitors,
-                           competitor_work_types=competitor_work_types, error=request.args.get('error', ''))
+                           competitor_work_types=competitor_work_types, error=request.args.get('error', ''),
+                           notes_msg=request.args.get('notes_msg', ''))
 
 @app.route('/customers/<int:customer_id>/delete', methods=['POST'])
 @require_permission('can_access_admin')

@@ -154,7 +154,23 @@ def add_note(db, contact_id, body_text):
         headers=_headers(token), json={'body': body_text}, timeout=_TIMEOUT,
     )
     _raise_for_status(resp)
-    return _extract(resp, 'note', 'id')
+    note_id = _extract(resp, 'note', 'id')
+    # Remember it's ours so a later pull of this contact's notes doesn't re-import it.
+    try:
+        db.execute("INSERT INTO ghl_pushed_notes (note_id) VALUES (?) ON CONFLICT DO NOTHING", (note_id,))
+        db.commit()
+    except Exception:
+        pass
+    return note_id
+
+
+def list_notes(db, contact_id):
+    """Every note on a contact: [{'id', 'body', 'dateAdded', ...}]. Notes typed in GHL while a lead
+    is being qualified live only there -- QuoteCure has no customer for them until Qualified."""
+    token, _ = _creds(db)
+    resp = requests.get(f'{_BASE}/contacts/{contact_id}/notes', headers=_headers(token, json_body=False), timeout=_TIMEOUT)
+    _raise_for_status(resp)
+    return _extract(resp, 'notes')
 
 
 # ── Conversation file attachment ─────────────────────────────────────────────
