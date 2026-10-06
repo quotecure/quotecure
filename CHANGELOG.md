@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-08 (later) — "Pull notes from GHL" now says exactly what it found
+
+Jim: nothing shows up in History after the note import shipped — and every contact has at least the "Welcome email sent" note, because QuoteCure writes it. Two things were true at once and nothing told him which: that note is QuoteCure's own, so the importer deliberately skips it, and a "No new notes" message can't tell "GHL returned nothing at all" from "GHL returned notes but they were all skipped". The button's message now itemizes: "GHL has 4 notes on this contact: 1 imported · 3 skipped because QuoteCure wrote them ("Welcome email sent"; …) · 2 already here · 1 blank", or "GHL has no notes on this contact (nothing came back from GHL)", or GHL's own error text. That one line says whether the problem is GHL returning nothing (wrong contact/permissions), everything being filtered, or no human notes existing yet. Tested all four outcomes.
+
+---
+
 ## 2026-10-08 — GHL qualifying notes now come over when the customer is created
 
 Jim: when qualifying a lead he writes notes in GHL, then moves the card to Qualified — and the notes didn't come over with the customer. Cause: the only note path was the optional `note_added` GHL workflow (not built), and even that ignores contacts that have no customer yet, so a note typed during qualifying had nowhere to land. New `ghl_client.list_notes` and `_import_ghl_notes`: when the Qualified webhook (or On-site Scheduled) creates or resolves the customer, QuoteCure pulls the contact's notes from GHL into the customer's History — oldest first, with their original GHL timestamps, author shown as "GHL" — so nothing in the GHL workflow needs to change. It skips notes already imported, blanks, and notes **QuoteCure itself wrote** into GHL ("Welcome email sent", "QT-0035 sent to…", stage-change notes): new ones are recorded by id in `ghl_pushed_notes` as they're pushed, and a pattern list covers ones written before that existed. Repeatable and never raises, so a GHL problem can't stop the customer being created. A **↻ Pull notes from GHL** button on the customer's History does the same on demand — that's also how to backfill customers who were already created without their notes — and reports "Pulled in N notes", "No new notes", or the real GHL error. The `note_added` workflow is now only needed for notes added after Qualified (Admin docs updated).

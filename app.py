@@ -369,26 +369,31 @@ def _import_ghl_notes(db, customer_id, contact_id):
     card reaches Qualified and QuoteCure makes the customer -- and the note_added webhook can't
     help for those, since it ignores contacts with no customer yet. Safe to run repeatedly:
     skips notes already imported, notes QuoteCure wrote itself, and blanks. Returns
-    (imported, error_message_or_None); never raises."""
+    (counts_dict, error_message_or_None); never raises. counts: found/imported/system/already/blank."""
     try:
         notes = ghl_client.list_notes(db, contact_id)
     except Exception as e:
         print(f'[GHL] customer {customer_id} note import failed: {e}')
-        return 0, str(e)
+        return None, str(e)
     pushed = {r['note_id'] for r in db.execute("SELECT note_id FROM ghl_pushed_notes").fetchall()}
     have = {r['ghl_note_id'] for r in db.execute(
         "SELECT ghl_note_id FROM customer_notes WHERE customer_id=? AND ghl_note_id != ''", (customer_id,)).fetchall()}
-    imported = 0
+    imported, system, already, blank = 0, [], 0, 0
     for n in sorted(notes, key=lambda n: n.get('dateAdded') or ''):
         nid, body = n.get('id') or '', (n.get('body') or '').strip()
-        if not nid or not body or nid in have or nid in pushed or _QC_SYSTEM_NOTE.match(body):
-            continue
-        added = (n.get('dateAdded') or '').replace('T', ' ')[:19]
-        db.execute("INSERT INTO customer_notes (customer_id, note_text, created_by, ghl_note_id, created_at) "
-                   "VALUES (?,?,?,?, COALESCE(NULLIF(?, ''), now()::text))", (customer_id, body, 'GHL', nid, added))
-        imported += 1
+        if not nid or not body:
+            blank += 1
+        elif nid in have:
+            already += 1
+        elif nid in pushed or _QC_SYSTEM_NOTE.match(body):
+            system.append(body)
+        else:
+            added = (n.get('dateAdded') or '').replace('T', ' ')[:19]
+            db.execute("INSERT INTO customer_notes (customer_id, note_text, created_by, ghl_note_id, created_at) "
+                       "VALUES (?,?,?,?, COALESCE(NULLIF(?, ''), now()::text))", (customer_id, body, 'GHL', nid, added))
+            imported += 1
     db.commit()
-    return imported, None
+    return {'found': len(notes), 'imported': imported, 'system': system, 'already': already, 'blank': blank}, None
 
 @app.route('/customers/<int:customer_id>/pull_ghl_notes', methods=['POST'])
 @login_required
@@ -397,8 +402,21 @@ def pull_ghl_notes(customer_id):
     row = db.execute("SELECT ghl_contact_id FROM customers WHERE customer_id=?", (customer_id,)).fetchone()
     if not row or not row['ghl_contact_id']:
         return redirect(url_for('customer_detail', customer_id=customer_id, notes_msg='This customer isn\'t linked to a GoHighLevel contact.'))
-    n, err = _import_ghl_notes(db, customer_id, row['ghl_contact_id'])
-    msg = f"Couldn't reach GHL: {err}" if err else (f"Pulled in {n} note{'s' if n != 1 else ''} from GHL." if n else "No new notes in GHL.")
+    res, err = _import_ghl_notes(db, customer_id, row['ghl_contact_id'])
+    if err:
+        msg = f"Couldn't reach GHL: {err}"
+    elif res['found'] == 0:
+        msg = "GHL has no notes on this contact (nothing came back from GHL)."
+    else:
+        parts = [f"GHL has {res['found']} note{'s' if res['found'] != 1 else ''} on this contact: {res['imported']} imported"]
+        if res['system']:
+            shown = '; '.join(f'"{t[:45]}"' for t in res['system'][:3])
+            parts.append(f"{len(res['system'])} skipped because QuoteCure wrote them ({shown}{'…' if len(res['system']) > 3 else ''})")
+        if res['already']:
+            parts.append(f"{res['already']} already here")
+        if res['blank']:
+            parts.append(f"{res['blank']} blank")
+        msg = ' · '.join(parts) + '.'
     return redirect(url_for('customer_detail', customer_id=customer_id, notes_msg=msg))
 
 def _ghl_webhook_ready_for_quote(db, data):
