@@ -5928,6 +5928,68 @@ def update_pipeline_emails():
     db.commit()
     return redirect(url_for('admin_settings'))
 
+def _pdf_to_terms_text(pdf_bytes):
+    """Best-effort text for a terms PDF, so the terms can be printed IN the quote above the
+    signature instead of attached after it. PDFs wrap every line, so lines are re-joined into
+    paragraphs; a new paragraph starts at a blank line, an ALL-CAPS heading, or a list marker
+    (1. / a) / bullet). It's a starting point staff review and edit, not a guaranteed-clean copy."""
+    import re, io
+    from pypdf import PdfReader
+    marker = re.compile(r'^(\d+[\.\)]|\(?[a-zA-Z]\)|[A-Z]\.|[•·–-])\s')
+    page_no = re.compile(r'^page\s+\d+(\s+of\s+\d+)?$', re.I)
+    lines = []
+    for page in PdfReader(io.BytesIO(pdf_bytes)).pages:
+        lines.extend((page.extract_text() or '').splitlines())
+    paras, cur = [], []
+    def flush():
+        if cur:
+            paras.append(' '.join(cur))
+            cur.clear()
+    for raw in lines:
+        line = re.sub(r'\s+', ' ', raw).strip()
+        if not line or page_no.match(line):
+            if not line:
+                flush()
+            continue
+        if line.isupper() and len(line) < 80 and any(ch.isalpha() for ch in line):
+            flush()
+            paras.append(line)
+            continue
+        if marker.match(line):
+            flush()
+        if cur and cur[-1].endswith('-') and line[:1].islower():
+            cur[-1] = cur[-1][:-1] + line
+        else:
+            cur.append(line)
+    flush()
+    return '\n\n'.join(paras)
+
+@app.route('/admin/settings/terms/<int:doc_id>/edit', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def edit_terms_document(doc_id):
+    db = get_db()
+    db.execute("UPDATE terms_documents SET body_text=? WHERE id=?", (request.form.get('body_text', ''), doc_id))
+    db.commit()
+    return redirect(url_for('admin_settings') + '#terms-' + str(doc_id))
+
+@app.route('/admin/settings/terms/<int:doc_id>/import_pdf', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def import_terms_pdf_text(doc_id):
+    """Fills a terms document's text from its own uploaded PDF (replacing any text already
+    there) so it can be reviewed and edited -- see _pdf_to_terms_text."""
+    import base64
+    db = get_db()
+    row = db.execute("SELECT pdf_data FROM terms_documents WHERE id=?", (doc_id,)).fetchone()
+    if row and row['pdf_data']:
+        try:
+            text = _pdf_to_terms_text(base64.b64decode(row['pdf_data']))
+        except Exception:
+            text = ''
+        if text.strip():
+            db.execute("UPDATE terms_documents SET body_text=? WHERE id=?", (text, doc_id))
+            db.commit()
+    return redirect(url_for('admin_settings') + '#terms-' + str(doc_id))
+
 @app.route('/admin/settings/terms/add', methods=['POST'])
 @require_permission('can_edit_commission_policy')
 def add_terms_document():
@@ -5943,6 +6005,12 @@ def add_terms_document():
         if _validate_pdf_upload(file_bytes, f.filename):
             import base64
             pdf_data = base64.b64encode(file_bytes).decode('utf-8')
+            if not body_text.strip():
+                # Terms print inside the quote above the signature now, not attached after it.
+                try:
+                    body_text = _pdf_to_terms_text(file_bytes)
+                except Exception:
+                    body_text = ''
     db.execute("INSERT INTO terms_documents (label,body_text,pdf_data) VALUES (?,?,?)",
                (label, body_text, pdf_data))
     db.commit()
@@ -6289,6 +6357,8 @@ def _append_terms_pdf(pdf_bytes, terms_doc):
     there's nothing to append in that case)."""
     if not terms_doc or not terms_doc['pdf_data']:
         return pdf_bytes
+    if (terms_doc['body_text'] or '').strip():
+        return pdf_bytes   # the terms are printed in the quote itself, above the signature
     from pypdf import PdfReader, PdfWriter
     import base64, io
     writer = PdfWriter()

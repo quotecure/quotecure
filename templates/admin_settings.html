@@ -171,7 +171,7 @@
     <div class="card-header"><div class="card-title">Terms &amp; Conditions Library</div></div>
     <div class="card-body">
       <div style="font-size:11px;color:var(--text3);margin-bottom:14px;">
-        Each quote picks one of these from a dropdown. Upload a PDF for full control over formatting — it gets appended to the end of the quote PDF. Without a PDF, the plain text below renders as paragraphs instead (blank lines become paragraph breaks).
+        Each quote picks one of these from a dropdown. The text is printed in full inside the quote, right above the signature line, with a statement that signing means agreeing to it (blank lines make paragraph breaks). Uploading a PDF fills in the text for you to review — a PDF with no text is attached after the signature instead, which is the older behavior.
       </div>
       {% if terms_docs %}
       <div class="table-wrap">
@@ -188,7 +188,12 @@
           {% for td in terms_docs %}
           <tr style="border-top:1px solid var(--border);">
             <td style="padding:8px;">{{ td.label }}</td>
-            <td style="padding:8px;font-size:12px;color:var(--text2);">{% if td.pdf_data %}PDF attached{% elif td.body_text %}Text only{% else %}Empty{% endif %}</td>
+            <td style="padding:8px;font-size:12px;color:var(--text2);" id="terms-{{ td.id }}">
+              {% if td.body_text and td.body_text.strip() %}<span class="badge badge-green">Printed in quote</span>{% if td.pdf_data %} <span style="color:var(--text3);">(PDF not attached)</span>{% endif %}
+              {% elif td.pdf_data %}<span class="badge badge-amber">PDF attached after signature</span>
+              {% else %}Empty{% endif %}
+              <div><a href="#" onclick="document.getElementById('terms-edit-{{ td.id }}').style.display = document.getElementById('terms-edit-{{ td.id }}').style.display === 'none' ? 'table-row' : 'none'; return false;" style="color:var(--blue-light);font-size:11px;">Edit text</a></div>
+            </td>
             <td style="padding:8px;">
               {% if td.is_default %}
               <span class="badge badge-blue">Default</span>
@@ -204,6 +209,20 @@
                 <button class="btn btn-danger btn-sm" type="submit">Delete</button>
               </form>
               {% endif %}
+            </td>
+          </tr>
+          <tr id="terms-edit-{{ td.id }}" style="display:none;background:var(--surface2);">
+            <td colspan="4" style="padding:12px 8px;">
+              <form method="POST" action="/admin/settings/terms/{{ td.id }}/edit">
+                <textarea class="form-control" name="body_text" rows="14" style="width:100%;resize:vertical;font-family:inherit;font-size:12px;">{{ td.body_text or '' }}</textarea>
+                <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                  <button class="btn btn-primary btn-sm" type="submit">Save text</button>
+                  {% if td.pdf_data %}
+                  <button class="btn btn-secondary btn-sm" type="submit" formaction="/admin/settings/terms/{{ td.id }}/import_pdf" formnovalidate onclick="return confirm('Replace the text above with text pulled from the uploaded PDF?');">Re-import text from PDF</button>
+                  {% endif %}
+                  <span style="font-size:11px;color:var(--text3);">Check numbering and paragraph breaks — text pulled from a PDF is a starting point.</span>
+                </div>
+              </form>
             </td>
           </tr>
           {% endfor %}
@@ -228,7 +247,7 @@
           </div>
         </div>
         <div class="form-group" style="margin-top:16px;">
-          <label class="form-label">Plain Text (used only if no PDF is uploaded)</label>
+          <label class="form-label">Terms text <span style="font-weight:400;color:var(--text3);">(leave blank to pull it from the uploaded PDF)</span></label>
           <textarea class="form-control" name="body_text" rows="6" style="width:100%;resize:vertical;font-family:inherit;"></textarea>
         </div>
         <button class="btn btn-primary" type="submit" style="margin-top:12px;">Add Terms Document</button>

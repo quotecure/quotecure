@@ -4,6 +4,20 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-06 (later) — Quote prints the full terms above the signature, with an explicit "signing = agreeing" statement
+
+Jim: the quote needs explicit language that signing means agreeing to the terms — the quote, then the full list of terms listed out (not attached), then the signature at the bottom of the terms. Before, a terms *PDF* was only referenced ("See attached…") and appended after the signature page, and the only agreement language was "All work subject to standard terms and conditions" in the footer.
+
+The quote now runs: line items and totals → payment schedule → financing blurb and visualization (both moved up from below the signature) → **Terms & Conditions printed in full** → **"Agreement & Signature"**, a boxed statement — "By signing below, I confirm that I have read and agree to the Terms & Conditions set out above, and I accept this quote and authorize [Company] to perform the work described for the total price shown." — → the signature. The signature block is kept together on one page in the PDF, and nothing trails it (the old footer validity line was redundant with the header's "Valid until" and was leaving an orphan page). Wording adapts: "attached" instead of "set out above" for a PDF-only terms doc, and it just accepts the quote when no terms document is chosen.
+
+To print a PDF's terms inline, `_pdf_to_terms_text` pulls the text out and re-joins wrapped lines into paragraphs (new paragraph at a blank line, an ALL-CAPS heading, or a numbered/lettered/bullet marker). A new upload with no typed text gets this automatically; an existing PDF terms doc has **Edit text** and **Re-import text from PDF** in Admin → Company Settings → Terms & Conditions Library (there was no edit at all before). Text wins: once a terms doc has text, its PDF is no longer appended to the emailed quote (so it isn't printed twice); a PDF with no text still attaches as before. Extraction from a PDF is a starting point to read through, not a guaranteed-clean copy.
+
+Tested: extraction on a real generated PDF (headings and numbered terms each their own paragraph), auto-fill on upload, element order, financing above terms, PDF not appended when text exists and still appended when it doesn't, PDF-only and no-terms wording, edit/re-import, a signed quote, and a long-terms PDF rendering to 2 pages with the signature on the last. Browser-verified.
+
+**Not changed:** Change Order documents, which Jim didn't ask about.
+
+---
+
 ## 2026-10-06 — Ledger tracks how much of the salesperson's commission has been paid
 
 Jim: the Ledger needs a spot to show what part of the commission the salesperson has been paid. New **Commission — {salesperson}** card under the three summary boxes: what's been paid out, what's owed right now, and what's still owed, with each payout listed (date, amount, note, who recorded it). "Owed right now" is the Ledger's existing running commission, which moves as actual costs come in (the at-signing figure is shown underneath for reference), so the balance is paid vs. current, not paid vs. a stale number. The Payoff box gets "Paid out" and "Still owed" rows too. Payouts are one row each (new `commission_payments` table) since commission usually goes out in pieces. Recording or deleting a payout is **Owner-only** (same permission as the commission policy); everyone else who can see the Ledger sees the card read-only, consistent with commission now being visible whenever a quote has a salesperson.
