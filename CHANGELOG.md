@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-07 (later) — Schedule end dates are editable: filled from estimated days, or entered by hand
+
+Jim, after asking how the end date works: if a work item has estimated days, pre-fill the end date from them but keep it editable; if it doesn't, leave it blank and make the user enter it. Before, the end date was never stored — it was recomputed on every page load as start + the work type's estimated days (business days), couldn't be changed, and silently showed the *start date* as the end when there was no estimate, which made an unestimated job look like a one-day job.
+
+New `scheduled_end_date` column on `quote_line_items` and `change_order_items`. In an item's Edit panel the End field sits next to Start and is labeled with where it came from ("from 2 est. days — change it if needed" or "no estimated days — enter it"). Picking a start date fills the end in with start + estimated business days; typing in the end field takes over and later start changes no longer overwrite it. With no estimate the field stays blank and becomes required once a start date is set. The server enforces the same rules (so it can't be skipped): a blank end is filled from the estimate, or refused with "Enter an end date" when there's none; an end before the start is refused with a message and nothing changes; clearing the start clears the end. The list shows the saved end, or an amber "enter end date" on a started item that has none; the company-wide Schedule shows the saved end too. Schedules made before this keep showing the estimate-based end (and pre-fill it in the form) until they're saved.
+
+Tested: auto-fill (Thu 10/8 + 2 business days = Mon 10/12), a manual end sticking, end-before-start refused, the no-estimate path both ways, legacy schedules, clearing, and the company-wide page; browser-verified the start-date auto-fill, manual edits not being overwritten, and the required flag toggling.
+
+---
+
 ## 2026-10-07 — Ledger Profit column: green when positive, red when negative
 
 Jim: positive and negative profits were both showing red in the work-item list. The color was comparing each line's profit to what it was *quoted* to make, so a line still profitable but below its quote went red. Now it's by sign: profit above $0 is green, below $0 is red, exactly $0 stays plain. Pass-through lines are unchanged.

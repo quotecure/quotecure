@@ -2482,7 +2482,7 @@ def job_schedule(quote_id):
     can_edit = bool(g.role and g.role['can_enter_actuals'])
     modifier_labels = _contract_modifier_labels(db, quote_id)
     return render_template('job_schedule.html', quote=quote, items=items, subs=subs, can_edit=can_edit,
-                           modifier_labels=modifier_labels)
+                           modifier_labels=modifier_labels, error=request.args.get('error'))
 
 def _owned_schedule_item(db, quote_id, item_id, source):
     """Same ownership-verification pattern as save_ledger_actual: confirms item_id actually
@@ -2507,14 +2507,38 @@ def save_schedule(quote_id, item_id):
     table, owned = _owned_schedule_item(db, quote_id, item_id, source)
     if owned:
         start_date = request.form.get('scheduled_start_date', '').strip()
+        end_date = request.form.get('scheduled_end_date', '').strip()
         sub_id = request.form.get('sub_id', '').strip()
         sub_name = ''
         if sub_id:
             s = db.execute("SELECT name FROM subs WHERE sub_id=?", (sub_id,)).fetchone()
             sub_name = s['name'] if s else ''
+        error = None
+        if not start_date:
+            end_date = ''   # no start, no end
+        else:
+            from datetime import date as _d
+            try:
+                start = _d.fromisoformat(start_date)
+                if end_date and _d.fromisoformat(end_date) < start:
+                    error = 'The end date can\'t be before the start date.'
+            except ValueError:
+                error = 'That date isn\'t valid.'
+            if not error and not end_date:
+                # Blank end: fill it from the work type's estimated days; with no estimate it has
+                # to be entered by hand.
+                wt_id = db.execute(f"SELECT work_type_id FROM {table} WHERE id=?", (item_id,)).fetchone()['work_type_id']
+                est = db.execute("SELECT estimated_days FROM work_types WHERE work_type_id=?", (wt_id,)).fetchone() if wt_id else None
+                days = float(est['estimated_days'] or 0) if est else 0.0
+                if days > 0:
+                    end_date = _add_business_days(start, int(days)).isoformat()
+                else:
+                    error = 'Enter an end date -- there are no estimated days for this work to work it out from.'
+        if error:
+            return redirect(url_for('job_schedule', quote_id=quote_id, error=error))
         db.execute(
-            f"UPDATE {table} SET scheduled_start_date=?, sub_id=?, sub_name=? WHERE id=?",
-            (start_date, sub_id, sub_name, item_id)
+            f"UPDATE {table} SET scheduled_start_date=?, scheduled_end_date=?, sub_id=?, sub_name=? WHERE id=?",
+            (start_date, end_date, sub_id, sub_name, item_id)
         )
         db.commit()
     return redirect(url_for('job_schedule', quote_id=quote_id))
@@ -4335,11 +4359,17 @@ def _schedule_items(db, quote_id):
         if d.get('sub_id'):
             s = db.execute("SELECT email FROM subs WHERE sub_id=?", (d['sub_id'],)).fetchone()
             d['sub_email'] = s['email'] if s else ''
+        d['est_days'] = wt_days.get(d['work_type_id'], 0.0) if d.get('work_type_id') else 0.0
+        d['has_estimate'] = d['est_days'] > 0
         if d.get('scheduled_start_date'):
             start = date.fromisoformat(d['scheduled_start_date'])
-            days = wt_days.get(d['work_type_id'], 0.0)
-            end = _add_business_days(start, int(days)) if days else start
-            d['estimated_end_date'] = end.isoformat()
+            if d.get('scheduled_end_date'):
+                d['estimated_end_date'] = d['scheduled_end_date']
+            elif d['has_estimate']:
+                # Not saved yet (a schedule made before the end date became editable): show what
+                # the estimate gives, same as before, until someone saves it.
+                d['estimated_end_date'] = _add_business_days(start, int(d['est_days'])).isoformat()
+            # else: no estimate and no date entered -> stays blank (it has to be entered by hand)
         d['needs_confirmation'] = bool(
             d.get('scheduled_start_date')
             and d.get('schedule_status', 'not_started') == 'not_started'

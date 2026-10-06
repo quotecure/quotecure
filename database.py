@@ -4174,6 +4174,19 @@ def add_commission_payments(conn):
 
 
 @migration
+def add_scheduled_end_date(conn):
+    """Jim: the Schedule's end date was always computed live (start + the work type's estimated
+    days) with no way to change it, and shown as the start date when a work type had no
+    estimate. Now it's a real, editable field: filled in from the estimate when there is one,
+    entered by hand when there isn't. Same two tables as the other schedule columns
+    (add_job_scheduler). Existing schedules keep showing a computed end until saved."""
+    for table in ('quote_line_items', 'change_order_items'):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if 'scheduled_end_date' not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN scheduled_end_date TEXT DEFAULT ''")
+
+
+@migration
 def reflag_leak_detection_case_insensitive(conn):
     """add_tracked_modifier_rows matched 'Leak Detection%' with a case-sensitive LIKE; re-flag
     case-insensitively in case the real modifier is spelled differently. Idempotent."""

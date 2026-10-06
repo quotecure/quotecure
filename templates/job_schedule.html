@@ -72,6 +72,10 @@
   </div>
   {% endif %}
 
+  {% if error %}
+  <div class="card" style="padding:12px 16px;margin-bottom:16px;border-color:var(--red);color:var(--red);font-size:13px;">{{ error }}</div>
+  {% endif %}
+
   <div class="table-wrap">
     <table>
       <thead>
@@ -79,7 +83,7 @@
           <th>Work Item</th>
           <th>Sub</th>
           <th>Scheduled Start</th>
-          <th>Est. End</th>
+          <th>End</th>
           <th>Status</th>
           {% if can_edit %}<th></th>{% endif %}
         </tr>
@@ -93,7 +97,7 @@
           </td>
           <td>{% if item.sub_name %}<span class="chip" style="font-size:11px;">{{ item.sub_name }}</span>{% else %}<span style="color:var(--text3);">—</span>{% endif %}</td>
           <td class="mono">{{ item.scheduled_start_date or '—' }}</td>
-          <td class="mono">{{ item.estimated_end_date or '—' }}</td>
+          <td class="mono">{% if item.estimated_end_date %}{{ item.estimated_end_date }}{% elif item.scheduled_start_date %}<span style="color:#fbbf24;font-size:11px;">enter end date</span>{% else %}—{% endif %}</td>
           <td>
             <span class="badge badge-{{ 'green' if item.schedule_status == 'done' else 'amber' if item.schedule_status == 'in_progress' else 'blue' }}">
               {{ 'in progress' if item.schedule_status == 'in_progress' else item.schedule_status.replace('_', ' ') }}
@@ -130,7 +134,13 @@
                 </div>
                 <div>
                   <label class="form-label">Scheduled Start</label>
-                  <input class="form-control sched-input" type="date" name="scheduled_start_date" value="{{ item.scheduled_start_date }}">
+                  <input class="form-control sched-input" type="date" name="scheduled_start_date" id="start-{{ item.id }}" value="{{ item.scheduled_start_date }}"
+                         data-est-days="{{ item.est_days|int }}" onchange="onStartChange({{ item.id }})">
+                </div>
+                <div>
+                  <label class="form-label">End <span style="font-weight:400;color:var(--text3);">{% if item.has_estimate %}(from {{ item.est_days|int if item.est_days == item.est_days|int else item.est_days }} est. days — change it if needed){% else %}(no estimated days — enter it){% endif %}</span></label>
+                  <input class="form-control sched-input" type="date" name="scheduled_end_date" id="end-{{ item.id }}" value="{{ item.estimated_end_date or '' }}"
+                         data-has-estimate="{{ 1 if item.has_estimate else 0 }}" oninput="this.dataset.manual='1'">
                 </div>
                 <button class="btn btn-primary btn-sm" type="submit">Save</button>
               </form>
@@ -173,6 +183,27 @@ function toggleScheduleForm(id) {
   const row = document.getElementById('edit-' + id);
   row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
 }
+// Start date picked -> fill the end from the estimated days (business days, weekends skipped),
+// unless the end was typed by hand. No estimate: leave it blank and require it.
+function addBusinessDays(iso, n) {
+  const d = new Date(iso + 'T12:00:00');
+  let added = 0;
+  while (added < n) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) added++; }
+  return d.toISOString().slice(0, 10);
+}
+function onStartChange(id) {
+  const start = document.getElementById('start-' + id);
+  const end = document.getElementById('end-' + id);
+  const hasEst = end.dataset.hasEstimate === '1';
+  end.required = !!start.value && !hasEst;
+  if (!start.value) { end.value = ''; return; }
+  if (hasEst && end.dataset.manual !== '1') end.value = addBusinessDays(start.value, parseInt(start.dataset.estDays, 10) || 0);
+}
+document.querySelectorAll('input[id^="end-"]').forEach(function(el) {
+  const id = el.id.slice(4);
+  const start = document.getElementById('start-' + id);
+  if (start && start.value && el.dataset.hasEstimate !== '1') el.required = true;
+});
 function toggleAddWorkItem() {
   const row = document.getElementById('add-work-item-row');
   row.style.display = row.style.display === 'none' ? 'block' : 'none';
