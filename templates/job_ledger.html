@@ -81,9 +81,59 @@
           {% elif totals.commission_diff < 0 %}<span class="delta-up">-{{ (-totals.commission_diff)|usd }}</span>{% endif %}
         </span>
       </div>
+      <div class="ledger-row"><span class="lbl">Paid out</span><span class="val" style="color:#4ade80;">{{ commission_summary.paid|usd }}</span></div>
+      <div class="ledger-row"><span class="lbl">Still owed</span><span class="val">{{ commission_summary.balance|usd }}</span></div>
     </div>
 
   </div>
+
+  {% if commission_summary.salesperson or commission_payments %}
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;">
+      <div class="card-title">Commission{% if commission_summary.salesperson %} — {{ commission_summary.salesperson }}{% endif %}</div>
+      <div style="text-align:right;font-size:12px;">
+        <span class="mono" style="font-weight:700;color:#4ade80;">{{ commission_summary.paid|usd }}</span>
+        <span style="color:var(--text3);"> paid of {{ commission_summary.owed|usd }} owed right now · </span>
+        <span class="mono" style="font-weight:700;">{{ commission_summary.balance|usd }}</span>
+        <span style="color:var(--text3);"> still owed</span>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px;">{{ commission_summary.expected|usd }} at signing — "owed" moves as actual costs come in</div>
+      </div>
+    </div>
+    {% if commission_payments %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Date paid</th><th class="right">Amount</th><th>Note</th><th>Recorded by</th>{% if can_pay_commission %}<th></th>{% endif %}</tr></thead>
+        <tbody>
+          {% for cp in commission_payments %}
+          <tr>
+            <td class="mono" style="font-size:12px;">{{ cp.paid_date or '—' }}</td>
+            <td class="right mono" style="font-weight:600;">{{ cp.amount|usd }}</td>
+            <td style="color:var(--text2);font-size:12px;">{{ cp.note or '—' }}</td>
+            <td style="color:var(--text3);font-size:12px;">{{ cp.created_by or '—' }}</td>
+            {% if can_pay_commission %}
+            <td class="right"><form method="POST" action="/quotes/{{ quote.quote_id }}/ledger/commission_payments/{{ cp.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this commission payment?')">
+              <button class="btn btn-secondary btn-sm" type="submit" style="color:var(--red);padding:1px 8px;">✕</button></form></td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    {% if can_pay_commission %}
+    <div class="card-body" style="{% if commission_payments %}border-top:1px solid var(--border2);{% endif %}">
+      <form method="POST" action="/quotes/{{ quote.quote_id }}/ledger/commission_payments" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div><label class="form-label">Amount paid</label><input class="form-control" type="number" step="0.01" min="0.01" name="amount" required placeholder="0.00" style="width:130px;"></div>
+        <div><label class="form-label">Date</label><input class="form-control" type="date" name="paid_date" value="{{ today }}" style="width:150px;"></div>
+        <div><label class="form-label">Note <span style="font-weight:400;color:var(--text3);">(optional)</span></label><input class="form-control" name="note" maxlength="200" placeholder="e.g. deposit portion, check #1042" style="width:260px;"></div>
+        <button class="btn btn-primary btn-sm" type="submit">Record payout</button>
+      </form>
+    </div>
+    {% elif not commission_payments %}
+    <div class="card-body" style="font-size:12px;color:var(--text3);">No commission payouts recorded yet.</div>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <div class="card" style="margin-bottom:18px;">
     <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;">

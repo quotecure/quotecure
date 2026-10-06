@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-06 — Ledger tracks how much of the salesperson's commission has been paid
+
+Jim: the Ledger needs a spot to show what part of the commission the salesperson has been paid. New **Commission — {salesperson}** card under the three summary boxes: what's been paid out, what's owed right now, and what's still owed, with each payout listed (date, amount, note, who recorded it). "Owed right now" is the Ledger's existing running commission, which moves as actual costs come in (the at-signing figure is shown underneath for reference), so the balance is paid vs. current, not paid vs. a stale number. The Payoff box gets "Paid out" and "Still owed" rows too. Payouts are one row each (new `commission_payments` table) since commission usually goes out in pieces. Recording or deleting a payout is **Owner-only** (same permission as the commission policy); everyone else who can see the Ledger sees the card read-only, consistent with commission now being visible whenever a quote has a salesperson.
+
+Tested: card shows for the salesperson with the right owed figure; two payouts recorded with zero/non-numeric amounts ignored; paid $150 leaves the right balance in both the card and the Payoff box; delete; and Coordinator and Sales can see it but their record/delete attempts change nothing. Browser-verified.
+
+---
+
 ## 2026-10-05 (later) — Payments collected now show on the Ledger
 
 Jim: the Ledger had nothing about collecting payments. New **Payments** card between the three summary boxes and the work-item table: every draw on the contract's payment schedule (including Change Order draws), with scheduled amount, amount collected, date and a collected/pending badge, plus "$X of $Y collected · $Z remaining" and a progress bar. Contract total there is the same one the Ledger already uses (original price plus signed Change Orders). Anyone who can enter actuals gets a **Record** button on a pending draw (amount prefilled with the scheduled figure, date defaulting to today, both editable) and **Undo** on a collected one; everyone else sees it read-only. It reads and writes the very same payment_schedules rows the quote page's Payments section does, through the existing `collect` route, so recording a payment in either place shows up in both.

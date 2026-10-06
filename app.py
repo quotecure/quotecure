@@ -2329,6 +2329,18 @@ def job_ledger(quote_id):
         'pct': round(collected_total / totals['total_price'] * 100) if totals['total_price'] else 0,
         'count_collected': sum(1 for p in payments if p['collected']),
     }
+    # Commission paid out so far vs. what's owed right now (the running figure, which moves with costs).
+    commission_payments = [dict(r) for r in db.execute(
+        "SELECT * FROM commission_payments WHERE quote_id=? ORDER BY paid_date, id", (quote_id,)).fetchall()]
+    commission_paid = round(sum(float(p['amount'] or 0) for p in commission_payments), 2)
+    commission_summary = {
+        'salesperson': (quote['salesperson'] or '').strip(),
+        'expected': totals['expected_commission'],
+        'owed': totals['actual_commission'],
+        'paid': commission_paid,
+        'balance': round(totals['actual_commission'] - commission_paid, 2),
+    }
+    can_pay_commission = bool(g.role and g.role['can_edit_commission_policy'])
     from datetime import date as _date
     invoices = {}
     for inv in db.execute("SELECT id, item_id, source, filename, size_bytes, created_at, created_by FROM ledger_invoices "
@@ -2338,7 +2350,9 @@ def job_ledger(quote_id):
         item['invoices'] = invoices.get((item['source'], item['id']), [])
     can_edit = bool(g.role and g.role['can_enter_actuals'])
     return render_template('job_ledger.html', quote=quote, items=items, totals=totals, can_edit=can_edit,
-                           payments=payments, pay_summary=pay_summary, today=_date.today().isoformat())
+                           payments=payments, pay_summary=pay_summary, today=_date.today().isoformat(),
+                           commission_payments=commission_payments, commission_summary=commission_summary,
+                           can_pay_commission=can_pay_commission)
 
 MAX_INVOICES_PER_ITEM = 10
 
@@ -2393,6 +2407,35 @@ def download_ledger_invoice(quote_id, invoice_id):
 def delete_ledger_invoice(quote_id, invoice_id):
     db = get_db()
     db.execute("DELETE FROM ledger_invoices WHERE id=? AND quote_id=?", (invoice_id, quote_id))
+    db.commit()
+    return redirect(url_for('job_ledger', quote_id=quote_id))
+
+@app.route('/quotes/<int:quote_id>/ledger/commission_payments', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def add_commission_payment(quote_id):
+    """Records a payout of the salesperson's commission (often paid in pieces). Owner-only, same
+    gate as the commission policy itself -- who gets paid what isn't for everyone to edit."""
+    db = get_db()
+    if not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    try:
+        amount = round(float(request.form.get('amount') or 0), 2)
+    except ValueError:
+        amount = 0
+    if amount > 0:
+        author = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+        from datetime import date as _d
+        db.execute("INSERT INTO commission_payments (quote_id, amount, paid_date, note, created_by) VALUES (?,?,?,?,?)",
+                   (quote_id, amount, (request.form.get('paid_date') or _d.today().isoformat()),
+                    (request.form.get('note') or '').strip()[:200], author))
+        db.commit()
+    return redirect(url_for('job_ledger', quote_id=quote_id))
+
+@app.route('/quotes/<int:quote_id>/ledger/commission_payments/<int:payment_id>/delete', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def delete_commission_payment(quote_id, payment_id):
+    db = get_db()
+    db.execute("DELETE FROM commission_payments WHERE id=? AND quote_id=?", (payment_id, quote_id))
     db.commit()
     return redirect(url_for('job_ledger', quote_id=quote_id))
 
