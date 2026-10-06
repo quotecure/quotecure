@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-06 (and a half) — Better PDF-to-text for terms (it was producing ~1,000 one-word lines)
+
+Jim ran the import on his real terms PDF: "it has like one word per line, so it's like 1000 lines long." Couldn't see his file, so reproduced the likely shapes with generated PDFs and rewrote `_pdf_to_terms_text`: (1) it uses **layout-mode extraction**, which keeps the spaces between words and real vertical gaps (the default mode glues words together when a generator positions each one separately); (2) the old rule "an ALL-CAPS line under 80 characters is a heading" turned every wrapped line of an ALL-CAPS legal paragraph — very common in terms — into its own paragraph, so a heading is now a short line standing alone between blank lines; (3) a blank line only ends a paragraph if the sentence actually finished, so double-spaced text isn't chopped per line; (4) running headers/footers and page numbers (the same line at the top or bottom of most pages) are dropped; (5) if the result is still shredded (many paragraphs, tiny median length), it re-runs ignoring blank lines. Regression tests for each shape: individually positioned words, a wrapped ALL-CAPS paragraph, a literal one-word-per-line source, 24 double-spaced clauses over 3 pages with a header and footer (exactly 24 paragraphs), and title-case headings. **Not verified against Jim's actual PDF** — asked him to re-run Re-import and, if it's still wrong, to point me at the file.
+
+---
+
 ## 2026-10-06 (later still) — Terms "Edit text" no longer fails silently
 
 Jim opened Edit text on his terms and the box was blank, and reasonably asked whether he'd have to copy and paste. The Re-import button was there under the box, but nothing told him what to do, and when an import found nothing (no PDF on file, or a scanned PDF with no text layer) it did nothing at all — no message. Now a blank document explains itself in the edit panel (has a PDF but no text yet: click **Import text from PDF**; no PDF at all: paste the terms in), the button reads "Import" instead of "Re-import" until there's text (and skips the replace-confirmation), the panel stays open after saving or importing, and every result gets a message — "Imported N paragraphs, read through them", "no PDF on file, paste instead", or "no text could be read, it's probably a scanned image". Tested all three outcomes.

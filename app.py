@@ -5931,38 +5931,81 @@ def update_pipeline_emails():
 
 def _pdf_to_terms_text(pdf_bytes):
     """Best-effort text for a terms PDF, so the terms can be printed IN the quote above the
-    signature instead of attached after it. PDFs wrap every line, so lines are re-joined into
-    paragraphs; a new paragraph starts at a blank line, an ALL-CAPS heading, or a list marker
-    (1. / a) / bullet). It's a starting point staff review and edit, not a guaranteed-clean copy."""
+    signature instead of attached after it. It's a starting point staff review and edit.
+
+    PDFs store text as positioned fragments, not paragraphs, so this works in two steps:
+    layout-mode extraction (keeps spaces between words and real blank lines where there's a
+    vertical gap), then reflow -- wrapped lines are re-joined into paragraphs, a new paragraph
+    starts at a list marker (1. / a) / bullet) or a short heading standing alone between blank
+    lines, and a blank line only ends a paragraph if the sentence actually finished (so
+    double-spaced or ALL-CAPS wrapped text isn't chopped into one paragraph per line). Lines
+    repeated on most pages (running headers/footers, page numbers) are dropped. If the result
+    still looks shredded, it's redone ignoring blank lines entirely."""
     import re, io
+    from collections import Counter
     from pypdf import PdfReader
     marker = re.compile(r'^(\d+[\.\)]|\(?[a-zA-Z]\)|[A-Z]\.|[•·–-])\s')
-    page_no = re.compile(r'^page\s+\d+(\s+of\s+\d+)?$', re.I)
-    lines = []
+    page_no = re.compile(r'^(page\s+)?\d+(\s+of\s+\d+)?$', re.I)
+    ends = ('.', '!', '?', ':', ';', ')', '"', '\u201d')
+
+    pages = []
     for page in PdfReader(io.BytesIO(pdf_bytes)).pages:
-        lines.extend((page.extract_text() or '').splitlines())
-    paras, cur = [], []
-    def flush():
-        if cur:
-            paras.append(' '.join(cur))
-            cur.clear()
-    for raw in lines:
-        line = re.sub(r'\s+', ' ', raw).strip()
-        if not line or page_no.match(line):
-            if not line:
+        try:
+            txt = page.extract_text(extraction_mode='layout') or ''
+        except Exception:
+            txt = page.extract_text() or ''
+        pages.append([re.sub(r'\s+', ' ', ln).strip() for ln in txt.splitlines()])
+
+    # Running headers/footers: the same short line at the very top or bottom of most pages
+    # (only those positions, so ordinary repeated body text is never mistaken for one).
+    if len(pages) >= 3:
+        def edges(pg):
+            real = [ln for ln in pg if ln]
+            return {ln for ln in real[:2] + real[-2:] if len(ln) < 80}
+        seen = Counter(ln for pg in pages for ln in edges(pg))
+        repeated = {ln for ln, n in seen.items() if n >= max(3, len(pages) * 0.6)}
+    else:
+        repeated = set()
+    lines = []
+    for pg in pages:
+        lines.extend(ln for ln in pg if ln not in repeated and not page_no.match(ln))
+        lines.append('')
+
+    def is_heading(i):
+        ln = lines[i]
+        if not ln or ln.endswith(ends) or len(ln) >= 90 or len(ln.split()) > (10 if ln.isupper() else 8):
+            return False
+        return (i == 0 or not lines[i - 1]) and (i == len(lines) - 1 or not lines[i + 1])
+
+    def reflow(ignore_blanks):
+        paras, cur = [], []
+        def flush():
+            if cur:
+                paras.append(' '.join(cur))
+                cur.clear()
+        for i, ln in enumerate(lines):
+            if not ln:
+                nxt = next((x for x in lines[i + 1:] if x), '')
+                if not ignore_blanks and cur and (cur[-1].endswith(ends) or marker.match(nxt)):
+                    flush()
+                continue
+            if is_heading(i):
                 flush()
-            continue
-        if line.isupper() and len(line) < 80 and any(ch.isalpha() for ch in line):
-            flush()
-            paras.append(line)
-            continue
-        if marker.match(line):
-            flush()
-        if cur and cur[-1].endswith('-') and line[:1].islower():
-            cur[-1] = cur[-1][:-1] + line
-        else:
-            cur.append(line)
-    flush()
+                paras.append(ln)
+            elif marker.match(ln):
+                flush()
+                cur.append(ln)
+            elif cur and cur[-1].endswith('-') and ln[:1].islower():
+                cur[-1] = cur[-1][:-1] + ln
+            else:
+                cur.append(ln)
+        flush()
+        return paras
+
+    paras = reflow(False)
+    words = sorted(len(p.split()) for p in paras)
+    if len(paras) > 30 and words[len(words) // 2] < 6:
+        paras = reflow(True)
     return '\n\n'.join(paras)
 
 @app.route('/admin/settings/terms/<int:doc_id>/edit', methods=['POST'])
