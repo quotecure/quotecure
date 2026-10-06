@@ -173,6 +173,9 @@
       <div style="font-size:11px;color:var(--text3);margin-bottom:14px;">
         Each quote picks one of these from a dropdown. The text is printed in full inside the quote, right above the signature line, with a statement that signing means agreeing to it (blank lines make paragraph breaks). Uploading a PDF fills in the text for you to review — a PDF with no text is attached after the signature instead, which is the older behavior.
       </div>
+      {% if terms_msg %}
+      <div style="font-size:12px;padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);">{{ terms_msg }}</div>
+      {% endif %}
       {% if terms_docs %}
       <div class="table-wrap">
       <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
@@ -211,14 +214,20 @@
               {% endif %}
             </td>
           </tr>
-          <tr id="terms-edit-{{ td.id }}" style="display:none;background:var(--surface2);">
+          <tr id="terms-edit-{{ td.id }}" style="{{ 'display:table-row;' if terms_open == td.id else 'display:none;' }}background:var(--surface2);">
             <td colspan="4" style="padding:12px 8px;">
               <form method="POST" action="/admin/settings/terms/{{ td.id }}/edit">
+                {% if not (td.body_text and td.body_text.strip()) %}
+                <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">
+                  {% if td.pdf_data %}This document has a PDF on file but no text yet — click <strong>Re-import text from PDF</strong> below to pull the text out of it, or paste the terms in yourself.
+                  {% else %}This document has no text and no PDF — paste the terms into the box (a blank line between paragraphs).{% endif %}
+                </div>
+                {% endif %}
                 <textarea class="form-control" name="body_text" rows="14" style="width:100%;resize:vertical;font-family:inherit;font-size:12px;">{{ td.body_text or '' }}</textarea>
                 <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                   <button class="btn btn-primary btn-sm" type="submit">Save text</button>
                   {% if td.pdf_data %}
-                  <button class="btn btn-secondary btn-sm" type="submit" formaction="/admin/settings/terms/{{ td.id }}/import_pdf" formnovalidate onclick="return confirm('Replace the text above with text pulled from the uploaded PDF?');">Re-import text from PDF</button>
+                  <button class="btn btn-secondary btn-sm" type="submit" formaction="/admin/settings/terms/{{ td.id }}/import_pdf" formnovalidate onclick="{% if td.body_text and td.body_text.strip() %}return confirm('Replace the text above with text pulled from the uploaded PDF?');{% endif %}">{{ "Import text from PDF" if not (td.body_text and td.body_text.strip()) else "Re-import text from PDF" }}</button>
                   {% endif %}
                   <span style="font-size:11px;color:var(--text3);">Check numbering and paragraph breaks — text pulled from a PDF is a starting point.</span>
                 </div>

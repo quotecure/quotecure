@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-06 (later still) — Terms "Edit text" no longer fails silently
+
+Jim opened Edit text on his terms and the box was blank, and reasonably asked whether he'd have to copy and paste. The Re-import button was there under the box, but nothing told him what to do, and when an import found nothing (no PDF on file, or a scanned PDF with no text layer) it did nothing at all — no message. Now a blank document explains itself in the edit panel (has a PDF but no text yet: click **Import text from PDF**; no PDF at all: paste the terms in), the button reads "Import" instead of "Re-import" until there's text (and skips the replace-confirmation), the panel stays open after saving or importing, and every result gets a message — "Imported N paragraphs, read through them", "no PDF on file, paste instead", or "no text could be read, it's probably a scanned image". Tested all three outcomes.
+
+---
+
 ## 2026-10-06 (later) — Quote prints the full terms above the signature, with an explicit "signing = agreeing" statement
 
 Jim: the quote needs explicit language that signing means agreeing to the terms — the quote, then the full list of terms listed out (not attached), then the signature at the bottom of the terms. Before, a terms *PDF* was only referenced ("See attached…") and appended after the signature page, and the only agreement language was "All work subject to standard terms and conditions" in the footer.

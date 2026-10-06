@@ -5886,6 +5886,7 @@ def admin_settings():
     ghl_webhook_url = url_for('ghl_webhook', secret=settings['ghl_webhook_secret'], _external=True) if settings and settings['ghl_webhook_secret'] else ''
     followup_templates = db.execute("SELECT * FROM quote_followup_templates ORDER BY active DESC, id").fetchall()
     return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs,
+                           terms_msg=request.args.get('terms_msg'), terms_open=request.args.get('terms_open', type=int),
                             ghl_webhook_url=ghl_webhook_url, followup_templates=followup_templates)
 
 @app.route('/admin/settings/email_config', methods=['POST'])
@@ -5970,7 +5971,7 @@ def edit_terms_document(doc_id):
     db = get_db()
     db.execute("UPDATE terms_documents SET body_text=? WHERE id=?", (request.form.get('body_text', ''), doc_id))
     db.commit()
-    return redirect(url_for('admin_settings') + '#terms-' + str(doc_id))
+    return redirect(url_for('admin_settings', terms_open=doc_id, terms_msg='Saved.') + '#terms-edit-' + str(doc_id))
 
 @app.route('/admin/settings/terms/<int:doc_id>/import_pdf', methods=['POST'])
 @require_permission('can_edit_commission_policy')
@@ -5980,7 +5981,9 @@ def import_terms_pdf_text(doc_id):
     import base64
     db = get_db()
     row = db.execute("SELECT pdf_data FROM terms_documents WHERE id=?", (doc_id,)).fetchone()
-    if row and row['pdf_data']:
+    if not row or not row['pdf_data']:
+        msg = "That terms document has no PDF on file to import from -- paste the terms text into the box instead."
+    else:
         try:
             text = _pdf_to_terms_text(base64.b64decode(row['pdf_data']))
         except Exception:
@@ -5988,7 +5991,10 @@ def import_terms_pdf_text(doc_id):
         if text.strip():
             db.execute("UPDATE terms_documents SET body_text=? WHERE id=?", (text, doc_id))
             db.commit()
-    return redirect(url_for('admin_settings') + '#terms-' + str(doc_id))
+            msg = f"Imported {len([x for x in text.split(chr(10) * 2) if x.strip()])} paragraphs from the PDF -- read through them below and fix anything that came out wrong."
+        else:
+            msg = "No text could be read from that PDF -- it's probably a scanned image rather than real text. Paste the terms into the box instead."
+    return redirect(url_for('admin_settings', terms_msg=msg, terms_open=doc_id) + '#terms-edit-' + str(doc_id))
 
 @app.route('/admin/settings/terms/add', methods=['POST'])
 @require_permission('can_edit_commission_policy')
