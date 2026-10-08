@@ -302,22 +302,47 @@ def ghl_webhook(secret):
         data = {**data, **data['customData']}
     event = data.get('event')
     try:
-        if event == 'ready_for_quote':
-            return _ghl_webhook_ready_for_quote(db, data)
-        if event == 'on_site_scheduled':
-            return _ghl_webhook_on_site_scheduled(db, data)
-        if event == 'note_added':
-            return _ghl_webhook_note_added(db, data)
-        if event == 'quote_follow_up_due':
-            return _ghl_webhook_quote_follow_up_due(db, data)
-        if event == 'new_lead':
-            return _ghl_webhook_new_lead(db, data)
-        if event == 'qualifying_check_due':
-            return _ghl_webhook_qualifying_check(db, data)
+        resp = _dispatch_ghl_event(db, event, data)
     except Exception as e:
         print(f'[GHL webhook] event={event} failed: {e}')
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        _log_ghl_webhook(db, event, data, 'failed', str(e))
         return jsonify({'success': False}), 200  # 200 so GHL doesn't retry-storm on a transient bug
-    return jsonify({'error': 'unknown event'}), 400
+    if resp is None:
+        _log_ghl_webhook(db, event, data, 'unknown event', f'event={event!r}; keys received: {", ".join(sorted(data.keys()))[:200]}')
+        return jsonify({'error': 'unknown event'}), 400
+    resp = app.make_response(resp)  # handlers return either a response or a (response, status) tuple
+    body = resp.get_json(silent=True)
+    code = resp.status_code
+    _log_ghl_webhook(db, event, data, 'ok' if code < 300 else f'rejected ({code})', json.dumps(body)[:300] if body is not None else '')
+    return resp
+
+def _dispatch_ghl_event(db, event, data):
+    """Returns the handler's response, or None for an event nobody handles."""
+    handlers = {
+        'ready_for_quote': _ghl_webhook_ready_for_quote,
+        'on_site_scheduled': _ghl_webhook_on_site_scheduled,
+        'note_added': _ghl_webhook_note_added,
+        'quote_follow_up_due': _ghl_webhook_quote_follow_up_due,
+        'new_lead': _ghl_webhook_new_lead,
+        'qualifying_check_due': _ghl_webhook_qualifying_check,
+    }
+    handler = handlers.get(event)
+    return handler(db, data) if handler else None
+
+def _log_ghl_webhook(db, event, data, outcome, detail=''):
+    """Best-effort record of an inbound webhook call (latest 100 kept) -- never lets logging break the webhook."""
+    try:
+        db.execute("INSERT INTO ghl_webhook_log (event, contact_id, name, outcome, detail) VALUES (?,?,?,?,?)",
+                   (str(event or '')[:60], str(data.get('contact_id') or '')[:80], str(data.get('name') or '')[:120],
+                    outcome[:60], detail[:400]))
+        db.execute("DELETE FROM ghl_webhook_log WHERE id NOT IN (SELECT id FROM ghl_webhook_log ORDER BY id DESC LIMIT 100)")
+        db.commit()
+    except Exception as e:
+        print(f'[GHL webhook] could not log call: {e}')
 
 def _get_or_create_customer_by_ghl_contact(db, contact_id, name, email, phone, address='', city=''):
     """Distinct from _get_or_create_customer() (which matches on normalized name) because
@@ -5982,7 +6007,8 @@ def admin_settings():
     terms_docs = db.execute("SELECT * FROM terms_documents WHERE active=1 ORDER BY is_default DESC, label").fetchall()
     ghl_webhook_url = url_for('ghl_webhook', secret=settings['ghl_webhook_secret'], _external=True) if settings and settings['ghl_webhook_secret'] else ''
     followup_templates = db.execute("SELECT * FROM quote_followup_templates ORDER BY active DESC, id").fetchall()
-    return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs,
+    webhook_log = db.execute("SELECT * FROM ghl_webhook_log ORDER BY id DESC LIMIT 25").fetchall()
+    return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs, webhook_log=webhook_log,
                            terms_msg=request.args.get('terms_msg'), terms_open=request.args.get('terms_open', type=int),
                             ghl_webhook_url=ghl_webhook_url, followup_templates=followup_templates)
 

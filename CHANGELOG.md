@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-08 (evening) — Admin Settings now lists every call GHL makes to QuoteCure
+
+Jim: someone is sitting in Qualified in GHL but no customer profile got created. The Qualified handler itself checks out locally (customer created from both webhook body shapes, even when the new note import errors), so the question is whether GHL's call arrived at all. There was no way to tell — failures only went to the server log. New `ghl_webhook_log` table (latest 100 kept); `ghl_webhook` now logs every call that gets past the secret check: event, contact, ok / failed / rejected / unknown event, and the reason. Shown as "Recent calls from GHL" in Admin Settings → GoHighLevel CRM Sync. Handler dispatch moved into `_dispatch_ghl_event`; a failed handler now also rolls back the DB connection before logging. Calls with a wrong secret are deliberately not logged (anyone on the internet could flood it).
+
+---
+
 ## 2026-10-08 (later) — "Pull notes from GHL" now says exactly what it found
 
 Jim: nothing shows up in History after the note import shipped — and every contact has at least the "Welcome email sent" note, because QuoteCure writes it. Two things were true at once and nothing told him which: that note is QuoteCure's own, so the importer deliberately skips it, and a "No new notes" message can't tell "GHL returned nothing at all" from "GHL returned notes but they were all skipped". The button's message now itemizes: "GHL has 4 notes on this contact: 1 imported · 3 skipped because QuoteCure wrote them ("Welcome email sent"; …) · 2 already here · 1 blank", or "GHL has no notes on this contact (nothing came back from GHL)", or GHL's own error text. That one line says whether the problem is GHL returning nothing (wrong contact/permissions), everything being filtered, or no human notes existing yet. Tested all four outcomes.
