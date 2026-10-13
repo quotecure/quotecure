@@ -9,6 +9,8 @@ Every function takes db and reads the token/locationId out of company_settings i
 the same way _send_quote_email() threads Gmail creds through -- there's no module-level
 singleton or app-context global here.
 """
+import html
+import re
 import requests
 
 _BASE = 'https://services.leadconnectorhq.com'
@@ -18,6 +20,19 @@ _TIMEOUT = 15
 
 class GHLError(Exception):
     pass
+
+
+def html_to_text(raw):
+    """GHL stores note bodies as HTML (<p>...</p> per line). Returns plain text with one line per
+    paragraph/<br>/list item; text without any tags passes through unchanged."""
+    text = raw or ''
+    if '<' not in text and '&' not in text:
+        return text.strip()
+    text = re.sub(r'(?i)<br\s*/?>|</(p|div|li|h[1-6]|tr)>', '\n', text)
+    text = re.sub(r'(?i)<li[^>]*>', '\n- ', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    lines = [ln.strip() for ln in html.unescape(text).replace('\xa0', ' ').split('\n')]
+    return re.sub(r'\n{3,}', '\n\n', '\n'.join(lines)).strip()
 
 
 def _creds(db):

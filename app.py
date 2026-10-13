@@ -405,7 +405,7 @@ def _import_ghl_notes(db, customer_id, contact_id):
         "SELECT ghl_note_id FROM customer_notes WHERE customer_id=? AND ghl_note_id != ''", (customer_id,)).fetchall()}
     imported, system, already, blank = 0, [], 0, 0
     for n in sorted(notes, key=lambda n: n.get('dateAdded') or ''):
-        nid, body = n.get('id') or '', (n.get('body') or '').strip()
+        nid, body = n.get('id') or '', ghl_client.html_to_text(n.get('body'))
         if not nid or not body:
             blank += 1
         elif nid in have:
@@ -486,7 +486,7 @@ def _ghl_webhook_note_added(db, data):
     customer = db.execute("SELECT customer_id FROM customers WHERE ghl_contact_id=?", (contact_id,)).fetchone()
     if not customer:
         return jsonify({'error': 'unknown contact_id'}), 404
-    note_text = (data.get('note_text') or '').strip()
+    note_text = ghl_client.html_to_text(data.get('note_text'))
     if not note_text:
         return jsonify({'error': 'missing note_text'}), 400
     author = (data.get('created_by') or '').strip() or 'GHL'

@@ -4196,6 +4196,18 @@ def add_ghl_pushed_notes(conn):
 
 
 @migration
+def clean_html_in_imported_ghl_notes(conn):
+    """GHL note bodies are HTML; the first note imports stored the raw <p style=...> markup.
+    Convert the already-imported ones (only rows that came from GHL) to plain text."""
+    import ghl_client
+    rows = conn.execute("SELECT id, note_text FROM customer_notes WHERE ghl_note_id != '' AND note_text LIKE ?", ('%<%',)).fetchall()
+    for r in rows:
+        cleaned = ghl_client.html_to_text(r[1])
+        if cleaned and cleaned != r[1]:
+            conn.execute("UPDATE customer_notes SET note_text=? WHERE id=?", (cleaned, r[0]))
+
+
+@migration
 def add_sunshelf_rebar_minimum(conn):
     """Minimum charge for the Sunshelf calculator's rebar (material + labor together): a rebar
     crew charges a floor no matter how small the shelf. Stored as one more sunshelf_components

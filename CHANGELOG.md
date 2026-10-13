@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-13 (later) — GHL notes come over as plain text, not HTML
+
+Jim pasted what the imported notes looked like: GHL stores note bodies as HTML (`<p style="margin: 0px...">Friday midday</p>...`), so History showed the raw markup. New `ghl_client.html_to_text()` turns paragraphs / line breaks / list items into one line each, strips tags, decodes `&amp;` etc.; text with no tags passes through untouched. Used by the Qualified-time import and by the `note_added` webhook (same HTML issue). Migration `clean_html_in_imported_ghl_notes` converts the notes already imported (only rows that came from GHL, so anything staff typed is never touched). The "skip QuoteCure's own notes" check now runs on the cleaned text too.
+
+---
+
 ## 2026-10-13 — Sunshelf calculator: $3,500 minimum on rebar (material + labor)
 
 Jim: the Sunshelf calculator's rebar & labor should have a $3,500 minimum. Confirmed it means material + labor *together* (what the calculator already shows as one "Rebar" line). Before, a 6'×4' shelf priced rebar at ~$720 and a 10'×8' at ~$1,980; now anything under $3,500 is topped up to $3,500 (the shortfall is added to the Rebar labor component, so the breakdown still sums to the total). Shelves whose rebar already exceeds $3,500 are unchanged (about 15'×10' and up), and a shelf with no dimensions entered has no rebar and no minimum. New `rebar_min` row in `sunshelf_components` (migration `add_sunshelf_rebar_minimum`), so the amount is editable on Admin → Sunshelf Components and turning it off removes the minimum. Effect on cost: 6'×4' $3,395 → $6,175; 10'×8' $5,306 → $6,825; 15'×10' $7,380 → $7,475. Sunshelf line items already on quotes keep their stored price until reopened in the calculator.
