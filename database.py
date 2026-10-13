@@ -4196,6 +4196,19 @@ def add_ghl_pushed_notes(conn):
 
 
 @migration
+def add_sunshelf_rebar_minimum(conn):
+    """Minimum charge for the Sunshelf calculator's rebar (material + labor together): a rebar
+    crew charges a floor no matter how small the shelf. Stored as one more sunshelf_components
+    row so it's editable (and can be switched off) on Admin -> Sunshelf Components; the
+    formula in _compute_sunshelf_pricing tops the Rebar labor line up to reach it."""
+    if not conn.execute("SELECT id FROM sunshelf_components WHERE key=?", ('rebar_min',)).fetchone():
+        conn.execute(
+            "INSERT INTO sunshelf_components (key, name, description, unit, cost_per_unit, active) VALUES (?,?,?,?,?,?)",
+            ('rebar_min', 'Rebar minimum (material + labor)',
+             'Rebar material + labor together never cost less than this; any shortfall is added to labor.', 'flat', 3500.00, 'Y'))
+
+
+@migration
 def add_ghl_webhook_log(conn):
     """One row per call that reaches the inbound GHL webhook (kept to the latest 100), shown in
     Admin Settings. When a card is moved in GHL and nothing happens in QuoteCure, this is how

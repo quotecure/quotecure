@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-13 — Sunshelf calculator: $3,500 minimum on rebar (material + labor)
+
+Jim: the Sunshelf calculator's rebar & labor should have a $3,500 minimum. Confirmed it means material + labor *together* (what the calculator already shows as one "Rebar" line). Before, a 6'×4' shelf priced rebar at ~$720 and a 10'×8' at ~$1,980; now anything under $3,500 is topped up to $3,500 (the shortfall is added to the Rebar labor component, so the breakdown still sums to the total). Shelves whose rebar already exceeds $3,500 are unchanged (about 15'×10' and up), and a shelf with no dimensions entered has no rebar and no minimum. New `rebar_min` row in `sunshelf_components` (migration `add_sunshelf_rebar_minimum`), so the amount is editable on Admin → Sunshelf Components and turning it off removes the minimum. Effect on cost: 6'×4' $3,395 → $6,175; 10'×8' $5,306 → $6,825; 15'×10' $7,380 → $7,475. Sunshelf line items already on quotes keep their stored price until reopened in the calculator.
+
+---
+
 ## 2026-10-08 (evening) — Admin Settings now lists every call GHL makes to QuoteCure
 
 Jim: someone is sitting in Qualified in GHL but no customer profile got created. The Qualified handler itself checks out locally (customer created from both webhook body shapes, even when the new note import errors), so the question is whether GHL's call arrived at all. There was no way to tell — failures only went to the server log. New `ghl_webhook_log` table (latest 100 kept); `ghl_webhook` now logs every call that gets past the secret check: event, contact, ok / failed / rejected / unknown event, and the reason. Shown as "Recent calls from GHL" in Admin Settings → GoHighLevel CRM Sync. Handler dispatch moved into `_dispatch_ghl_event`; a failed handler now also rolls back the DB connection before logging. Calls with a wrong secret are deliberately not logged (anyone on the internet could flood it).

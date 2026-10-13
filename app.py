@@ -1948,6 +1948,8 @@ def _compute_sunshelf_pricing(db, inputs):
       the same convention used elsewhere); the riser wall gets a much rougher vertical-bar
       + 2 horizontal bands estimate at the same spacing -- flagged to Jim as a rough
       placeholder, not a verified engineering spec.
+    - Rebar material + labor together have a minimum (sunshelf_components key 'rebar_min', $3,500) --
+      any shortfall is added to the labor line.
     - Cinder block/fill volume turned out to be a dead end (a "solid-packed void" estimate
       came out ~20x too high, because most of that space is native soil too) -- replaced
       with a flat, openly-approximate fill cost instead of a fake-precise formula.
@@ -1982,6 +1984,10 @@ def _compute_sunshelf_pricing(db, inputs):
     shotcrete_cost = cubic_yards * rates.get('shotcrete', 0)
     rebar_material_cost = total_rebar_lf * rates.get('rebar_material', 0)
     rebar_labor_cost = total_rebar_lf * rates.get('rebar_labor', 0)
+    # Minimum charge for the rebar job as a whole (material + labor); the shortfall lands on labor.
+    # Only when there is rebar at all, so a shelf with no dimensions entered yet still prices at $0.
+    if total_rebar_lf > 0:
+        rebar_labor_cost += max(0.0, rates.get('rebar_min', 0) - (rebar_material_cost + rebar_labor_cost))
     bubbler_cost = rates.get('bubbler', 0) if include_bubbler else 0
     steps_cost = step_count * rates.get('steps', 0)
     light_cost = (rates.get('light', 0) + rates.get('light_pull', 0) + conduit_run*rates.get('conduit', 0)) if include_light else 0
