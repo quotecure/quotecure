@@ -28,7 +28,7 @@ def html_to_text(raw):
     text = raw or ''
     if '<' not in text and '&' not in text:
         return text.strip()
-    text = re.sub(r'(?i)<br\s*/?>|</(p|div|li|h[1-6]|tr)>', '\n', text)
+    text = re.sub(r'(?i)<br\s*/?>|</(p|div|h[1-6]|tr|ul|ol)>', '\n', text)
     text = re.sub(r'(?i)<li[^>]*>', '\n- ', text)
     text = re.sub(r'<[^>]+>', '', text)
     lines = [ln.strip() for ln in html.unescape(text).replace('\xa0', ' ').split('\n')]
