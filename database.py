@@ -4196,6 +4196,19 @@ def add_ghl_pushed_notes(conn):
 
 
 @migration
+def add_quote_version_signed_marker(conn):
+    """Which emailed version of a quote the customer actually signed. A quote can be emailed
+    several times (Version 1, 2, 3 ...), and the signature link always shows the quote as it is
+    right now, so nothing recorded which version the signature belongs to. signed_at is set on the
+    one version that was signed; signed_note explains any difference from what was emailed."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quote_versions)").fetchall()}
+    if 'signed_at' not in cols:
+        conn.execute("ALTER TABLE quote_versions ADD COLUMN signed_at TEXT DEFAULT ''")
+    if 'signed_note' not in cols:
+        conn.execute("ALTER TABLE quote_versions ADD COLUMN signed_note TEXT DEFAULT ''")
+
+
+@migration
 def clean_html_in_imported_ghl_notes(conn):
     """GHL note bodies are HTML; the first note imports stored the raw <p style=...> markup.
     Convert the already-imported ones (only rows that came from GHL) to plain text."""

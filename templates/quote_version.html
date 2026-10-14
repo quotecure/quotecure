@@ -95,11 +95,18 @@
     <div>
       <div class="page-title">Version {{ version.version_number }} — {{ quote.customer_name }}</div>
       <div class="page-subtitle">
-        QT-{{ '%04d'|format(quote.quote_id) }} — {{ quote.address|full_address(quote.city) }} — sent {{ version.sent_at[:16] if version.sent_at else '' }}{% if version.sent_by %} by {{ version.sent_by }}{% endif %}
+        QT-{{ '%04d'|format(quote.quote_id) }} — {{ quote.address|full_address(quote.city) }} — {{ 'saved' if version.sent_by == 'At signing' else 'sent' }} {{ version.sent_at[:16] if version.sent_at else '' }}{% if version.sent_by and version.sent_by != 'At signing' %} by {{ version.sent_by }}{% endif %}
       </div>
     </div>
     <a href="/quotes/{{ quote.quote_id }}" class="btn btn-secondary">← Back to Current Quote</a>
   </div>
+
+  {% if version.signed_at %}
+  <div style="background:rgba(59,130,246,0.10);border:1px solid #3b82f6;border-radius:var(--radius);padding:10px 16px;margin-bottom:12px;font-size:13px;color:var(--text);">
+    ✓ <strong>This is the version the customer signed</strong>{% if quote.signed_name %} ({{ quote.signed_name }}, {{ quote.signed_at }}){% endif %}.
+    {% if version.signed_note %}<div style="font-size:12px;color:var(--text2);margin-top:4px;">{{ version.signed_note }}</div>{% endif %}
+  </div>
+  {% endif %}
 
   <div style="background:#78350f22;border:1px solid #78350f;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:12px;color:var(--text2);">
     📜 This is a read-only historical snapshot of what was sent on this date. It can't be edited — go to the current quote to make changes.

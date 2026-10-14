@@ -136,6 +136,7 @@ def _run_init():
     init_db()
     db = get_db()
     run_migrations(db)
+    _backfill_signed_versions(db)
     init_auth(db)
     init_materials(db)
     init_company_settings(db)
@@ -1282,7 +1283,9 @@ def contracts_list():
     ).fetchall()
     quote_counts = _quote_counts_for(db, quotes)
     net_commissions = {q['quote_id']: _net_commission(q) for q in quotes}
-    return render_template('contracts.html', quotes=quotes,
+    signed_versions = {r['quote_id']: r['version_number'] for r in db.execute(
+        "SELECT quote_id, version_number FROM quote_versions WHERE signed_at != ''").fetchall()}
+    return render_template('contracts.html', quotes=quotes, signed_versions=signed_versions,
                            quote_counts=quote_counts, current_role=g.role,
                            net_commissions=net_commissions)
 
@@ -6323,10 +6326,12 @@ def _quote_preview_html(quote_id, sign_action_url=None, for_pdf=False):
         visualization = dict(visualization)
         for col in ('original_image', 'generated_image'):
             visualization[col] = _shrink_stored_viz(db, visualization['id'], col)
+    signed_version = db.execute("SELECT version_number FROM quote_versions WHERE quote_id=? AND signed_at != '' "
+                                "ORDER BY version_number DESC LIMIT 1", (quote_id,)).fetchone() if quote['signed_at'] else None
     from datetime import date, timedelta
     today = date.today()
     valid_until = today + timedelta(days=settings['quote_validity_days'] if settings else 30)
-    return render_template('quote_preview.html', quote=quote, line_items=line_items,
+    return render_template('quote_preview.html', quote=quote, line_items=line_items, signed_version=signed_version,
                            optional_items=optional_items, declined_items=declined_items,
                            passthrough_items=passthrough_items, passthrough_total=passthrough_total,
                            schedule=schedule, settings=settings, current_role=g.role,
@@ -6363,6 +6368,11 @@ def _capture_signature(db, quote_id, signature_data, printed_name, via='electron
     db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=?,status='contract' WHERE quote_id=?",
                (signature_data, signed_at, printed_name, quote_id))
     db.commit()
+    try:
+        _record_signed_version(db, quote_id, signed_at)
+    except Exception as e:
+        db.rollback()
+        print(f'[sign] quote {quote_id} could not record the signed version: {e}')
     _ensure_tracked_modifier_rows(db, quote_id)
     quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     signed_pdf_bytes = None
@@ -6877,7 +6887,7 @@ def email_quote(quote_id):
                         pdf_bytes=pdf_bytes, pdf_filename=f'QT-{quote_id:04d}.pdf')
     return jsonify({'success': True, 'sent_to': to_email})
 
-def _snapshot_quote_version(db, quote_id):
+def _snapshot_quote_version(db, quote_id, sent_by=None, at=None):
     """Freezes the quote's current state as a new numbered version -- called every time
     email_quote() successfully (re-)sends, first send included, so 'Version 1' always
     exists once a customer has seen anything. Guarded to pre-signature quotes only
@@ -6888,11 +6898,12 @@ def _snapshot_quote_version(db, quote_id):
     next_num = db.execute(
         "SELECT COALESCE(MAX(version_number),0)+1 as n FROM quote_versions WHERE quote_id=?", (quote_id,)
     ).fetchone()['n']
-    sent_by = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
+    if sent_by is None:
+        sent_by = g.user['display_name'] if g.user and g.user['display_name'] else (g.user['username'] if g.user else '')
     cur = db.execute(
-        "INSERT INTO quote_versions (quote_id, version_number, total_cost, total_price, total_margin, commission, sent_by) "
-        "VALUES (?,?,?,?,?,?,?) RETURNING id",
-        (quote_id, next_num, quote['total_cost'], quote['total_price'], quote['total_margin'], _net_commission(quote), sent_by)
+        "INSERT INTO quote_versions (quote_id, version_number, total_cost, total_price, total_margin, commission, sent_by, sent_at) "
+        "VALUES (?,?,?,?,?,?,?, COALESCE(NULLIF(?, ''), now()::text)) RETURNING id",
+        (quote_id, next_num, quote['total_cost'], quote['total_price'], quote['total_margin'], _net_commission(quote), sent_by, at or '')
     )
     version_id = cur.fetchone()[0]
     items = db.execute("SELECT * FROM quote_line_items WHERE quote_id=? ORDER BY sort_order", (quote_id,)).fetchall()
@@ -6911,6 +6922,68 @@ def _snapshot_quote_version(db, quote_id):
              item['product_label'], item['total_cost'], item['total_price'], item['total_margin_pct'],
              item['sort_order'], item['description'], item['is_optional'], item['is_declined'])
         )
+    return version_id
+
+def _fingerprint(rows):
+    """What a customer would notice changing: which lines, what they say, what they cost.
+    Works on live quote_line_items rows and on frozen quote_version_line_items rows alike."""
+    return sorted((str(r['work_type_label'] or ''), str(r['product_label'] or ''), str(r['description'] or '').strip(),
+                   round(float(r['total_price'] or 0), 2), int(r['is_optional'] or 0), int(r['is_declined'] or 0))
+                  for r in rows)
+
+def _record_signed_version(db, quote_id, signed_at_text='', backfill=False):
+    """Marks which emailed version the customer signed. The signature link shows the quote as it
+    stands at that moment, so: if it matches an emailed version (latest first), that version is
+    the one signed. If it doesn't (edited since the last send, signed in person, or never
+    emailed), freeze the signed state as a new version of its own and say why in signed_note.
+    Idempotent -- does nothing if a version is already marked signed. backfill=True is the
+    retroactive pass over old contracts: the new version is dated at the signature, not now."""
+    if db.execute("SELECT 1 FROM quote_versions WHERE quote_id=? AND signed_at != ''", (quote_id,)).fetchone():
+        return None
+    versions = db.execute("SELECT * FROM quote_versions WHERE quote_id=? ORDER BY version_number DESC", (quote_id,)).fetchall()
+    quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    current = _fingerprint(db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND (schedule_only=0 OR schedule_only IS NULL)", (quote_id,)).fetchall())
+    match = None
+    for v in versions:
+        frozen = _fingerprint(db.execute("SELECT * FROM quote_version_line_items WHERE version_id=?", (v['id'],)).fetchall())
+        if frozen == current and abs(float(v['total_price'] or 0) - float(quote['total_price'] or 0)) < 0.01:
+            match = v
+            break
+    if match:
+        version_id, note = match['id'], ''
+    else:
+        note = (f"Edited after Version {versions[0]['version_number']} was emailed -- the signed contract is this saved copy."
+                if versions else "Never emailed from QuoteCure -- this is a saved copy of the contract as signed.")
+        at = ''
+        if backfill and signed_at_text:
+            from datetime import datetime
+            try:
+                at = datetime.strptime(signed_at_text, '%B %d, %Y %I:%M %p').strftime('%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                at = ''
+        version_id = _snapshot_quote_version(db, quote_id, sent_by='At signing', at=at)
+    db.execute("UPDATE quote_versions SET signed_at=?, signed_note=? WHERE id=?",
+               (signed_at_text or 'signed', note, version_id))
+    db.commit()
+    return version_id
+
+def _backfill_signed_versions(db):
+    """One-time retroactive pass: every contract signed before signed versions were tracked gets
+    its version identified (or a saved copy made). Records itself in schema_migrations so it
+    runs once; a failure on one quote is logged and skipped, never blocks startup."""
+    if db.execute("SELECT 1 FROM schema_migrations WHERE name=?", ('backfill_signed_quote_versions',)).fetchone():
+        return
+    rows = db.execute("SELECT quote_id, signed_at FROM quotes WHERE status IN ('contract','in_progress','complete') "
+                      "AND signed_at != '' ORDER BY quote_id").fetchall()
+    for r in rows:
+        try:
+            _record_signed_version(db, r['quote_id'], r['signed_at'], backfill=True)
+        except Exception as e:
+            db.rollback()
+            print(f"[backfill] quote {r['quote_id']} signed version failed: {e}")
+    db.execute("INSERT INTO schema_migrations (name) VALUES (?)", ('backfill_signed_quote_versions',))
+    db.commit()
 
 @app.route('/quotes/<int:quote_id>/versions/<int:version_id>')
 @login_required
@@ -7095,6 +7168,7 @@ def unsign_quote(quote_id):
         return jsonify({'error': 'Not permitted'}), 403
     db = get_db()
     db.execute("UPDATE quotes SET signature_data='',signed_at='',signed_name='',status='sent' WHERE quote_id=?", (quote_id,))
+    db.execute("UPDATE quote_versions SET signed_at='', signed_note='' WHERE quote_id=?", (quote_id,))
     db.commit()
     _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_QUOTE_SENT, mark_status='open')
     return jsonify({'success': True})

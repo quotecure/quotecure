@@ -4,6 +4,16 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-14 — The version a customer signed is now recorded and shown (retroactive)
+
+Jim: a customer (Alan) had several versions of a quote and signed, and nothing said which version was signed. Cause: every send creates Version 1, 2, 3... but the signature link shows the quote *as it is right now*, and the signature never recorded which version it belonged to. Now at signing (`_capture_signature`, so customer link, staff sign and manual Mark Signed all count) `_record_signed_version` compares the signed quote line-by-line to the emailed versions, latest first: a match marks that version signed; no match (edited after the last send, signed in person, never emailed) saves the signed state as its own version marked "Saved at signing" with a note saying why. Shown as a blue "✓ Signed by customer" badge in Version History, a banner on that version's page, "signed Version N" in the Contracts list, and "Version N" in the signed document's header and signature line. Reset signature clears the marker. New columns `quote_versions.signed_at` / `signed_note`.
+
+**Retroactive:** `_backfill_signed_versions` runs once at startup (recorded in `schema_migrations`) over every existing contract with the same matching rule. Old contracts that match no emailed version get a "saved copy" version dated at their signature. Tested on 6 cases (match, edited-after-send, never emailed, duplicate versions, a garbled signed_at, double-run, unsign) plus the pages.
+
+Not changed: the emailed PDFs themselves don't carry a version number yet, and the quote's printed "Date:" is always today's date, not the date it was sent or signed.
+
+---
+
 ## 2026-10-13 (later) — GHL notes come over as plain text, not HTML
 
 Jim pasted what the imported notes looked like: GHL stores note bodies as HTML (`<p style="margin: 0px...">Friday midday</p>...`), so History showed the raw markup. New `ghl_client.html_to_text()` turns paragraphs / line breaks / list items into one line each, strips tags, decodes `&amp;` etc.; text with no tags passes through untouched. Used by the Qualified-time import and by the `note_added` webhook (same HTML issue). Migration `clean_html_in_imported_ghl_notes` converts the notes already imported (only rows that came from GHL, so anything staff typed is never touched). The "skip QuoteCure's own notes" check now runs on the cleaned text too.
