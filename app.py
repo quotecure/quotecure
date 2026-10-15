@@ -3690,7 +3690,11 @@ def edit_quote(quote_id):
         "SELECT note_text, created_by, created_at FROM customer_notes WHERE customer_id=? ORDER BY created_at DESC",
         (quote['customer_id'],)
     ).fetchall() if quote['customer_id'] else []
-    return render_template('edit_quote.html', quote=quote, line_items=line_items,
+    signed_doc = db.execute("SELECT ref, filename, regenerated, created_at, emailed_to, emailed_at, email_error, (pdf IS NOT NULL) AS has_pdf "
+                            "FROM quote_signed_documents WHERE quote_id=?", (quote_id,)).fetchone() if quote['signed_at'] else None
+    signed_ref = _quote_ref(db, quote_id) if quote['signed_at'] else ''
+    return render_template('edit_quote.html', quote=quote, line_items=line_items, signed_doc=signed_doc, signed_ref=signed_ref,
+                           signed_msg=request.args.get('signed_msg', ''),
                            is_archived=is_archived, archive_reason=archive_reason,
                            optional_items=optional_items, optional_total=optional_total,
                            passthrough_items=passthrough_items, passthrough_total=passthrough_total,
@@ -6332,12 +6336,15 @@ def _quote_preview_html(quote_id, sign_action_url=None, for_pdf=False):
     from datetime import date, timedelta
     today = date.today()
     valid_until = today + timedelta(days=settings['quote_validity_days'] if settings else 30)
+    # A signed contract is dated the day it was signed (re-opening or re-downloading it later must not
+    # re-date it to "today"), and "valid until" no longer applies.
+    signed_date = quote['signed_at'].rsplit(' ', 2)[0] if quote['signed_at'] and quote['status'] in ('contract', 'in_progress', 'complete') else ''
     return render_template('quote_preview.html', quote=quote, line_items=line_items, signed_version=signed_version, quote_ref=quote_ref,
                            optional_items=optional_items, declined_items=declined_items,
                            passthrough_items=passthrough_items, passthrough_total=passthrough_total,
                            schedule=schedule, settings=settings, current_role=g.role,
                            terms_doc=terms_doc, visualization=visualization,
-                           today=today.strftime('%B %d, %Y'),
+                           today=signed_date or today.strftime('%B %d, %Y'), is_signed_doc=bool(signed_date),
                            valid_until=valid_until.strftime('%B %d, %Y'),
                            sign_action_url=sign_action_url or url_for('sign_quote', quote_id=quote_id),
                            for_pdf=for_pdf)
@@ -6357,17 +6364,18 @@ def quote_sign_link(quote_id):
     token = _get_or_create_sign_token(db, quote_id)
     return jsonify({'url': url_for('public_sign', token=token, _external=True)})
 
-def _capture_signature(db, quote_id, signature_data, printed_name, via='electronically'):
+def _capture_signature(db, quote_id, signature_data, printed_name, via='electronically', ip='', user_agent=''):
     """Shared by the staff-side /sign route, the public /sign/<token> link, and the manual
     "pen and paper" override -- exact same effect either way: the status flip to 'contract'
     commits immediately, before the PDF/GHL steps that follow, so the contract is durably
     recorded even if those fail. signature_data is '' for a manual/paper mark -- there's no
     drawn image, just a name and a date (quote_preview.html shows that state without an
-    <img>, see the Authorization section)."""
+    <img>, see the Authorization section). Afterwards (all best-effort): the signed PDF is kept
+    on file, emailed to the customer and the company, and attached to the GHL contact."""
     from datetime import datetime
     signed_at = datetime.now().strftime('%B %d, %Y %I:%M %p')
-    db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=?,status='contract' WHERE quote_id=?",
-               (signature_data, signed_at, printed_name, quote_id))
+    db.execute("UPDATE quotes SET signature_data=?,signed_at=?,signed_name=?,signed_ip=?,signed_user_agent=?,status='contract' WHERE quote_id=?",
+               (signature_data, signed_at, printed_name, ip[:100], user_agent[:300], quote_id))
     db.commit()
     try:
         _record_signed_version(db, quote_id, signed_at)
@@ -6379,13 +6387,122 @@ def _capture_signature(db, quote_id, signature_data, printed_name, via='electron
     quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     signed_pdf_bytes = None
     try:
-        signed_pdf_bytes = _generate_quote_pdf_bytes(_quote_preview_html(quote_id))
+        signed_pdf_bytes = _build_signed_pdf(db, quote_id)
+        _store_signed_copy(db, quote_id, ref, signed_pdf_bytes)
     except Exception as e:
-        print(f'[GHL] quote {quote_id} signed-PDF render for GHL attach failed: {e}')
+        db.rollback()
+        print(f'[sign] quote {quote_id} signed-PDF render/store failed: {e}')
+    if signed_pdf_bytes and signature_data:
+        _email_signed_copy(db, quote_id, ref, signed_pdf_bytes)
     _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_WON, mark_status='won',
                         note_text=f"{ref} signed {via} by {printed_name}, {_usd(quote['total_price'])}",
                         pdf_bytes=signed_pdf_bytes, pdf_filename=f'{ref}-signed.pdf')
     return signed_at
+
+def _build_signed_pdf(db, quote_id):
+    """The signed quote as a PDF -- same document the customer signed, signature and all, with the
+    attached terms PDF (if the quote uses one instead of inline terms) appended."""
+    pdf = _generate_quote_pdf_bytes(_quote_preview_html(quote_id))
+    quote = db.execute("SELECT terms_document_id FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    terms_doc = db.execute("SELECT * FROM terms_documents WHERE id=?", (quote['terms_document_id'],)).fetchone() if quote and quote['terms_document_id'] else None
+    return _append_terms_pdf(pdf, terms_doc)
+
+def _store_signed_copy(db, quote_id, ref, pdf_bytes, regenerated=False):
+    db.execute("DELETE FROM quote_signed_documents WHERE quote_id=?", (quote_id,))
+    db.execute("INSERT INTO quote_signed_documents (quote_id, ref, filename, pdf, regenerated) VALUES (?,?,?,?,?)",
+               (quote_id, ref, f'{ref}-signed.pdf', pdf_bytes, 1 if regenerated else 0))
+    db.commit()
+
+def _email_signed_copy(db, quote_id, ref, pdf_bytes, to_customer=True):
+    """Emails the signed PDF to the customer and to the company's own address, through the same
+    Gmail connection quotes go out on. Never raises; the outcome is saved on the stored copy so
+    the quote page can say whether it went out. Returns (sent_to_list, error_or_None)."""
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    gmail_address = (settings['gmail_address'] if settings else '') or ''
+    gmail_pw = (settings['gmail_app_password'] if settings else '') or ''
+    company = (settings['company_name'] if settings else '') or 'Your Company'
+    company_email = ((settings['email'] if settings else '') or gmail_address).strip()
+    customer_email = (quote['customer_email'] or '').strip()
+    sent, errors = [], []
+    if not gmail_address or not gmail_pw:
+        errors.append("Email isn't set up (Gmail address and App Password in Admin Settings).")
+    else:
+        first = (quote['customer_name'] or '').strip().split(' ')[0] or quote['customer_name']
+        stem = ref.replace('QT-', 'Quote_') + '_signed'
+        messages = []
+        if to_customer and customer_email:
+            messages.append((customer_email, f"Your signed quote from {company} — {ref}",
+                f"Hi {first},\n\nThank you! Attached is your signed copy of quote {ref} for your records.\n\n"
+                f"If you have any questions, just reply to this email.\n\nThank you,\n{quote['salesperson'] or company}"))
+        elif to_customer:
+            errors.append('No customer email on file.')
+        if company_email:
+            messages.append((company_email, f"SIGNED: {quote['customer_name']} — {ref}, {_usd(quote['total_price'])}",
+                f"{quote['customer_name']} signed {ref} ({_usd(quote['total_price'])}) on {quote['signed_at']}.\n"
+                f"Signed copy attached. The signature record is on the quote page in QuoteCure."))
+        for addr, subject, body in messages:
+            try:
+                _send_quote_email(addr, subject, body, pdf_bytes, quote_id, gmail_address, gmail_pw, file_stem=stem)
+                sent.append(addr)
+            except Exception as e:
+                errors.append(f'{addr}: {e}')
+    err = ' | '.join(errors)[:400] if errors else None
+    try:
+        db.execute("UPDATE quote_signed_documents SET emailed_to=?, emailed_at=now()::text, email_error=? WHERE quote_id=?",
+                   (', '.join(sent), err or '', quote_id))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f'[sign] quote {quote_id} could not record email outcome: {e}')
+    if err:
+        print(f'[sign] quote {quote_id} signed-copy email problem: {err}')
+    return sent, err
+
+def _client_ip():
+    fwd = request.headers.get('X-Forwarded-For', '')
+    return (fwd.split(',')[0].strip() if fwd else request.remote_addr) or ''
+
+@app.route('/quotes/<int:quote_id>/signed_pdf')
+@login_required
+def signed_pdf(quote_id):
+    """The permanent signed copy. A contract signed before copies were kept gets one regenerated
+    from the contract as it stands (flagged on the quote page) and kept from then on."""
+    db = get_db()
+    quote = db.execute("SELECT status, signed_at FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote or not quote['signed_at'] or not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    doc = db.execute("SELECT * FROM quote_signed_documents WHERE quote_id=?", (quote_id,)).fetchone()
+    if not doc or not doc['pdf']:
+        try:
+            ref = _quote_ref(db, quote_id)
+            _store_signed_copy(db, quote_id, ref, _build_signed_pdf(db, quote_id), regenerated=True)
+        except Exception as e:
+            return Response(f"Couldn't build the signed PDF: {e}", status=500)
+        doc = db.execute("SELECT * FROM quote_signed_documents WHERE quote_id=?", (quote_id,)).fetchone()
+    return Response(bytes(doc['pdf']), mimetype='application/pdf',
+                    headers={'Content-Disposition': f'inline; filename="{doc["filename"]}"'})
+
+@app.route('/quotes/<int:quote_id>/resend_signed_copy', methods=['POST'])
+@login_required
+def resend_signed_copy(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT signed_at FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not quote or not quote['signed_at'] or not _is_locked_contract(db, quote_id):
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    doc = db.execute("SELECT * FROM quote_signed_documents WHERE quote_id=?", (quote_id,)).fetchone()
+    ref = _quote_ref(db, quote_id)
+    try:
+        if not doc or not doc['pdf']:
+            _store_signed_copy(db, quote_id, ref, _build_signed_pdf(db, quote_id), regenerated=True)
+            doc = db.execute("SELECT * FROM quote_signed_documents WHERE quote_id=?", (quote_id,)).fetchone()
+    except Exception as e:
+        return redirect(url_for('edit_quote', quote_id=quote_id, signed_msg=f"Couldn't build the signed PDF: {e}"))
+    sent, err = _email_signed_copy(db, quote_id, doc['ref'] or ref, bytes(doc['pdf']))
+    msg = ('Signed copy emailed to ' + ', '.join(sent) + '.') if sent else ''
+    if err:
+        msg = (msg + ' ' if msg else '') + 'Problem: ' + err
+    return redirect(url_for('edit_quote', quote_id=quote_id, signed_msg=msg))
 
 @app.route('/sign/<token>', methods=['GET', 'POST'])
 def public_sign(token):
@@ -6407,7 +6524,8 @@ def public_sign(token):
     printed_name = (data.get('printed_name') or '').strip()
     if not signature_data or not printed_name:
         return jsonify({'error': 'Signature and printed name are required'}), 400
-    signed_at = _capture_signature(db, quote_id, signature_data, printed_name)
+    signed_at = _capture_signature(db, quote_id, signature_data, printed_name,
+                                   ip=_client_ip(), user_agent=request.headers.get('User-Agent', ''))
     return jsonify({'success': True, 'signed_at': signed_at})
 
 def _resolve_materials_from_quote(db, quote_id):
@@ -7138,7 +7256,8 @@ def sign_quote(quote_id):
     printed_name = (data.get('printed_name') or '').strip()
     if not signature_data or not printed_name:
         return jsonify({'error': 'Signature and printed name are required'}), 400
-    signed_at = _capture_signature(db, quote_id, signature_data, printed_name)
+    signed_at = _capture_signature(db, quote_id, signature_data, printed_name,
+                                   ip=_client_ip(), user_agent=request.headers.get('User-Agent', ''))
     return jsonify({'success': True, 'signed_at': signed_at})
 
 @app.route('/quotes/<int:quote_id>/mark_signed_manual', methods=['POST'])
@@ -7192,6 +7311,8 @@ def unsign_quote(quote_id):
     db = get_db()
     db.execute("UPDATE quotes SET signature_data='',signed_at='',signed_name='',status='sent' WHERE quote_id=?", (quote_id,))
     db.execute("UPDATE quote_versions SET signed_at='', signed_note='' WHERE quote_id=?", (quote_id,))
+    db.execute("UPDATE quotes SET signed_ip='', signed_user_agent='' WHERE quote_id=?", (quote_id,))
+    db.execute("DELETE FROM quote_signed_documents WHERE quote_id=?", (quote_id,))
     db.commit()
     _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_QUOTE_SENT, mark_status='open')
     return jsonify({'success': True})

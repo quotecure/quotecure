@@ -132,8 +132,8 @@
       </div>
       <div class="quote-dates">
         <strong>{{ quote_ref }}</strong><br>
-        Date: {{ today }}<br>
-        Valid until: {{ valid_until }}
+        {% if is_signed_doc %}Signed: {{ today }}{% else %}Date: {{ today }}<br>
+        Valid until: {{ valid_until }}{% endif %}
       </div>
     </div>
   </div>

@@ -307,6 +307,43 @@
     </div>
   </div>
 
+  <div class="card" style="padding:14px 16px;margin-bottom:12px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;">Signature Record</div>
+    {% if signed_msg %}<div style="font-size:12px;margin-bottom:10px;padding:8px 12px;border-radius:6px;background:var(--surface2);color:var(--text);">{{ signed_msg }}</div>{% endif %}
+    <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
+      <div style="background:#fff;border-radius:6px;padding:6px 10px;min-width:220px;min-height:70px;display:flex;align-items:center;justify-content:center;">
+        {% if quote.signature_data %}
+        <img src="{{ quote.signature_data }}" alt="Customer signature" style="max-height:80px;max-width:300px;">
+        {% else %}
+        <span style="font-size:12px;color:#64748b;">No drawn signature &mdash; signed on paper / outside QuoteCure (proof is on the customer's record)</span>
+        {% endif %}
+      </div>
+      <div style="font-size:13px;line-height:1.7;color:var(--text2);">
+        <div><span style="color:var(--text3);">Signed by</span> <strong style="color:var(--text);">{{ quote.signed_name }}</strong></div>
+        <div><span style="color:var(--text3);">Date</span> {{ quote.signed_at }}</div>
+        <div><span style="color:var(--text3);">Document</span> <span class="mono">{{ signed_ref }}</span></div>
+        {% if quote.signed_ip %}<div><span style="color:var(--text3);">From</span> <span class="mono">{{ quote.signed_ip }}</span></div>{% endif %}
+        {% if quote.signed_user_agent %}<div style="font-size:11px;color:var(--text3);max-width:420px;word-break:break-word;">{{ quote.signed_user_agent }}</div>{% endif %}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
+      <a class="btn btn-secondary btn-sm" href="/quotes/{{ quote.quote_id }}/signed_pdf" target="_blank">📄 View signed PDF</a>
+      <a class="btn btn-secondary btn-sm" href="/quotes/{{ quote.quote_id }}/preview" target="_blank">View signed contract</a>
+      <form method="POST" action="/quotes/{{ quote.quote_id }}/resend_signed_copy" style="display:inline" onsubmit="return confirm('Email the signed copy to the customer and to the company address?')">
+        <button class="btn btn-secondary btn-sm" type="submit">✉ Email signed copy</button>
+      </form>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px;">
+      {% if signed_doc and signed_doc.has_pdf %}
+        {% if signed_doc.regenerated %}PDF rebuilt from the contract as it stands (this contract was signed before copies were kept at signing).{% else %}PDF saved at the moment of signing.{% endif %}
+      {% else %}No PDF saved yet &mdash; opening "View signed PDF" builds and keeps one.{% endif %}
+      {% if signed_doc and signed_doc.emailed_at %}
+        {% if signed_doc.emailed_to %} Emailed to {{ signed_doc.emailed_to }} on {{ signed_doc.emailed_at[:16] }}.{% endif %}
+        {% if signed_doc.email_error %}<span style="color:#f87171;"> Email problem: {{ signed_doc.email_error }}</span>{% endif %}
+      {% elif not signed_doc or not signed_doc.emailed_at %} Not emailed yet.{% endif %}
+    </div>
+  </div>
+
   {% if change_orders %}
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;">
     {% for co in change_orders %}

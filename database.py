@@ -4196,6 +4196,26 @@ def add_ghl_pushed_notes(conn):
 
 
 @migration
+def add_signed_copy_records(conn):
+    """The permanent record of a signing, for disputes: the exact signed PDF as generated at the moment
+    of signing (quote_signed_documents), plus where/what the signature came from (IP address and
+    browser) and whether the emailed copies went out. A contract signed before this existed gets
+    its PDF regenerated on first download (regenerated=1), since the original was never kept."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()}
+    if 'signed_ip' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN signed_ip TEXT DEFAULT ''")
+    if 'signed_user_agent' not in cols:
+        conn.execute("ALTER TABLE quotes ADD COLUMN signed_user_agent TEXT DEFAULT ''")
+    conn.execute("""CREATE TABLE IF NOT EXISTS quote_signed_documents (
+        quote_id INTEGER PRIMARY KEY,
+        ref TEXT DEFAULT '', filename TEXT DEFAULT '',
+        pdf BYTEA,
+        regenerated INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (now()::text),
+        emailed_to TEXT DEFAULT '', emailed_at TEXT DEFAULT '', email_error TEXT DEFAULT '')""")
+
+
+@migration
 def add_quote_version_signed_marker(conn):
     """Which emailed version of a quote the customer actually signed. A quote can be emailed
     several times (Version 1, 2, 3 ...), and the signature link always shows the quote as it is
