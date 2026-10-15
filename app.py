@@ -3570,7 +3570,7 @@ def edit_quote(quote_id):
     # "what's on screen still matches the last thing the customer was emailed" from "I've
     # edited this since and they've never seen it." Simple price-based check, not a full
     # line-item diff (Jim's call: good enough for the common case of adding/repricing items).
-    has_unsent_changes = bool(versions) and abs(float(versions[0]['total_price'] or 0) - float(quote['total_price'] or 0)) > 0.01
+    has_unsent_changes = _has_unsent_changes(db, quote_id)
     manufacturers = db.execute("SELECT * FROM surface_manufacturers WHERE active='Y' ORDER BY manufacturer_name").fetchall()
     applicators = db.execute("SELECT * FROM surface_applicators WHERE active='Y' ORDER BY name").fetchall()
     # Add manufacturer_id to surface application line items
@@ -6515,6 +6515,15 @@ def public_sign(token):
     if not quote:
         return render_template('denied.html'), 404
     quote_id = quote['quote_id']
+    # A customer can only sign what they were actually emailed. This link always renders the quote
+    # as it stands right now, so if it's been edited since the last send, signing would apply
+    # their signature to a version they never saw -- hold it until the updated version is sent.
+    if not _is_locked_contract(db, quote_id) and _has_unsent_changes(db, quote_id):
+        if request.method == 'GET':
+            settings = db.execute("SELECT company_name, phone FROM company_settings WHERE id=1").fetchone()
+            return render_template('sign_unavailable.html', company_name=(settings['company_name'] if settings else '') or 'The company',
+                                   phone=(settings['phone'] if settings else '') or ''), 200
+        return jsonify({'error': 'This quote has been updated since it was sent to you. Please wait for the updated version.'}), 409
     if request.method == 'GET':
         return _quote_preview_html(quote_id, sign_action_url=url_for('public_sign', token=token))
     if _is_locked_contract(db, quote_id):
@@ -7063,6 +7072,14 @@ def _matching_version(db, quote_id, versions):
             return v
     return None
 
+def _has_unsent_changes(db, quote_id):
+    """True when the quote has been emailed at least once and has been edited since the latest send.
+    A quote never emailed has nothing to differ from, so it is not 'changed'."""
+    versions = db.execute("SELECT * FROM quote_versions WHERE quote_id=? ORDER BY version_number DESC", (quote_id,)).fetchall()
+    if not versions:
+        return False
+    return _matching_version(db, quote_id, versions[:1]) is None
+
 def _quote_ref(db, quote_id, for_send=False):
     """The quote number as the customer sees it: QT-0009 for the first version, QT-0009v2, v3...
     after. A signed quote shows the version that was signed; otherwise it's the version that
@@ -7311,6 +7328,11 @@ def unsign_quote(quote_id):
     db = get_db()
     db.execute("UPDATE quotes SET signature_data='',signed_at='',signed_name='',status='sent' WHERE quote_id=?", (quote_id,))
     db.execute("UPDATE quote_versions SET signed_at='', signed_note='' WHERE quote_id=?", (quote_id,))
+    # A version that exists only because the signing created it ('Saved at signing') goes with the signing.
+    gone = [r['id'] for r in db.execute("SELECT id FROM quote_versions WHERE quote_id=? AND sent_by='At signing'", (quote_id,)).fetchall()]
+    for vid in gone:
+        db.execute("DELETE FROM quote_version_line_items WHERE version_id=?", (vid,))
+        db.execute("DELETE FROM quote_versions WHERE id=?", (vid,))
     db.execute("UPDATE quotes SET signed_ip='', signed_user_agent='' WHERE quote_id=?", (quote_id,))
     db.execute("DELETE FROM quote_signed_documents WHERE quote_id=?", (quote_id,))
     db.commit()

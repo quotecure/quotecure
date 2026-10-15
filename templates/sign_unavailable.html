@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quote being updated — {{ company_name }}</title>
+<style>
+  body { margin:0; font-family: -apple-system, 'DM Sans', Helvetica, Arial, sans-serif; background:#f1f5f9; color:#0f172a; }
+  .box { max-width:480px; margin:12vh auto; padding:32px 24px; background:#fff; border-radius:12px; box-shadow:0 1px 8px rgba(15,23,42,.1); text-align:center; }
+  h1 { font-size:20px; margin:0 0 10px; }
+  p { font-size:15px; line-height:1.55; color:#475569; margin:0 0 10px; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div style="font-size:40px;margin-bottom:8px;">📝</div>
+    <h1>This quote is being updated</h1>
+    <p>{{ company_name }} has made changes to this quote since it was last sent to you, so it can't be signed from this link right now.</p>
+    <p>You'll receive the updated quote shortly. Please sign that one{% if phone %}, or call us at {{ phone }} with any questions{% endif %}.</p>
+  </div>
+</body>
+</html>
