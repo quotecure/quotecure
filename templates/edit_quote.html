@@ -343,7 +343,7 @@
        style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;
               {% if not loop.last %}border-bottom:1px solid var(--border2);{% endif %}text-decoration:none;color:inherit;">
       <div style="display:flex;align-items:center;gap:10px;">
-        <span style="font-size:13px;color:var(--text);">Version {{ v.version_number }}</span>
+        <span style="font-size:13px;color:var(--text);">Version {{ v.version_number }} <span class="mono" style="font-size:11px;color:var(--text3);">QT-{{ '%04d'|format(quote.quote_id) }}{% if v.version_number > 1 %}v{{ v.version_number }}{% endif %}</span></span>
         {% if v.signed_at %}<span class="badge badge-blue">✓ Signed by customer</span>{% elif v.sent_by == 'At signing' %}<span class="badge badge-gray">Saved at signing</span>{% else %}<span class="badge badge-green">Sent</span>{% endif %}
         <span style="font-size:11px;color:var(--text3);">{{ v.sent_at[:10] if v.sent_at else '' }}{% if v.sent_by and v.sent_by != 'At signing' %} by {{ v.sent_by }}{% endif %}</span>
         {% if v.signed_note %}<span style="font-size:11px;color:#fbbf24;">{{ v.signed_note }}</span>{% endif %}

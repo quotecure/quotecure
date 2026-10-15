@@ -6326,12 +6326,13 @@ def _quote_preview_html(quote_id, sign_action_url=None, for_pdf=False):
         visualization = dict(visualization)
         for col in ('original_image', 'generated_image'):
             visualization[col] = _shrink_stored_viz(db, visualization['id'], col)
+    quote_ref = _quote_ref(db, quote_id, for_send=for_pdf)
     signed_version = db.execute("SELECT version_number FROM quote_versions WHERE quote_id=? AND signed_at != '' "
                                 "ORDER BY version_number DESC LIMIT 1", (quote_id,)).fetchone() if quote['signed_at'] else None
     from datetime import date, timedelta
     today = date.today()
     valid_until = today + timedelta(days=settings['quote_validity_days'] if settings else 30)
-    return render_template('quote_preview.html', quote=quote, line_items=line_items, signed_version=signed_version,
+    return render_template('quote_preview.html', quote=quote, line_items=line_items, signed_version=signed_version, quote_ref=quote_ref,
                            optional_items=optional_items, declined_items=declined_items,
                            passthrough_items=passthrough_items, passthrough_total=passthrough_total,
                            schedule=schedule, settings=settings, current_role=g.role,
@@ -6374,6 +6375,7 @@ def _capture_signature(db, quote_id, signature_data, printed_name, via='electron
         db.rollback()
         print(f'[sign] quote {quote_id} could not record the signed version: {e}')
     _ensure_tracked_modifier_rows(db, quote_id)
+    ref = _quote_ref(db, quote_id)
     quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     signed_pdf_bytes = None
     try:
@@ -6381,8 +6383,8 @@ def _capture_signature(db, quote_id, signature_data, printed_name, via='electron
     except Exception as e:
         print(f'[GHL] quote {quote_id} signed-PDF render for GHL attach failed: {e}')
     _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_WON, mark_status='won',
-                        note_text=f"QT-{quote_id:04d} signed {via} by {printed_name}, {_usd(quote['total_price'])}",
-                        pdf_bytes=signed_pdf_bytes, pdf_filename=f'QT-{quote_id:04d}-signed.pdf')
+                        note_text=f"{ref} signed {via} by {printed_name}, {_usd(quote['total_price'])}",
+                        pdf_bytes=signed_pdf_bytes, pdf_filename=f'{ref}-signed.pdf')
     return signed_at
 
 @app.route('/sign/<token>', methods=['GET', 'POST'])
@@ -6636,7 +6638,7 @@ def delete_sub_attachment(attachment_id):
     db.commit()
     return redirect(url_for('admin_subs'))
 
-def _send_quote_email(to_email, subject, body_text, pdf_bytes, quote_id, gmail_address, gmail_app_password):
+def _send_quote_email(to_email, subject, body_text, pdf_bytes, quote_id, gmail_address, gmail_app_password, file_stem=None):
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
@@ -6646,8 +6648,8 @@ def _send_quote_email(to_email, subject, body_text, pdf_bytes, quote_id, gmail_a
     msg['To'] = to_email
     msg['Subject'] = subject
     msg.attach(MIMEText(body_text))
-    part = MIMEApplication(pdf_bytes, Name=f'Quote_{quote_id:04d}.pdf')
-    part['Content-Disposition'] = f'attachment; filename="Quote_{quote_id:04d}.pdf"'
+    part = MIMEApplication(pdf_bytes, Name=f'{file_stem or f"Quote_{quote_id:04d}"}.pdf')
+    part['Content-Disposition'] = f'attachment; filename="{file_stem or f"Quote_{quote_id:04d}"}.pdf"'
     msg.attach(part)
     with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as server:
         server.starttls()
@@ -6797,9 +6799,9 @@ def delete_visualization(quote_id, viz_id):
     db.commit()
     return jsonify({'success': True})
 
-def _default_quote_email(quote, settings, quote_id, sign_url=None):
+def _default_quote_email(quote, settings, quote_id, sign_url=None, ref=None):
     company_name = settings['company_name'] if settings else 'Your Company'
-    subject = f"Your Quote from {company_name} — QT-{quote_id:04d}"
+    subject = f"Your Quote from {company_name} — {ref or f'QT-{quote_id:04d}'}"
     # First name only in the greeting -- reads more like a real note from the person who
     # quoted the job than a form letter with the customer's full name.
     first_name = (quote['customer_name'] or '').strip().split(' ')[0] or quote['customer_name']
@@ -6828,7 +6830,7 @@ def quote_email_defaults(quote_id):
     if quote['status'] in ('draft', 'sent'):
         token = _get_or_create_sign_token(db, quote_id)
         sign_url = url_for('public_sign', token=token, _external=True)
-    subject, body = _default_quote_email(quote, settings, quote_id, sign_url=sign_url)
+    subject, body = _default_quote_email(quote, settings, quote_id, sign_url=sign_url, ref=_quote_ref(db, quote_id, for_send=True))
     return jsonify({'subject': subject, 'body': body})
 
 @app.route('/quotes/<int:quote_id>/email', methods=['POST'])
@@ -6850,7 +6852,8 @@ def email_quote(quote_id):
     if quote['status'] in ('draft', 'sent'):
         token = _get_or_create_sign_token(db, quote_id)
         sign_url = url_for('public_sign', token=token, _external=True)
-    default_subject, default_body = _default_quote_email(quote, settings, quote_id, sign_url=sign_url)
+    ref = _quote_ref(db, quote_id, for_send=True)
+    default_subject, default_body = _default_quote_email(quote, settings, quote_id, sign_url=sign_url, ref=ref)
     data = request.get_json(silent=True) or {}
     subject = (data.get('subject') or '').strip() or default_subject
     body = data.get('body') if data.get('body') is not None and data.get('body').strip() else default_body
@@ -6869,7 +6872,7 @@ def email_quote(quote_id):
             return jsonify({'error': f"This quote's PDF is {size_mb:.1f}MB, too large to email "
                              f"(Gmail's limit is ~25MB once encoded). If this quote has an AI "
                              f"visualization image, remove it on the Visualize tab and try again."}), 400
-        _send_quote_email(to_email, subject, body, pdf_bytes, quote_id, gmail_address, gmail_app_password)
+        _send_quote_email(to_email, subject, body, pdf_bytes, quote_id, gmail_address, gmail_app_password, file_stem=ref.replace('QT-', 'Quote_'))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     db.execute("UPDATE quotes SET status='sent' WHERE quote_id=? AND status='draft'", (quote_id,))
@@ -6883,8 +6886,8 @@ def email_quote(quote_id):
         _snapshot_quote_version(db, quote_id)
     db.commit()
     _sync_quote_to_ghl(db, quote_id, _GHL_STAGE_QUOTE_SENT, mark_status='open',
-                        note_text=f"QT-{quote_id:04d} sent to {to_email}, {_usd(quote['total_price'])}",
-                        pdf_bytes=pdf_bytes, pdf_filename=f'QT-{quote_id:04d}.pdf')
+                        note_text=f"{ref} sent to {to_email}, {_usd(quote['total_price'])}",
+                        pdf_bytes=pdf_bytes, pdf_filename=f'{ref}.pdf')
     return jsonify({'success': True, 'sent_to': to_email})
 
 def _snapshot_quote_version(db, quote_id, sent_by=None, at=None):
@@ -6931,6 +6934,34 @@ def _fingerprint(rows):
                    round(float(r['total_price'] or 0), 2), int(r['is_optional'] or 0), int(r['is_declined'] or 0))
                   for r in rows)
 
+def _matching_version(db, quote_id, versions):
+    """The latest emailed version whose lines and total are identical to the quote right now, or None."""
+    quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    current = _fingerprint(db.execute(
+        "SELECT * FROM quote_line_items WHERE quote_id=? AND (schedule_only=0 OR schedule_only IS NULL)", (quote_id,)).fetchall())
+    for v in versions:
+        frozen = _fingerprint(db.execute("SELECT * FROM quote_version_line_items WHERE version_id=?", (v['id'],)).fetchall())
+        if frozen == current and abs(float(v['total_price'] or 0) - float(quote['total_price'] or 0)) < 0.01:
+            return v
+    return None
+
+def _quote_ref(db, quote_id, for_send=False):
+    """The quote number as the customer sees it: QT-0009 for the first version, QT-0009v2, v3...
+    after. A signed quote shows the version that was signed; otherwise it's the version that
+    matches the quote as it stands, or -- if it has unsent edits, or for_send (every send makes
+    a new version) -- the next one to be made. Display only: the quote stays one record, QT-0009."""
+    base = f"QT-{quote_id:04d}"
+    versions = db.execute("SELECT * FROM quote_versions WHERE quote_id=? ORDER BY version_number DESC", (quote_id,)).fetchall()
+    n = 1
+    if versions:
+        signed = next((v for v in versions if v['signed_at']), None)
+        if signed and not for_send:
+            n = signed['version_number']
+        else:
+            match = None if for_send else _matching_version(db, quote_id, versions)
+            n = match['version_number'] if match else versions[0]['version_number'] + 1
+    return base if n <= 1 else f"{base}v{n}"
+
 def _record_signed_version(db, quote_id, signed_at_text='', backfill=False):
     """Marks which emailed version the customer signed. The signature link shows the quote as it
     stands at that moment, so: if it matches an emailed version (latest first), that version is
@@ -6941,15 +6972,7 @@ def _record_signed_version(db, quote_id, signed_at_text='', backfill=False):
     if db.execute("SELECT 1 FROM quote_versions WHERE quote_id=? AND signed_at != ''", (quote_id,)).fetchone():
         return None
     versions = db.execute("SELECT * FROM quote_versions WHERE quote_id=? ORDER BY version_number DESC", (quote_id,)).fetchall()
-    quote = db.execute("SELECT total_price FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
-    current = _fingerprint(db.execute(
-        "SELECT * FROM quote_line_items WHERE quote_id=? AND (schedule_only=0 OR schedule_only IS NULL)", (quote_id,)).fetchall())
-    match = None
-    for v in versions:
-        frozen = _fingerprint(db.execute("SELECT * FROM quote_version_line_items WHERE version_id=?", (v['id'],)).fetchall())
-        if frozen == current and abs(float(v['total_price'] or 0) - float(quote['total_price'] or 0)) < 0.01:
-            match = v
-            break
+    match = _matching_version(db, quote_id, versions)
     if match:
         version_id, note = match['id'], ''
     else:

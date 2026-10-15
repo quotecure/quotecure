@@ -131,7 +131,7 @@
         {% if settings and settings.license_number %}License: {{ settings.license_number }}{% endif %}
       </div>
       <div class="quote-dates">
-        {% if signed_version %}QT-{{ '%04d'|format(quote.quote_id) }} &middot; Version {{ signed_version.version_number }}<br>{% endif %}
+        <strong>{{ quote_ref }}</strong><br>
         Date: {{ today }}<br>
         Valid until: {{ valid_until }}
       </div>

@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-15 — Quote numbers show their version: QT-0009, then QT-0009v2, v3...
+
+Jim: when a quote has versions, the number on the PDF should say which — first send plain `QT-0009`, then `QT-0009v2`, `QT-0009v3` as they're made. `_quote_ref()` builds it: no versions = plain; otherwise the emailed version that matches the quote as it stands, or the *next* version if it has unsent edits; each email send always makes a new version, so the PDF and email say the number it's about to become; a signed quote shows the version that was signed (shares the matching logic with the signed-version marker via `_matching_version`). Used in: the number printed at the top of the quote document / PDF / signing page (now shown always, bold, above the date), the email subject and attachment name (`Quote_0009v2.pdf`), the GHL "sent"/"signed" notes and their PDF filenames, and the Version History rows. Still one quote record: URLs, the Quotes/Contracts lists, Schedule and Ledger keep `QT-0009` (deliberate -- it's the job, not a document revision). Old quotes with versions already sent: those keep numbers by their existing version order, and the next send is the next number up. Change Orders unchanged.
+
+---
+
 ## 2026-10-14 — The version a customer signed is now recorded and shown (retroactive)
 
 Jim: a customer (Alan) had several versions of a quote and signed, and nothing said which version was signed. Cause: every send creates Version 1, 2, 3... but the signature link shows the quote *as it is right now*, and the signature never recorded which version it belonged to. Now at signing (`_capture_signature`, so customer link, staff sign and manual Mark Signed all count) `_record_signed_version` compares the signed quote line-by-line to the emailed versions, latest first: a match marks that version signed; no match (edited after the last send, signed in person, never emailed) saves the signed state as its own version marked "Saved at signing" with a note saying why. Shown as a blue "✓ Signed by customer" badge in Version History, a banner on that version's page, "signed Version N" in the Contracts list, and "Version N" in the signed document's header and signature line. Reset signature clears the marker. New columns `quote_versions.signed_at` / `signed_note`.
