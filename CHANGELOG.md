@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-27 (evening) — Fix: adding a Change Order line with Material left on "— None —" did nothing
+
+Jim: adding Concrete Removal to a Change Order wouldn't go through when Material was left as None (there is none). Right guess: the form posts an empty string for the blank Material (and blank finish) picker, `build_line_item` passes it through, and `_insert_change_order_item` tried to store `''` in the integer `material_id` column -- Postgres rejected it (HTTP 500). The quote page never hit this because it normalizes the blank itself. Fix: `_insert_change_order_item` stores NULL for a blank `material_id`/`product_id` (covers Add, Amend and any other caller). Also, the page's buttons parsed every failure as JSON, so a server crash (an HTML error page) threw silently and the button looked dead -- failures now show an alert with the reason or the status code. Reproduced the 500 first, then verified Add and Amend both work with a blank material.
+
+---
+
 ## 2026-10-27 (later) — Change Order lines are editable in place, like the quote page
 
 Jim: Change Order lines were frozen once added -- no markup, no price changes. Now every line the CO is **adding** (new work, the new half of a replacement, one-off lines) has an editor right under it: sub, labor qty, labor $/unit, a −/+ markup stepper (5% steps, same minimum-markup floor and override permission as the quote page), material qty / $/unit / markup when the line has material, and a description that prints on the Change Order. Cost, price, margin and the CO net update live. One-off lines get editable label/price/cost. New route `update_change_order_item` reuses the quote page's pricing helpers (`price_component`, the sub's minimum charge, the work type's minimum job price), so it's the same rules, not a second copy. **Removal lines stay locked** (a credit must equal what was charged; Jim confirmed). Draft COs only -- a sent/voided/signed CO refuses edits. Not included (asked about, Jim chose not to): modifiers and swapping the material/tile on a CO line.

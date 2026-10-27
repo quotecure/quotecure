@@ -2734,6 +2734,9 @@ def _insert_change_order_item(db, co_id, item, kind, action, label, sort_order,
     key-mapping is needed. For a 'remove' row, the caller is expected to have already
     negated item['total_cost']/['total_price']; the breakdown columns (labor_*/material_*)
     are stored as the removed item's own original (positive) magnitudes, for audit."""
+    # The add form posts "" for a blank Material / finish picker ("— None —"); build_line_item passes
+    # that straight through, and an empty string isn't a valid integer id -- store NULL instead.
+    item = {**item, 'material_id': item.get('material_id') or None, 'product_id': item.get('product_id') or None}
     db.execute(
         "INSERT INTO change_order_items "
         "(change_order_id, sort_order, kind, action, label, description, work_type_id, "
