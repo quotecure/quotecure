@@ -94,7 +94,7 @@
     </div>
     <div class="header-title">
       <div class="quote-title">CHANGE ORDER</div>
-      <div class="quote-number">CO #{{ co.co_number }}</div>
+      <div class="quote-number">CO #{{ co.co_number }}{% if revision and revision > 1 %} &middot; rev {{ revision }}{% endif %}</div>
     </div>
     <div class="header-meta">
       <div class="company-info">
@@ -202,6 +202,12 @@
           {{ co.signed_name }} &middot; Signed {{ co.signed_at }}
         </div>
         {% else %}
+        {% if for_pdf %}
+        <div style="border-bottom:1px solid #334155;height:60px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;">
+          <a href="{{ sign_action_url }}" style="font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:#1d4ed8;text-decoration:none;">→ Click here to sign electronically</a>
+        </div>
+        <div class="sig-label">Customer Signature</div>
+        {% else %}
         <canvas id="sig-canvas" width="360" height="70" style="border-bottom:1px solid #334155;touch-action:none;cursor:crosshair;display:block;"></canvas>
         <div class="sig-label">Customer Signature</div>
         <div class="no-print" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -209,6 +215,7 @@
           <button type="button" onclick="clearSig()" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #cbd5e1;background:white;cursor:pointer;">Clear</button>
           <button type="button" onclick="saveSig()" style="font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;padding:6px 14px;border-radius:6px;border:none;background:#1d4ed8;color:white;cursor:pointer;">Sign</button>
         </div>
+        {% endif %}
         {% endif %}
       </div>
       <div>
@@ -222,6 +229,7 @@
 <script>
 const QUOTE_ID = {{ quote.quote_id }};
 const CO_ID = {{ co.id }};
+const SIGN_URL = {{ sign_action_url|tojson }};
 
 (function() {
   const canvas = document.getElementById('sig-canvas');
@@ -274,12 +282,16 @@ const CO_ID = {{ co.id }};
     const name = document.getElementById('sig-name').value.trim();
     if (!hasStroke) { alert('Please sign above before submitting.'); return; }
     if (!name) { alert('Please enter a printed name.'); return; }
-    const resp = await fetch('/quotes/' + QUOTE_ID + '/change_orders/' + CO_ID + '/sign', {
+    const resp = await fetch(SIGN_URL, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({signature: canvas.toDataURL('image/png'), printed_name: name})
     });
     if (resp.ok) location.reload();
-    else alert('Could not save signature. Please try again.');
+    else {
+      let msg = 'Could not save signature. Please try again.';
+      try { const d = await resp.json(); if (d && d.error) msg = d.error; } catch (e) {}
+      alert(msg);
+    }
   };
 })();
 </script>

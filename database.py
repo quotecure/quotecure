@@ -4196,6 +4196,26 @@ def add_ghl_pushed_notes(conn):
 
 
 @migration
+def add_change_order_remote_signing(conn):
+    """Change Orders get what quotes have: an emailed PDF with a link where the customer signs on their
+    own device (public_sign_token), a record of where the signature came from, a revision counter bumped
+    on every send (so 'CO #2 rev 2' is identifiable), and a kept copy of the signed PDF."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(change_orders)").fetchall()}
+    for name, ddl in (('public_sign_token', "TEXT DEFAULT ''"), ('signed_ip', "TEXT DEFAULT ''"),
+                      ('signed_user_agent', "TEXT DEFAULT ''"), ('revision', 'INTEGER DEFAULT 0'),
+                      ('sent_at', "TEXT DEFAULT ''")):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE change_orders ADD COLUMN {name} {ddl}")
+    conn.execute("""CREATE TABLE IF NOT EXISTS change_order_signed_documents (
+        co_id INTEGER PRIMARY KEY,
+        ref TEXT DEFAULT '', filename TEXT DEFAULT '',
+        pdf BYTEA,
+        regenerated INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (now()::text),
+        emailed_to TEXT DEFAULT '', emailed_at TEXT DEFAULT '', email_error TEXT DEFAULT '')""")
+
+
+@migration
 def add_signed_copy_records(conn):
     """The permanent record of a signing, for disputes: the exact signed PDF as generated at the moment
     of signing (quote_signed_documents), plus where/what the signature came from (IP address and

@@ -2887,7 +2887,11 @@ def change_order_builder(quote_id, co_id):
     return render_template('change_order_builder.html', quote=quote, co=co, items=items,
                            removable=removable, work_types=work_types, subs=subs, materials=materials,
                            manufacturers=manufacturers, prior_cos=prior_cos,
-                           can_override=bool(g.role and g.role['can_override_min_markup']))
+                           can_override=bool(g.role and g.role['can_override_min_markup']),
+                           signed_doc=db.execute("SELECT ref, regenerated, emailed_to, emailed_at, email_error, (pdf IS NOT NULL) AS has_pdf "
+                                                 "FROM change_order_signed_documents WHERE co_id=?", (co_id,)).fetchone() if co['status'] == 'signed' else None,
+                           signed_msg=request.args.get('signed_msg', ''),
+                           co_ref=_co_ref(quote_id, co))
 
 @app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/items', methods=['POST'])
 @login_required
@@ -3179,10 +3183,12 @@ def _change_order_money(db, quote_id, co_id):
         'new_remaining': round(new_remaining, 2),
     }
 
-def _change_order_preview_html(quote_id, co_id):
-    """Shared renderer for the signable Change Order document -- used by the /preview
-    route and the email PDF export, same one-function-two-callers pattern as
-    _quote_preview_html."""
+def _change_order_preview_html(quote_id, co_id, sign_action_url=None, for_pdf=False, revision=None):
+    """Shared renderer for the signable Change Order document -- used by the staff /preview route, the
+    public sign link, and the email PDF export, same one-function-many-callers pattern as
+    _quote_preview_html. for_pdf swaps the live signature canvas for a real link (a static PDF can't
+    run the canvas, and a blank line in a PDF can be typed over by a PDF reader, bypassing QuoteCure).
+    revision overrides the stored one -- the email route renders the PDF as the revision it is about to become."""
     db = get_db()
     quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
     co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
@@ -3192,44 +3198,231 @@ def _change_order_preview_html(quote_id, co_id):
     from datetime import date
     created_date = date.today().strftime('%B %d, %Y')
     return render_template('change_order_preview.html', quote=quote, co=co, items=items,
-                           money=money, settings=settings, created_date=created_date)
+                           money=money, settings=settings, created_date=created_date,
+                           revision=revision if revision is not None else (co['revision'] or 0),
+                           sign_action_url=sign_action_url or url_for('sign_change_order', quote_id=quote_id, co_id=co_id),
+                           for_pdf=for_pdf)
 
 @app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/preview')
 @login_required
 def change_order_preview(quote_id, co_id):
     return _change_order_preview_html(quote_id, co_id)
 
-@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/sign', methods=['POST'])
-@login_required
-def sign_change_order(quote_id, co_id):
-    db = get_db()
+def _co_ref(quote_id, co):
+    """What the document is called: QT-0009 CO #2, with ' rev 2' once it has been re-sent after edits."""
+    rev = co['revision'] or 0
+    return f"QT-{quote_id:04d} CO #{co['co_number']}" + (f" rev {rev}" if rev > 1 else '')
+
+def _get_or_create_co_sign_token(db, co_id):
+    row = db.execute("SELECT public_sign_token FROM change_orders WHERE id=?", (co_id,)).fetchone()
+    if row and row['public_sign_token']:
+        return row['public_sign_token']
+    token = secrets.token_urlsafe(32)
+    db.execute("UPDATE change_orders SET public_sign_token=? WHERE id=?", (token, co_id))
+    db.commit()
+    return token
+
+def _capture_co_signature(db, quote_id, co_id, signature_data, printed_name, ip='', user_agent=''):
+    """The one place a Change Order becomes signed -- shared by the staff-side (in person) sign route and
+    the customer's emailed link. Returns (signed_at, None) or (None, error message). Afterwards, best-effort:
+    the signed PDF is kept on file and emailed to the customer and the company."""
     co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
     if not co or co['status'] in ('signed', 'voided'):
-        return jsonify({'error': 'Not found, already signed, or voided'}), 404
-    data = request.json
-    signature_data = data.get('signature', '')
-    printed_name = (data.get('printed_name') or '').strip()
-    if not signature_data or not printed_name:
-        return jsonify({'error': 'Signature and printed name are required'}), 400
+        return None, 'Not found, already signed, or voided'
     # Two Change Orders can be open at once, and each only checks the contract as of when it was built.
     # Signing must re-check against the contract as it stands now, or a second CO removing the same item
     # (or changing one the first already changed) would subtract/replace it twice.
     effective = _contract_effective_items(db, quote_id)
     for it in db.execute("SELECT * FROM change_order_items WHERE change_order_id=? AND kind='catalog' AND action='remove'", (co_id,)).fetchall():
         if it['work_type_id'] not in effective:
-            return jsonify({'error': f"\"{it['label']}\" is no longer on the contract (another Change Order already removed or replaced it). "
-                                     f"Reopen this Change Order and rebuild it against the current contract."}), 409
+            return None, (f"\"{it['label']}\" is no longer on the contract (another Change Order already removed or replaced it). "
+                          f"Reopen this Change Order and rebuild it against the current contract.")
     from datetime import datetime
     signed_at = datetime.now().strftime('%B %d, %Y %I:%M %p')
-    db.execute("UPDATE change_orders SET signature_data=?,signed_at=?,signed_name=?,status='signed' WHERE id=?",
-               (signature_data, signed_at, printed_name, co_id))
+    db.execute("UPDATE change_orders SET signature_data=?,signed_at=?,signed_name=?,signed_ip=?,signed_user_agent=?,status='signed' WHERE id=?",
+               (signature_data, signed_at, printed_name, ip[:100], user_agent[:300], co_id))
     # Append this CO's net amount to the payment ledger -- a plain INSERT, never
     # generate_payment_schedule() (which would wipe collected-payment history).
     max_sort = db.execute("SELECT COALESCE(MAX(sort_order),-1) FROM payment_schedules WHERE quote_id=?", (quote_id,)).fetchone()[0]
     db.execute("INSERT INTO payment_schedules (quote_id, label, amount, pct, sort_order) VALUES (?,?,?,?,?)",
                (quote_id, f"Change Order #{co['co_number']}", co['total_price'], 0, max_sort + 1))
     db.commit()
+    try:
+        co = db.execute("SELECT * FROM change_orders WHERE id=?", (co_id,)).fetchone()
+        ref = _co_ref(quote_id, co)
+        pdf = _build_signed_co_pdf(quote_id, co_id)
+        _store_signed_co(db, co_id, ref, pdf)
+        _email_signed_co_copy(db, quote_id, co_id, ref, pdf)
+    except Exception as e:
+        db.rollback()
+        print(f'[sign] change order {co_id} signed-copy step failed: {e}')
+    return signed_at, None
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/sign', methods=['POST'])
+@login_required
+def sign_change_order(quote_id, co_id):
+    db = get_db()
+    data = request.json or {}
+    signature_data = data.get('signature', '')
+    printed_name = (data.get('printed_name') or '').strip()
+    if not signature_data or not printed_name:
+        return jsonify({'error': 'Signature and printed name are required'}), 400
+    signed_at, err = _capture_co_signature(db, quote_id, co_id, signature_data, printed_name,
+                                           ip=_client_ip(), user_agent=request.headers.get('User-Agent', ''))
+    if err:
+        return jsonify({'error': err}), (409 if 'no longer on the contract' in err else 404)
     return jsonify({'success': True, 'signed_at': signed_at})
+
+@app.route('/sign/co/<token>', methods=['GET', 'POST'])
+def public_co_sign(token):
+    """The customer-facing Change Order signing link -- no login, scoped to one CO by an unguessable
+    token. Only a CO that is currently 'sent' can be signed here: reopening it to edit (back to draft) or
+    voiding it kills the link until a fresh version is emailed, so the customer can never sign terms
+    they weren't sent."""
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE public_sign_token=?", (token,)).fetchone()
+    if not co or not token:
+        return render_template('denied.html'), 404
+    quote_id, co_id = co['quote_id'], co['id']
+    if co['status'] == 'signed' and request.method == 'GET':
+        return _change_order_preview_html(quote_id, co_id)
+    if co['status'] != 'sent':
+        if request.method == 'GET':
+            settings = db.execute("SELECT company_name, phone FROM company_settings WHERE id=1").fetchone()
+            return render_template('sign_unavailable.html', company_name=(settings['company_name'] if settings else '') or 'The company',
+                                   phone=(settings['phone'] if settings else '') or '', what='change order',
+                                   voided=(co['status'] == 'voided')), 200
+        return jsonify({'error': 'This change order can\'t be signed right now.'}), 409
+    if request.method == 'GET':
+        return _change_order_preview_html(quote_id, co_id, sign_action_url=url_for('public_co_sign', token=token))
+    data = request.json or {}
+    signature_data = data.get('signature', '')
+    printed_name = (data.get('printed_name') or '').strip()
+    if not signature_data or not printed_name:
+        return jsonify({'error': 'Signature and printed name are required'}), 400
+    signed_at, err = _capture_co_signature(db, quote_id, co_id, signature_data, printed_name,
+                                           ip=_client_ip(), user_agent=request.headers.get('User-Agent', ''))
+    if err:
+        return jsonify({'error': err}), 409
+    return jsonify({'success': True, 'signed_at': signed_at})
+
+def _build_signed_co_pdf(quote_id, co_id):
+    return _generate_quote_pdf_bytes(_change_order_preview_html(quote_id, co_id))
+
+def _store_signed_co(db, co_id, ref, pdf_bytes, regenerated=False):
+    db.execute("DELETE FROM change_order_signed_documents WHERE co_id=?", (co_id,))
+    db.execute("INSERT INTO change_order_signed_documents (co_id, ref, filename, pdf, regenerated) VALUES (?,?,?,?,?)",
+               (co_id, ref, ref.replace(' ', '-').replace('#', '') + '-signed.pdf', pdf_bytes, 1 if regenerated else 0))
+    db.commit()
+
+def _email_signed_co_copy(db, quote_id, co_id, ref, pdf_bytes, to_customer=True):
+    """Same as _email_signed_copy for quotes: the signed Change Order to the customer and the company's own
+    address. Never raises; the outcome is saved on the stored copy. Returns (sent_to_list, error_or_None)."""
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    co = db.execute("SELECT * FROM change_orders WHERE id=?", (co_id,)).fetchone()
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    gmail_address = (settings['gmail_address'] if settings else '') or ''
+    gmail_pw = (settings['gmail_app_password'] if settings else '') or ''
+    company = (settings['company_name'] if settings else '') or 'Your Company'
+    company_email = ((settings['email'] if settings else '') or gmail_address).strip()
+    customer_email = (quote['customer_email'] or '').strip()
+    sent, errors = [], []
+    if not gmail_address or not gmail_pw:
+        errors.append("Email isn't set up (Gmail address and App Password in Admin Settings).")
+    else:
+        first = (quote['customer_name'] or '').strip().split(' ')[0] or quote['customer_name']
+        stem = ref.replace(' ', '_').replace('#', '') + '_signed'
+        messages = []
+        if to_customer and customer_email:
+            messages.append((customer_email, f"Your signed change order from {company} — {ref}",
+                f"Hi {first},\n\nThank you! Attached is your signed copy of {ref} for your records.\n\n"
+                f"If you have any questions, just reply to this email.\n\nThank you,\n{quote['salesperson'] or company}"))
+        elif to_customer:
+            errors.append('No customer email on file.')
+        if company_email:
+            messages.append((company_email, f"SIGNED: {quote['customer_name']} — {ref}, {_usd(co['total_price'])}",
+                f"{quote['customer_name']} signed {ref} ({_usd(co['total_price'])}) on {co['signed_at']}.\n"
+                f"Signed copy attached. The signature record is on the Change Order page in QuoteCure."))
+        for addr, subject, body in messages:
+            try:
+                _send_quote_email(addr, subject, body, pdf_bytes, quote_id, gmail_address, gmail_pw, file_stem=stem)
+                sent.append(addr)
+            except Exception as e:
+                errors.append(f'{addr}: {e}')
+    err = ' | '.join(errors)[:400] if errors else None
+    try:
+        db.execute("UPDATE change_order_signed_documents SET emailed_to=?, emailed_at=now()::text, email_error=? WHERE co_id=?",
+                   (', '.join(sent), err or '', co_id))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f'[sign] change order {co_id} could not record email outcome: {e}')
+    if err:
+        print(f'[sign] change order {co_id} signed-copy email problem: {err}')
+    return sent, err
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/signed_pdf')
+@login_required
+def signed_co_pdf(quote_id, co_id):
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] != 'signed':
+        return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id))
+    doc = db.execute("SELECT * FROM change_order_signed_documents WHERE co_id=?", (co_id,)).fetchone()
+    if not doc or not doc['pdf']:
+        try:
+            _store_signed_co(db, co_id, _co_ref(quote_id, co), _build_signed_co_pdf(quote_id, co_id), regenerated=True)
+        except Exception as e:
+            return Response(f"Couldn't build the signed PDF: {e}", status=500)
+        doc = db.execute("SELECT * FROM change_order_signed_documents WHERE co_id=?", (co_id,)).fetchone()
+    return Response(bytes(doc['pdf']), mimetype='application/pdf',
+                    headers={'Content-Disposition': f'inline; filename="{doc["filename"]}"'})
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/resend_signed_copy', methods=['POST'])
+@login_required
+def resend_signed_co_copy(quote_id, co_id):
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] != 'signed':
+        return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id))
+    doc = db.execute("SELECT * FROM change_order_signed_documents WHERE co_id=?", (co_id,)).fetchone()
+    ref = _co_ref(quote_id, co)
+    try:
+        if not doc or not doc['pdf']:
+            _store_signed_co(db, co_id, ref, _build_signed_co_pdf(quote_id, co_id), regenerated=True)
+            doc = db.execute("SELECT * FROM change_order_signed_documents WHERE co_id=?", (co_id,)).fetchone()
+    except Exception as e:
+        return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id, signed_msg=f"Couldn't build the signed PDF: {e}"))
+    sent, err = _email_signed_co_copy(db, quote_id, co_id, doc['ref'] or ref, bytes(doc['pdf']))
+    msg = ('Signed copy emailed to ' + ', '.join(sent) + '.') if sent else ''
+    if err:
+        msg = (msg + ' ' if msg else '') + 'Problem: ' + err
+    return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id, signed_msg=msg))
+
+def _default_co_email(quote, settings, quote_id, co, sign_url):
+    company_name = (settings['company_name'] if settings else '') or 'Your Company'
+    rev = (co['revision'] or 0) + 1
+    ref = f"QT-{quote_id:04d} CO #{co['co_number']}" + (f" rev {rev}" if rev > 1 else '')
+    first = (quote['customer_name'] or '').strip().split(' ')[0] or quote['customer_name']
+    subject = f"Change Order #{co['co_number']}{f' (rev {rev})' if rev > 1 else ''} from {company_name} — QT-{quote_id:04d}"
+    body = (f"Hi {first},\n\n"
+            f"Please find your Change Order attached. It lists the changes to your existing contract and the new total.\n\n"
+            f"You can review and sign it electronically here: {sign_url}\n\n"
+            f"Thank you,\n{quote['salesperson'] or company_name}")
+    return subject, body, ref
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/email_defaults')
+@login_required
+def co_email_defaults(quote_id, co_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not quote or not co:
+        return jsonify({'error': 'Not found'}), 404
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    sign_url = url_for('public_co_sign', token=_get_or_create_co_sign_token(db, co_id), _external=True)
+    subject, body, _ = _default_co_email(quote, settings, quote_id, co, sign_url)
+    return jsonify({'subject': subject, 'body': body})
 
 @app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/email', methods=['POST'])
 @login_required
@@ -3239,6 +3432,10 @@ def email_change_order(quote_id, co_id):
     co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
     if not quote or not co:
         return jsonify({'error': 'Not found'}), 404
+    if co['status'] not in ('draft', 'sent'):
+        return jsonify({'error': f"This Change Order is {co['status']} and can't be sent."}), 409
+    if not db.execute("SELECT 1 FROM change_order_items WHERE change_order_id=?", (co_id,)).fetchone():
+        return jsonify({'error': 'Add at least one line to the Change Order before sending it.'}), 400
     to_email = (quote['customer_email'] or '').strip()
     if not to_email:
         return jsonify({'error': 'No customer email on file. Add one in Edit Details.'}), 400
@@ -3247,20 +3444,21 @@ def email_change_order(quote_id, co_id):
     gmail_app_password = settings['gmail_app_password'] if settings else ''
     if not gmail_address or not gmail_app_password:
         return jsonify({'error': 'Email sending isn\'t set up yet. Add your Gmail address and App Password in Admin → Company Settings.'}), 400
+    token = _get_or_create_co_sign_token(db, co_id)
+    sign_url = url_for('public_co_sign', token=token, _external=True)
+    default_subject, default_body, ref = _default_co_email(quote, settings, quote_id, co, sign_url)
+    data = request.get_json(silent=True) or {}
+    subject = (data.get('subject') or '').strip() or default_subject
+    body = data.get('body') if data.get('body') is not None and data.get('body').strip() else default_body
+    new_rev = (co['revision'] or 0) + 1
     try:
-        html = _change_order_preview_html(quote_id, co_id)
-        pdf_bytes = _generate_quote_pdf_bytes(html)
-        company_name = settings['company_name'] if settings else 'Your Company'
-        subject = f"Change Order #{co['co_number']} from {company_name} — QT-{quote_id:04d}"
-        body = (f"Hi {quote['customer_name']},\n\n"
-                f"Please find your Change Order attached.\n\n"
-                f"Thank you,\n{quote['salesperson'] or company_name}")
-        _send_quote_email(to_email, subject, body, pdf_bytes, quote_id, gmail_address, gmail_app_password)
+        pdf_bytes = _generate_quote_pdf_bytes(_change_order_preview_html(quote_id, co_id, sign_action_url=sign_url, for_pdf=True, revision=new_rev))
+        _send_quote_email(to_email, subject, body, pdf_bytes, quote_id, gmail_address, gmail_app_password,
+                          file_stem=ref.replace(' ', '_').replace('#', ''))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    if co['status'] == 'draft':
-        db.execute("UPDATE change_orders SET status='sent' WHERE id=?", (co_id,))
-        db.commit()
+    db.execute("UPDATE change_orders SET status='sent', revision=?, sent_at=now()::text WHERE id=?", (new_rev, co_id))
+    db.commit()
     return jsonify({'success': True, 'sent_to': to_email})
 
 AIM_CATEGORY = 'Glass (Artistry In Mosaics)'

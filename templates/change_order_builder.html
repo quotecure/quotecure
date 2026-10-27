@@ -137,6 +137,48 @@
     <span class="val {{ 'pos' if co.total_price >= 0 else 'neg' }}" id="co-net-val">{{ '$%.2f'|format(co.total_price) if co.total_price >= 0 else '-$%.2f'|format(-co.total_price) }}</span>
   </div>
 
+  {% if co.status == 'signed' %}
+  <div class="co-panel">
+    <h3>Signature Record</h3>
+    {% if signed_msg %}<div style="font-size:12px;margin-bottom:10px;padding:8px 12px;border-radius:6px;background:var(--surface2);color:var(--text);">{{ signed_msg }}</div>{% endif %}
+    <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
+      <div style="background:#fff;border-radius:6px;padding:6px 10px;min-width:220px;min-height:70px;display:flex;align-items:center;justify-content:center;">
+        {% if co.signature_data %}<img src="{{ co.signature_data }}" alt="Customer signature" style="max-height:80px;max-width:300px;">{% else %}<span style="font-size:12px;color:#64748b;">No drawn signature</span>{% endif %}
+      </div>
+      <div style="font-size:13px;line-height:1.7;color:var(--text2);">
+        <div><span style="color:var(--text3);">Signed by</span> <strong style="color:var(--text);">{{ co.signed_name }}</strong></div>
+        <div><span style="color:var(--text3);">Date</span> {{ co.signed_at }}</div>
+        <div><span style="color:var(--text3);">Document</span> <span class="mono">{{ co_ref }}</span></div>
+        {% if co.signed_ip %}<div><span style="color:var(--text3);">From</span> <span class="mono">{{ co.signed_ip }}</span></div>{% endif %}
+        {% if co.signed_user_agent %}<div style="font-size:11px;color:var(--text3);max-width:420px;word-break:break-word;">{{ co.signed_user_agent }}</div>{% endif %}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+      <a class="btn btn-secondary btn-sm" href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/signed_pdf" target="_blank">📄 View signed PDF</a>
+      <form method="POST" action="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/resend_signed_copy" style="display:inline" onsubmit="return confirm('Email the signed copy to the customer and to the company address?')">
+        <button class="btn btn-secondary btn-sm" type="submit">✉ Email signed copy</button>
+      </form>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px;">
+      {% if signed_doc and signed_doc.has_pdf %}{% if signed_doc.regenerated %}PDF rebuilt from the Change Order as it stands.{% else %}PDF saved at the moment of signing.{% endif %}{% else %}No PDF saved yet — opening "View signed PDF" builds and keeps one.{% endif %}
+      {% if signed_doc and signed_doc.emailed_at %}{% if signed_doc.emailed_to %} Emailed to {{ signed_doc.emailed_to }} on {{ signed_doc.emailed_at[:16] }}.{% endif %}{% if signed_doc.email_error %}<span style="color:#f87171;"> Email problem: {{ signed_doc.email_error }}</span>{% endif %}{% else %} Not emailed yet.{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if co.status in ('draft', 'sent') and items %}
+  <div class="co-panel" id="co-email-panel" style="display:none;">
+    <h3>Email this Change Order to {{ quote.customer_name }}</h3>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Sends the PDF from your company Gmail to <strong>{{ quote.customer_email or '(no email on file — add one in Edit Details)' }}</strong>, with a link where they can sign on their own device. {% if co.status == 'sent' %}It was already sent{% if co.revision and co.revision > 1 %} ({{ co.revision }} times){% endif %}; sending again goes out as a new revision.{% endif %}</div>
+    <div class="co-form-row"><div><label>Subject</label><input type="text" id="co-email-subject"></div></div>
+    <div class="co-form-row"><div><label>Message</label><textarea id="co-email-body" rows="8" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;padding:8px 9px;font-family:inherit;box-sizing:border-box;"></textarea></div></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary" type="button" id="co-email-send" onclick="sendCoEmail()">Send</button>
+      <button class="btn btn-secondary" type="button" onclick="document.getElementById('co-email-panel').style.display='none'">Cancel</button>
+    </div>
+  </div>
+  {% endif %}
+
   {% if co.status == 'draft' %}
   <div class="co-panel">
     <h3>Add a work type</h3>
@@ -248,7 +290,8 @@
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px;">
     <button class="btn btn-secondary btn-sm" onclick="deleteChangeOrder()" style="color:#f87171;">Delete this Change Order</button>
     {% if items %}
-    <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/preview" class="btn btn-primary">Preview &amp; Sign →</a>
+    <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/preview" class="btn btn-secondary">Preview &amp; Sign in person →</a>
+    <button class="btn btn-primary" type="button" onclick="openCoEmail()">✉ Email Change Order</button>
     {% endif %}
   </div>
   {% else %}
@@ -257,6 +300,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
       <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/preview" class="btn btn-primary">View Document →</a>
       {% if co.status == 'sent' %}
+      <button class="btn btn-secondary" type="button" onclick="openCoEmail()">✉ Re-send by email</button>
       <form method="POST" action="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/reopen" style="display:inline" onsubmit="return confirm('Reopen as a draft so you can edit it? The copy the customer has will no longer match.')">
         <button class="btn btn-secondary" type="submit">Reopen to edit</button>
       </form>
@@ -491,6 +535,32 @@ function applyCoItem(id, d) {
   const net = document.getElementById('co-net-val');
   net.textContent = coMoney(d.co.total_price);
   net.className = 'val ' + (d.co.total_price >= 0 ? 'pos' : 'neg');
+}
+
+async function openCoEmail() {
+  const panel = document.getElementById('co-email-panel');
+  panel.style.display = 'block';
+  const r = await fetch('/quotes/' + QID + '/change_orders/' + COID + '/email_defaults');
+  const d = await r.json().catch(function() { return {}; });
+  if (r.ok) {
+    document.getElementById('co-email-subject').value = d.subject;
+    document.getElementById('co-email-body').value = d.body;
+  }
+  panel.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+async function sendCoEmail() {
+  const btn = document.getElementById('co-email-send');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const resp = await fetch('/quotes/' + QID + '/change_orders/' + COID + '/email', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({subject: document.getElementById('co-email-subject').value, body: document.getElementById('co-email-body').value})
+    });
+    const d = await resp.json().catch(function() { return {}; });
+    if (resp.ok) { alert('Change Order emailed to ' + d.sent_to); location.reload(); return; }
+    alert(d.error || ('Could not send the email (server error ' + resp.status + ').'));
+  } catch (e) { alert('Could not send the email: ' + e); }
+  btn.disabled = false; btn.textContent = 'Send';
 }
 
 async function deleteChangeOrder() {

@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-27 (night) — Change Orders can be emailed, signed remotely, and the signed copy is kept and emailed
+
+Jim: "it doesn't email the change order?" It didn't -- the server route existed but no button called it, and the only way to sign a CO was in person on a staff screen. Now a Change Order works like a quote: **✉ Email Change Order** on the CO page (editable subject and message, PDF attached from the company Gmail, with a link where the customer signs on their own device -- `/sign/co/<token>`, no login). The emailed PDF shows "Click here to sign electronically" instead of a blank line a PDF reader could be typed onto. **Only a CO that is currently *sent* can be signed from the link**: Reopen-to-edit (back to draft) or Void kills the link until a fresh version is emailed, so no one signs terms they weren't sent. Each send bumps a revision (`CO #2 rev 2` in the document, subject and filenames). On signing (link or in person): the signed PDF is kept in the database, emailed to the customer and the company address, and the CO page gets a **Signature Record** card (signature image, who/when, IP and browser, View signed PDF, Email signed copy). Signing logic is now one function (`_capture_co_signature`) with the double-removal guard, used by both paths. Tested the full loop: send, draft/void/reopen link behavior, resend as rev 2, public sign, payment-schedule row, both emails, kept PDF, resend, in-person signing.
+
+Not done: no GHL note/stage change for CO events; the CO document's printed "Date:" is still today's date until it's signed.
+
+---
+
 ## 2026-10-27 (evening) — Fix: adding a Change Order line with Material left on "— None —" did nothing
 
 Jim: adding Concrete Removal to a Change Order wouldn't go through when Material was left as None (there is none). Right guess: the form posts an empty string for the blank Material (and blank finish) picker, `build_line_item` passes it through, and `_insert_change_order_item` tried to store `''` in the integer `material_id` column -- Postgres rejected it (HTTP 500). The quote page never hit this because it normalizes the blank itself. Fix: `_insert_change_order_item` stores NULL for a blank `material_id`/`product_id` (covers Add, Amend and any other caller). Also, the page's buttons parsed every failure as JSON, so a server crash (an HTML error page) threw silently and the button looked dead -- failures now show an alert with the reason or the status code. Reproduced the 500 first, then verified Add and Amend both work with a blank material.
