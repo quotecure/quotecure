@@ -27,6 +27,10 @@ def price_component(cost_per_unit, quantity, markup_pct, min_markup, can_overrid
     if is_passthrough:
         markup_pct, min_markup, can_override = 0.0, 0.0, True
     total_cost, total_price, margin_pct = calc_component(cost_per_unit, quantity, markup_pct, min_markup, can_override)
+    if not can_override:
+        # calc_component priced at the floored markup, so report that one -- returning the caller's
+        # raw value would store a markup (e.g. -10%) that the price was never actually computed at.
+        markup_pct = max(markup_pct, min_markup)
     return total_cost, total_price, margin_pct, markup_pct, min_markup
 
 def build_line_item(data, wt, sub_name, product_label, material_label, can_override, quote):

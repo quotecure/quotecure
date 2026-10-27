@@ -17,6 +17,22 @@
 .co-row .price { font-family:'Chivo Mono',monospace;font-size:13px;text-align:right; }
 .co-row .price.pos { color:#4ade80; }
 .co-row .price.neg { color:#f87171; }
+.co-edit { padding:10px 14px 14px;border-bottom:1px solid var(--border2);background:var(--surface2); }
+.co-row:has(+ .co-edit) { border-bottom:none; }
+.ce-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px 12px;align-items:end; }
+.ce-field label { display:block;font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.04em; }
+.ce-field input, .ce-field select, .ce-field textarea { width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;
+  color:var(--text);font-size:12px;padding:5px 7px;height:30px;box-sizing:border-box; }
+.ce-field textarea { height:auto;min-height:30px;resize:vertical;font-family:inherit; }
+.ce-field.wide { grid-column:1 / -1; }
+.ce-sum { display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--text3);font-family:'Chivo Mono',monospace; }
+.ce-sum b { color:var(--text2);font-weight:600; }
+.mstep { display:inline-flex;align-items:center;gap:2px; }
+.mstep button { width:26px;height:30px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer;font-size:13px; }
+.mstep button:hover:not(:disabled) { background:var(--border);color:var(--text); }
+.mstep button:disabled { opacity:0.3;cursor:not-allowed; }
+.mstep .mv { min-width:44px;text-align:center;font-family:'Chivo Mono',monospace;font-size:12px;color:var(--text); }
+.mstep.floor .mv { color:#f87171; }
 .co-empty { padding:24px;text-align:center;color:var(--text3);font-size:13px; }
 .co-net { display:flex;justify-content:space-between;align-items:center;padding:12px 16px;
   background:var(--surface2);border-top:2px solid var(--border);border-radius:0 0 var(--radius) var(--radius); }
@@ -54,9 +70,63 @@
           {{ item.label }}
           <span class="tag {{ item.kind if item.kind == 'freeform' else item.action }}">{{ 'Freeform' if item.kind == 'freeform' else item.action }}</span>
         </div>
-        <div class="price {{ 'pos' if item.total_price >= 0 else 'neg' }}">{{ '$%.2f'|format(item.total_price) if item.total_price >= 0 else '-$%.2f'|format(-item.total_price) }}</div>
+        <div class="price {{ 'pos' if item.total_price >= 0 else 'neg' }}" id="co-price-{{ item.id }}">{{ '$%.2f'|format(item.total_price) if item.total_price >= 0 else '-$%.2f'|format(-item.total_price) }}</div>
         <button class="btn btn-secondary btn-sm" style="padding:2px 8px;" onclick="deleteCoItem({{ item.id }})">✕</button>
       </div>
+      {% if co.status == 'draft' and (item.kind == 'freeform' or item.action == 'add') %}
+      <div class="co-edit" id="co-edit-{{ item.id }}">
+        <div class="ce-grid">
+        {% if item.kind == 'freeform' %}
+          <div class="ce-field" style="grid-column:span 2;"><label>Label</label><input type="text" value="{{ item.label }}" onchange="coEdit({{ item.id }}, 'ff_label', this.value)"></div>
+          <div class="ce-field"><label>Price</label><input type="number" step="0.01" id="ce-{{ item.id }}-ff_price" value="{{ '%.2f'|format(item.total_price) }}" onchange="coEdit({{ item.id }}, 'ff_price', this.value)"></div>
+          <div class="ce-field"><label>Cost</label><input type="number" step="0.01" id="ce-{{ item.id }}-ff_cost" value="{{ '%.2f'|format(item.total_cost) }}" onchange="coEdit({{ item.id }}, 'ff_cost', this.value)"></div>
+        {% else %}
+          <div class="ce-field"><label>Sub</label>
+            {% if item.product_id %}
+            <input type="text" value="{{ item.sub_name or '—' }}" disabled>
+            {% else %}
+            <select onchange="coEdit({{ item.id }}, 'sub', this.value)">
+              <option value="">— None —</option>
+              {% for sb in subs %}<option value="{{ sb.sub_id }}" {{ 'selected' if item.sub_id == sb.sub_id }}>{{ sb.name }}</option>{% endfor %}
+            </select>
+            {% endif %}
+          </div>
+          <div class="ce-field"><label>Labor qty</label><input type="number" step="0.01" id="ce-{{ item.id }}-labor_qty" value="{{ item.labor_quantity }}" onchange="coEdit({{ item.id }}, 'labor_qty', this.value)"></div>
+          <div class="ce-field"><label>Labor $ / unit</label><input type="number" step="0.01" id="ce-{{ item.id }}-labor_cpu" value="{{ item.labor_cost_per_unit }}" onchange="coEdit({{ item.id }}, 'labor_cpu', this.value)"></div>
+          <div class="ce-field"><label>Labor markup</label>
+            {% if item.labor_min_markup == 0 and item.labor_markup_pct == 0 %}<span style="font-size:11px;color:var(--text3);" title="Billed at cost, no markup">at cost</span>
+            {% else %}
+            <div class="mstep {{ 'floor' if item.labor_markup_pct <= item.labor_min_markup }}" id="ce-{{ item.id }}-lstep">
+              <button type="button" onclick="coMarkup({{ item.id }}, 'labor', -5)" id="ce-{{ item.id }}-ldn" {% if item.labor_markup_pct <= item.labor_min_markup and not can_override %}disabled{% endif %}>−</button>
+              <span class="mv" id="ce-{{ item.id }}-lmv">{{ '%.0f'|format(item.labor_markup_pct) }}%</span>
+              <button type="button" onclick="coMarkup({{ item.id }}, 'labor', 5)">+</button>
+            </div>
+            {% endif %}
+          </div>
+          {% if item.material_label or item.material_cost_per_unit or item.material_total_cost %}
+          <div class="ce-field"><label>Material qty</label><input type="number" step="0.01" id="ce-{{ item.id }}-mat_qty" value="{{ item.material_quantity }}" onchange="coEdit({{ item.id }}, 'mat_qty', this.value)"></div>
+          <div class="ce-field"><label>Material $ / unit</label><input type="number" step="0.01" id="ce-{{ item.id }}-mat_cpu" value="{{ item.material_cost_per_unit }}" onchange="coEdit({{ item.id }}, 'mat_cpu', this.value)"></div>
+          <div class="ce-field"><label>Material markup</label>
+            {% if item.material_min_markup == 0 and item.material_markup_pct == 0 %}<span style="font-size:11px;color:var(--text3);">at cost</span>
+            {% else %}
+            <div class="mstep {{ 'floor' if item.material_markup_pct <= item.material_min_markup }}" id="ce-{{ item.id }}-mstep">
+              <button type="button" onclick="coMarkup({{ item.id }}, 'material', -5)" id="ce-{{ item.id }}-mdn" {% if item.material_markup_pct <= item.material_min_markup and not can_override %}disabled{% endif %}>−</button>
+              <span class="mv" id="ce-{{ item.id }}-mmv">{{ '%.0f'|format(item.material_markup_pct) }}%</span>
+              <button type="button" onclick="coMarkup({{ item.id }}, 'material', 5)">+</button>
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+        {% endif %}
+          <div class="ce-field wide"><label>Description / notes (shows on the Change Order)</label><textarea rows="1" onchange="coEdit({{ item.id }}, 'description', this.value)">{{ item.description }}</textarea></div>
+        </div>
+        <div class="ce-sum">
+          <span>Cost <b id="ce-{{ item.id }}-tcost">{{ '$%.2f'|format(item.total_cost) if item.total_cost >= 0 else '-$%.2f'|format(-item.total_cost) }}</b></span>
+          <span>Price <b id="ce-{{ item.id }}-tprice">{{ '$%.2f'|format(item.total_price) if item.total_price >= 0 else '-$%.2f'|format(-item.total_price) }}</b></span>
+          <span>Margin <b id="ce-{{ item.id }}-tmargin">{{ '%.0f'|format(item.total_margin_pct or 0) }}%</b></span>
+        </div>
+      </div>
+      {% endif %}
       {% endfor %}
     {% else %}
       <div class="co-empty">No items yet — add or remove scope below.</div>
@@ -371,6 +441,49 @@ async function deleteCoItem(itemId) {
   if (!confirm('Remove this line from the Change Order?')) return;
   const resp = await fetch('/quotes/' + QID + '/change_orders/' + COID + '/items/' + itemId, {method: 'DELETE'});
   if (resp.ok) location.reload();
+}
+
+
+function coMoney(n) { n = Number(n) || 0; return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+async function coEdit(itemId, field, value) {
+  const resp = await fetch('/quotes/' + QID + '/change_orders/' + COID + '/items/' + itemId + '/update', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({field: field, value: value})
+  });
+  const d = await resp.json().catch(function() { return {}; });
+  if (!resp.ok) { alert(d.error || 'Could not save that change.'); location.reload(); return; }
+  applyCoItem(itemId, d);
+}
+function coMarkup(itemId, comp, delta) {
+  const el = document.getElementById('ce-' + itemId + (comp === 'labor' ? '-lmv' : '-mmv'));
+  const cur = parseFloat(el && el.textContent) || 0;
+  coEdit(itemId, comp + '_markup', cur + delta);
+}
+function applyCoItem(id, d) {
+  const it = d.item, set = function(key, v) {
+    const el = document.getElementById('ce-' + id + '-' + key);
+    if (el && document.activeElement !== el) el.value = v;
+  };
+  set('labor_qty', it.labor_quantity); set('labor_cpu', it.labor_cost_per_unit);
+  set('mat_qty', it.material_quantity); set('mat_cpu', it.material_cost_per_unit);
+  set('ff_price', Number(it.total_price).toFixed(2)); set('ff_cost', Number(it.total_cost).toFixed(2));
+  [['l', it.labor_markup_pct, it.labor_min_markup], ['m', it.material_markup_pct, it.material_min_markup]].forEach(function(c) {
+    const mv = document.getElementById('ce-' + id + '-' + c[0] + 'mv');
+    if (!mv) return;
+    mv.textContent = Math.round(c[1]) + '%';
+    const atFloor = c[1] <= c[2];
+    mv.parentElement.classList.toggle('floor', atFloor);
+    const dn = document.getElementById('ce-' + id + '-' + c[0] + 'dn');
+    if (dn) dn.disabled = atFloor && !d.can_override;
+  });
+  document.getElementById('ce-' + id + '-tcost').textContent = coMoney(it.total_cost);
+  document.getElementById('ce-' + id + '-tprice').textContent = coMoney(it.total_price);
+  document.getElementById('ce-' + id + '-tmargin').textContent = Math.round(it.total_margin_pct || 0) + '%';
+  const pr = document.getElementById('co-price-' + id);
+  pr.textContent = coMoney(it.total_price);
+  pr.className = 'price ' + (it.total_price >= 0 ? 'pos' : 'neg');
+  const net = document.getElementById('co-net-val');
+  net.textContent = coMoney(d.co.total_price);
+  net.className = 'val ' + (d.co.total_price >= 0 ? 'pos' : 'neg');
 }
 
 async function deleteChangeOrder() {

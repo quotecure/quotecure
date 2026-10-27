@@ -2883,7 +2883,8 @@ def change_order_builder(quote_id, co_id):
     prior_cos = db.execute("SELECT * FROM change_orders WHERE quote_id=? AND id!=? ORDER BY co_number", (quote_id, co_id)).fetchall()
     return render_template('change_order_builder.html', quote=quote, co=co, items=items,
                            removable=removable, work_types=work_types, subs=subs, materials=materials,
-                           manufacturers=manufacturers, prior_cos=prior_cos)
+                           manufacturers=manufacturers, prior_cos=prior_cos,
+                           can_override=bool(g.role and g.role['can_override_min_markup']))
 
 @app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/items', methods=['POST'])
 @login_required
@@ -2987,6 +2988,112 @@ def add_freeform_change_order_item(quote_id, co_id):
     db.commit()
     _recalc_change_order(db, co_id)
     return jsonify({'success': True})
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/items/<int:item_id>/update', methods=['POST'])
+@login_required
+def update_change_order_item(quote_id, co_id, item_id):
+    """Edit a Change Order line in place, with the same pricing rules as the quote page's
+    update_line_item/update_markup (price_component for markup + the minimum-markup floor and its
+    override permission, the sub's own minimum charge, the work type's minimum job price) -- one
+    set of rules, not a second copy that could drift. Only lines this CO is ADDING are editable
+    (new work, the new half of a replacement, one-off lines). A removal is a credit that must equal
+    what the customer was originally charged, so it stays locked."""
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] != 'draft':
+        return jsonify({'error': 'This Change Order can no longer be edited.'}), 409
+    row = db.execute("SELECT * FROM change_order_items WHERE id=? AND change_order_id=?", (item_id, co_id)).fetchone()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    data = request.json or {}
+    field, value = data.get('field'), data.get('value')
+    can_override = bool(g.role and g.role['can_override_min_markup'])
+
+    if row['kind'] == 'freeform':
+        if field == 'ff_label':
+            if not str(value or '').strip():
+                return jsonify({'error': 'A label is required.'}), 400
+            db.execute("UPDATE change_order_items SET label=? WHERE id=?", (str(value).strip(), item_id))
+        elif field in ('ff_price', 'ff_cost'):
+            try:
+                num = round(float(value), 2)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Enter a number.'}), 400
+            col = 'total_price' if field == 'ff_price' else 'total_cost'
+            db.execute(f"UPDATE change_order_items SET {col}=? WHERE id=?", (num, item_id))
+            price = num if col == 'total_price' else float(row['total_price'] or 0)
+            cost = num if col == 'total_cost' else float(row['total_cost'] or 0)
+            db.execute("UPDATE change_order_items SET total_margin_pct=? WHERE id=?",
+                       (round((price - cost) / price * 100, 1) if price else 0, item_id))
+        elif field == 'description':
+            db.execute("UPDATE change_order_items SET description=? WHERE id=?", (value or '', item_id))
+        else:
+            return jsonify({'error': 'Unknown field'}), 400
+    elif row['action'] != 'add':
+        return jsonify({'error': 'A removal credits exactly what the customer was charged, so it can\'t be edited. Delete it and re-add it if it\'s wrong.'}), 409
+    else:
+        wt = db.execute("SELECT is_passthrough FROM work_types WHERE work_type_id=?", (row['work_type_id'],)).fetchone()
+        is_passthrough = bool(wt and wt['is_passthrough'] == 'Y')
+        l_qty, l_cpu = float(row['labor_quantity'] or 0), float(row['labor_cost_per_unit'] or 0)
+        m_qty, m_cpu = float(row['material_quantity'] or 0), float(row['material_cost_per_unit'] or 0)
+        l_markup, l_min = float(row['labor_markup_pct'] or 0), float(row['labor_min_markup'] or 0)
+        m_markup, m_min = float(row['material_markup_pct'] or 0), float(row['material_min_markup'] or 0)
+        sub_id, sub_name = row['sub_id'], row['sub_name']
+        description = row['description']
+        try:
+            if field == 'labor_qty': l_qty = float(value)
+            elif field == 'labor_cpu': l_cpu = float(value)
+            elif field == 'mat_qty': m_qty = float(value)
+            elif field == 'mat_cpu': m_cpu = float(value)
+            elif field == 'labor_markup': l_markup = float(value)
+            elif field == 'material_markup': m_markup = float(value)
+            elif field == 'description': description = value or ''
+            elif field == 'sub':
+                sub_id, sub_name = (value or ''), ''
+                if sub_id:
+                    srow = db.execute("SELECT name FROM subs WHERE sub_id=?", (sub_id,)).fetchone() or \
+                           db.execute("SELECT name FROM surface_applicators WHERE sub_id=?", (sub_id,)).fetchone()
+                    sub_name = srow['name'] if srow else ''
+                    rate = db.execute("SELECT rate FROM sub_rates WHERE sub_id=? AND work_type_id=?",
+                                      (sub_id, row['work_type_id'])).fetchone()
+                    # No rate on file for this sub + work type: zero it so the gap is obvious
+                    # rather than leaving the previous sub's rate wearing the new sub's name.
+                    l_cpu = float(rate['rate']) if rate else 0.0
+            else:
+                return jsonify({'error': 'Unknown field'}), 400
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Enter a number.'}), 400
+        if min(l_qty, l_cpu, m_qty, m_cpu) < 0:
+            return jsonify({'error': 'Quantities and costs can\'t be negative.'}), 400
+        l_cost, l_price, l_margin, l_markup, l_min = price_component(l_cpu, l_qty, l_markup, l_min, can_override, is_passthrough)
+        m_cost, m_price, m_margin, m_markup, m_min = price_component(m_cpu, m_qty, m_markup, m_min, can_override, is_passthrough)
+        if sub_id and row['work_type_id']:
+            rr = db.execute("SELECT min_total_cost FROM sub_rates WHERE sub_id=? AND work_type_id=?",
+                            (sub_id, row['work_type_id'])).fetchone()
+            l_cost, l_price = _apply_sub_cost_floor(rr['min_total_cost'] if rr else None, l_cost, l_price, l_markup)
+        total_cost, total_price, total_margin = _apply_min_job_price(
+            db, row['work_type_id'], round(l_cost + m_cost, 2), round(l_price + m_price, 2), line_item_is_passthrough=is_passthrough)
+        db.execute("""UPDATE change_order_items SET sub_id=?, sub_name=?, description=?,
+                      labor_quantity=?, labor_cost_per_unit=?, labor_total_cost=?, labor_markup_pct=?, labor_margin_pct=?, labor_total_price=?,
+                      material_quantity=?, material_cost_per_unit=?, material_total_cost=?, material_markup_pct=?, material_margin_pct=?, material_total_price=?,
+                      total_cost=?, total_price=?, total_margin_pct=? WHERE id=?""",
+                   (sub_id, sub_name, description,
+                    l_qty, l_cpu, l_cost, l_markup, l_margin, l_price,
+                    m_qty, m_cpu, m_cost, m_markup, m_margin, m_price,
+                    total_cost, total_price, total_margin, item_id))
+    db.commit()
+    _recalc_change_order(db, co_id)
+    item = db.execute("SELECT * FROM change_order_items WHERE id=?", (item_id,)).fetchone()
+    co = db.execute("SELECT total_cost, total_price, total_margin, commission FROM change_orders WHERE id=?", (co_id,)).fetchone()
+    return jsonify({
+        'item': {k: item[k] for k in ('sub_id', 'sub_name', 'labor_quantity', 'labor_cost_per_unit', 'labor_total_price', 'labor_markup_pct',
+                                      'labor_margin_pct', 'labor_min_markup', 'material_quantity', 'material_cost_per_unit',
+                                      'material_total_price', 'material_markup_pct', 'material_margin_pct', 'material_min_markup',
+                                      'total_cost', 'total_price', 'total_margin_pct')},
+        'co': {'total_cost': co['total_cost'], 'total_price': co['total_price'], 'total_margin': co['total_margin'],
+               'commission': co['commission']},
+        'can_override': can_override,
+    })
 
 @app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/items/<int:item_id>', methods=['DELETE'])
 @login_required

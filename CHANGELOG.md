@@ -4,6 +4,14 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-27 (later) — Change Order lines are editable in place, like the quote page
+
+Jim: Change Order lines were frozen once added -- no markup, no price changes. Now every line the CO is **adding** (new work, the new half of a replacement, one-off lines) has an editor right under it: sub, labor qty, labor $/unit, a −/+ markup stepper (5% steps, same minimum-markup floor and override permission as the quote page), material qty / $/unit / markup when the line has material, and a description that prints on the Change Order. Cost, price, margin and the CO net update live. One-off lines get editable label/price/cost. New route `update_change_order_item` reuses the quote page's pricing helpers (`price_component`, the sub's minimum charge, the work type's minimum job price), so it's the same rules, not a second copy. **Removal lines stay locked** (a credit must equal what was charged; Jim confirmed). Draft COs only -- a sent/voided/signed CO refuses edits. Not included (asked about, Jim chose not to): modifiers and swapping the material/tile on a CO line.
+
+Also fixed a latent bug in `price_component` (shared by every pricing path): for a role without the override permission it priced at the floored markup but *returned the unfloored one* to be stored, so a direct API call could leave e.g. a -10% markup recorded on a line priced at the 10% floor. It now returns the markup it actually priced with; normal UI use is unaffected (the − button was already disabled at the floor).
+
+---
+
 ## 2026-10-27 — Unsigned Change Orders can't touch the contract; void/reopen for ones that go nowhere
 
 Jim: if a change order is made and the customer doesn't sign, make sure it doesn't mess up the original contract. Audited every place a Change Order is read: the contract's price/cost/commission, the Schedule, the Job Ledger, the payment schedule and the Contracts list all count **only `status='signed'`** Change Orders, and the payment-schedule row is only added at signing. Tested a draft and a sent CO (one adding an item, one removing the original): every number, row and page identical before and after. What was actually missing: (1) a *sent* CO the customer never signs was stuck forever (couldn't be edited or deleted) -- added **Void** (greys it out, can never be signed) and **Reopen to edit** (back to draft, for when the terms change) on the CO page; (2) two open COs could both remove the same original item and, if both got signed, subtract it twice -- signing now re-checks against the contract as it stands and refuses ("X is no longer on the contract... reopen and rebuild") instead of double-counting.
