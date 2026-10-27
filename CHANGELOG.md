@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-27 — Unsigned Change Orders can't touch the contract; void/reopen for ones that go nowhere
+
+Jim: if a change order is made and the customer doesn't sign, make sure it doesn't mess up the original contract. Audited every place a Change Order is read: the contract's price/cost/commission, the Schedule, the Job Ledger, the payment schedule and the Contracts list all count **only `status='signed'`** Change Orders, and the payment-schedule row is only added at signing. Tested a draft and a sent CO (one adding an item, one removing the original): every number, row and page identical before and after. What was actually missing: (1) a *sent* CO the customer never signs was stuck forever (couldn't be edited or deleted) -- added **Void** (greys it out, can never be signed) and **Reopen to edit** (back to draft, for when the terms change) on the CO page; (2) two open COs could both remove the same original item and, if both got signed, subtract it twice -- signing now re-checks against the contract as it stands and refuses ("X is no longer on the contract... reopen and rebuild") instead of double-counting.
+
+---
+
 ## 2026-10-15 (evening) — The customer's sign link no longer signs unsent edits
 
 Jim: a customer signed thinking they were signing v3, but there was an unsent v4 and the signature landed on that. Cause: the public sign link always renders the quote *as it stands now*, not the version that was emailed. Now `/sign/<token>` checks `_has_unsent_changes` (quote differs from the latest emailed version, line by line + total): if so, GET shows a "This quote is being updated -- you'll receive the updated quote shortly" page with no signature box, and POST is refused (409). A quote never emailed isn't affected; a re-sent version unlocks it. The "Not sent" badge on the quote page now uses the same check (it used to compare only the total). Unsign (Unlock Contract) now also removes a version that only existed because the signing created it ("Saved at signing") so version numbers don't skip. Staff signing in person is unaffected (still saves the as-signed state as its own version).

@@ -352,7 +352,7 @@
               {% if not loop.last %}border-bottom:1px solid var(--border2);{% endif %}text-decoration:none;color:inherit;">
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-size:13px;color:var(--text);">Change Order #{{ co.co_number }}</span>
-        <span class="badge badge-{{ 'purple' if co.status == 'signed' else 'amber' if co.status == 'sent' else 'blue' }}">{{ co.status }}</span>
+        <span class="badge badge-{{ 'purple' if co.status == 'signed' else 'amber' if co.status == 'sent' else 'gray' if co.status == 'voided' else 'blue' }}">{{ co.status }}</span>
       </div>
       <span class="mono" style="font-size:13px;{{ 'color:#f87171;' if co.total_price < 0 else 'color:#4ade80;' }}">
         {{ '$%.2f'|format(co.total_price) if co.total_price >= 0 else '-$%.2f'|format(-co.total_price) }}

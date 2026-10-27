@@ -183,8 +183,18 @@
   </div>
   {% else %}
   <div class="co-panel">
-    <p style="color:var(--text2);font-size:13px;">This Change Order is {{ co.status }} and can no longer be edited.</p>
-    <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/preview" class="btn btn-primary" style="margin-top:8px;">View Document →</a>
+    <p style="color:var(--text2);font-size:13px;">This Change Order is {{ co.status }} and can no longer be edited.{% if co.status == 'sent' %} It has no effect on the contract unless the customer signs it.{% elif co.status == 'voided' %} It was voided and can't be signed; it has no effect on the contract.{% endif %}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/preview" class="btn btn-primary">View Document →</a>
+      {% if co.status == 'sent' %}
+      <form method="POST" action="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/reopen" style="display:inline" onsubmit="return confirm('Reopen as a draft so you can edit it? The copy the customer has will no longer match.')">
+        <button class="btn btn-secondary" type="submit">Reopen to edit</button>
+      </form>
+      <form method="POST" action="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/void" style="display:inline" onsubmit="return confirm('Void this Change Order? The customer did not sign it, and it can never be signed after this.')">
+        <button class="btn btn-secondary" type="submit" style="color:#f87171;">Void (customer isn't signing)</button>
+      </form>
+      {% endif %}
+    </div>
   </div>
   {% endif %}
 

@@ -3011,6 +3011,33 @@ def delete_change_order(quote_id, co_id):
         db.commit()
     return redirect(url_for('edit_quote', quote_id=quote_id))
 
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/void', methods=['POST'])
+@login_required
+def void_change_order(quote_id, co_id):
+    """A Change Order that went out but the customer isn't signing. Only Change Orders with status
+    'signed' ever touch the contract's price, schedule, ledger or payments, so a sent one was already
+    harmless -- this just takes it out of play for good (kept in the list, greyed, so the numbering and
+    the paper trail stay honest) and makes it impossible to sign by accident later."""
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if co and co['status'] == 'sent':
+        db.execute("UPDATE change_orders SET status='voided' WHERE id=?", (co_id,))
+        db.commit()
+    return redirect(url_for('edit_quote', quote_id=quote_id))
+
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/reopen', methods=['POST'])
+@login_required
+def reopen_change_order(quote_id, co_id):
+    """A sent, unsigned Change Order whose terms need to change: back to draft so it can be edited and
+    re-sent. The copy the customer already has is no longer what's on file -- same idea as a new quote version."""
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if co and co['status'] == 'sent':
+        db.execute("UPDATE change_orders SET status='draft' WHERE id=?", (co_id,))
+        db.commit()
+        return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id))
+    return redirect(url_for('edit_quote', quote_id=quote_id))
+
 def _change_order_money(db, quote_id, co_id):
     """The running-balance math shown on a signed Change Order document -- confirmed
     against a real example: Original Contract Total (frozen at signing) plus the net of
@@ -3067,13 +3094,21 @@ def change_order_preview(quote_id, co_id):
 def sign_change_order(quote_id, co_id):
     db = get_db()
     co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
-    if not co or co['status'] == 'signed':
-        return jsonify({'error': 'Not found or already signed'}), 404
+    if not co or co['status'] in ('signed', 'voided'):
+        return jsonify({'error': 'Not found, already signed, or voided'}), 404
     data = request.json
     signature_data = data.get('signature', '')
     printed_name = (data.get('printed_name') or '').strip()
     if not signature_data or not printed_name:
         return jsonify({'error': 'Signature and printed name are required'}), 400
+    # Two Change Orders can be open at once, and each only checks the contract as of when it was built.
+    # Signing must re-check against the contract as it stands now, or a second CO removing the same item
+    # (or changing one the first already changed) would subtract/replace it twice.
+    effective = _contract_effective_items(db, quote_id)
+    for it in db.execute("SELECT * FROM change_order_items WHERE change_order_id=? AND kind='catalog' AND action='remove'", (co_id,)).fetchall():
+        if it['work_type_id'] not in effective:
+            return jsonify({'error': f"\"{it['label']}\" is no longer on the contract (another Change Order already removed or replaced it). "
+                                     f"Reopen this Change Order and rebuild it against the current contract."}), 409
     from datetime import datetime
     signed_at = datetime.now().strftime('%B %d, %Y %I:%M %p')
     db.execute("UPDATE change_orders SET signature_data=?,signed_at=?,signed_name=?,status='signed' WHERE id=?",
