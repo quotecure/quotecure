@@ -1827,9 +1827,18 @@ async function saveDescription(id) {
   toggleDescPicker(id);
 }
 
+// The applicator on each surface line, so the finish picker only offers finishes THAT applicator has a rate
+// for, at THAT applicator's price. (It used to list every applicator's rates, so a finish only another
+// applicator prices showed up with that applicator's $/sqft -- and failed on pick: "no rate on file".)
+const ITEM_SUB = {
+  {% for item in line_items + optional_items %}{{ item.id }}: {{ (item.sub_id or '')|tojson }},
+  {% endfor %}
+};
+function ppSubParam(id) { return ITEM_SUB[id] ? '&sub_id=' + encodeURIComponent(ITEM_SUB[id]) : ''; }
+
 async function ppLoadLines(id) {
   const mfrId = document.getElementById('pp-mfr-' + id).value;
-  const r = await fetch('/api/surface_product_lines?manufacturer_id=' + mfrId);
+  const r = await fetch('/api/surface_product_lines?manufacturer_id=' + mfrId + ppSubParam(id));
   const lines = await r.json();
   const sel = document.getElementById('pp-pl-' + id);
   sel.innerHTML = '<option value="">— Select —</option>';
@@ -1840,7 +1849,7 @@ async function ppLoadLines(id) {
 async function ppLoadFinishes(id) {
   const mfrId = document.getElementById('pp-mfr-' + id).value;
   const pl = document.getElementById('pp-pl-' + id).value;
-  const r = await fetch('/api/surface_finishes?manufacturer_id=' + mfrId + '&product_line=' + encodeURIComponent(pl));
+  const r = await fetch('/api/surface_finishes?manufacturer_id=' + mfrId + '&product_line=' + encodeURIComponent(pl) + ppSubParam(id));
   const fins = await r.json();
   const sel = document.getElementById('pp-fin-' + id);
   sel.innerHTML = '<option value="">— Select —</option>';
@@ -2514,12 +2523,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const mfrSel = document.getElementById('pp-mfr-' + s.id);
     if (!mfrSel) continue;
     [...mfrSel.options].forEach(o => { if (parseInt(o.value) === s.mfrId) o.selected = true; });
-    const r = await fetch('/api/surface_product_lines?manufacturer_id=' + s.mfrId);
+    const r = await fetch('/api/surface_product_lines?manufacturer_id=' + s.mfrId + ppSubParam(s.id));
     const lines = await r.json();
     const plSel = document.getElementById('pp-pl-' + s.id);
     plSel.innerHTML = '<option value="">— Select —</option>';
     lines.forEach(l => plSel.innerHTML += '<option value="' + l + '" ' + (l===s.pl?'selected':'') + '>' + l + '</option>');
-    const r2 = await fetch('/api/surface_finishes?manufacturer_id=' + s.mfrId + '&product_line=' + encodeURIComponent(s.pl));
+    const r2 = await fetch('/api/surface_finishes?manufacturer_id=' + s.mfrId + '&product_line=' + encodeURIComponent(s.pl) + ppSubParam(s.id));
     const fins = await r2.json();
     const finSel = document.getElementById('pp-fin-' + s.id);
     finSel.innerHTML = '<option value="">— Select —</option>';

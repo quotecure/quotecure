@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-30 — Surface finish picker only offers what the selected applicator prices
+
+Jim: with Pebble Pros selected as the applicator on a Surface Application line, PebbleTec Original showed up with $15.60 -- which is Southwest Pool Finishers' price -- and Pebble Pros has no price for it. Cause: rates are stored per applicator per finish (`surface_applicator_rates`, one row per applicator x finish), but the quote page's manufacturer -> product line -> finish pickers never told the API which applicator the line uses, so they listed every applicator's rates mixed together (picking one then failed with "no rate on file"). The pickers now send the line's applicator (`ITEM_SUB`), so you only see finishes that applicator has a rate for, at that applicator's price. Consequence: a finish Pebble Pros hasn't been priced for no longer appears under Pebble Pros -- add its rate in Admin -> Surfaces ("Add rate": applicator, finish, $/sqft, minimums). A line with no applicator selected yet still shows everything, as before.
+
+---
+
 ## 2026-10-27 (night) — Change Orders can be emailed, signed remotely, and the signed copy is kept and emailed
 
 Jim: "it doesn't email the change order?" It didn't -- the server route existed but no button called it, and the only way to sign a CO was in person on a staff screen. Now a Change Order works like a quote: **✉ Email Change Order** on the CO page (editable subject and message, PDF attached from the company Gmail, with a link where the customer signs on their own device -- `/sign/co/<token>`, no login). The emailed PDF shows "Click here to sign electronically" instead of a blank line a PDF reader could be typed onto. **Only a CO that is currently *sent* can be signed from the link**: Reopen-to-edit (back to draft) or Void kills the link until a fresh version is emailed, so no one signs terms they weren't sent. Each send bumps a revision (`CO #2 rev 2` in the document, subject and filenames). On signing (link or in person): the signed PDF is kept in the database, emailed to the customer and the company address, and the CO page gets a **Signature Record** card (signature image, who/when, IP and browser, View signed PDF, Email signed copy). Signing logic is now one function (`_capture_co_signature`) with the double-removal guard, used by both paths. Tested the full loop: send, draft/void/reopen link behavior, resend as rev 2, public sign, payment-schedule row, both emails, kept PDF, resend, in-person signing.
