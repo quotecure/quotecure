@@ -4196,6 +4196,38 @@ def add_ghl_pushed_notes(conn):
 
 
 @migration
+def add_pebble_pros_pebbletec_original_rates(conn):
+    """Pebble Pros' own prices for PebbleTec Original, from their April 2025 price sheet (650 sqft minimum:
+    every 'Minimum Pool Charge' on the sheet is exactly 650 x the $/sqft). Rates are per applicator per
+    finish, so until these existed Original wasn't offered under Pebble Pros at all. Spa charges go in the
+    notes the same way the other Pebble Pros rows carry them. Updates a Pebble Pros row if one already
+    exists for the finish, inserts otherwise; finishes not in the catalog are skipped."""
+    sheet = [
+        ('Standard', 6.75, 1000, 1100, ['Caribbean Blue', 'Sandy Beach', 'White Pearl', 'Tahoe Blue']),
+        ('Upgrade', 7.00, 1100, 1200, ['Blue Wave', 'Crème de Menthe', 'Jade', 'Moonlight Grey', 'Soft White']),
+        ('Premium', 7.60, 1200, 1350, ['Black Pearl', 'Blue Lagoon']),
+        ('Premium', 8.60, 1200, 1350, ['Black Marble', 'Emerald Bay', 'Midnight Blue', 'Sky Blue', 'Tropical Breeze']),
+    ]
+    if not conn.execute("SELECT 1 FROM surface_applicators WHERE sub_id='P1'").fetchone():
+        return
+    for tier, rate, spa6, spa7, finishes in sheet:
+        notes = f"{tier} | 6x6 spa: ${spa6} | 7x7 spa: ${spa7}"
+        for finish in finishes:
+            prod = conn.execute(
+                "SELECT sp.product_id FROM surface_products sp JOIN surface_manufacturers sm ON sm.manufacturer_id=sp.manufacturer_id "
+                "WHERE sm.manufacturer_name='PebbleTec' AND sp.product_line='Original' AND sp.finish=?", (finish,)).fetchone()
+            if not prod:
+                print(f'[migration] PebbleTec Original / {finish} not in catalog -- skipped')
+                continue
+            existing = conn.execute("SELECT id FROM surface_applicator_rates WHERE sub_id='P1' AND product_id=?", (prod[0],)).fetchone()
+            if existing:
+                conn.execute("UPDATE surface_applicator_rates SET rate=?, notes=?, min_sqft=650 WHERE id=?", (rate, notes, existing[0]))
+            else:
+                conn.execute("INSERT INTO surface_applicator_rates (sub_id, product_id, rate, notes, min_sqft, min_spa_price) VALUES ('P1',?,?,?,650,0)",
+                             (prod[0], rate, notes))
+
+
+@migration
 def add_change_order_remote_signing(conn):
     """Change Orders get what quotes have: an emailed PDF with a link where the customer signs on their
     own device (public_sign_token), a record of where the signature came from, a revision counter bumped

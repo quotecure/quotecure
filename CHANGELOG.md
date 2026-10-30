@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-10-30 (later) — Pebble Pros prices for PebbleTec Original (April 2025 sheet)
+
+Jim sent Pebble Pros' April 2025 PebbleTec price sheet. After the picker fix (below), Original no longer showed under Pebble Pros because Pebble Pros had no rates for it. Migration `add_pebble_pros_pebbletec_original_rates` adds/updates P1 rates for all 16 Original finishes: Standard $6.75 (Caribbean Blue, Sandy Beach, White Pearl, Tahoe Blue), Upgrade $7.00 (Blue Wave, Crème de Menthe, Jade, Moonlight Grey, Soft White), Premium $7.60 (Black Pearl, Blue Lagoon) and $8.60 (Black Marble, Emerald Bay, Midnight Blue, Sky Blue, Tropical Breeze). `min_sqft` = 650 on each (the sheet's "650 Minimum": every minimum pool charge is exactly 650 x rate -- a 300 sqft pool prices as 650 sqft, $4,387.50 at $6.75). Spa charges (6x6 / 7x7) are in the rate notes like the other Pebble Pros rows -- QuoteCure has no automatic spa pricing (`min_spa_price` is stored but unused). Southwest Pool Finishers' Original rates untouched. Open question for Jim: do the existing 83 Pebble Pros rows (Pebble Sheen etc., all min_sqft 0) share the 650 minimum?
+
+---
+
 ## 2026-10-30 — Surface finish picker only offers what the selected applicator prices
 
 Jim: with Pebble Pros selected as the applicator on a Surface Application line, PebbleTec Original showed up with $15.60 -- which is Southwest Pool Finishers' price -- and Pebble Pros has no price for it. Cause: rates are stored per applicator per finish (`surface_applicator_rates`, one row per applicator x finish), but the quote page's manufacturer -> product line -> finish pickers never told the API which applicator the line uses, so they listed every applicator's rates mixed together (picking one then failed with "no rate on file"). The pickers now send the line's applicator (`ITEM_SUB`), so you only see finishes that applicator has a rate for, at that applicator's price. Consequence: a finish Pebble Pros hasn't been priced for no longer appears under Pebble Pros -- add its rate in Admin -> Surfaces ("Add rate": applicator, finish, $/sqft, minimums). A line with no applicator selected yet still shows everything, as before.
