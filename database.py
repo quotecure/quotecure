@@ -4782,3 +4782,81 @@ def init_finishing_flooring_pros_sub(conn):
         )
     conn.commit()
     print(f'Seeded sub {sub_id} (Finishing & Flooring Pros) with {len(rates)} rates and {len(new_work_types)} new work types')
+
+
+# The starting-point subcontractor agreement printed on every work order. Editable in Admin Settings
+# (company_settings.sub_terms_text); "Restore default" puts this text back. "## " starts a section
+# heading, a blank line separates paragraphs, and {company} / {sub} / {job_address} / {work_order}
+# are filled in per work order. It is a generic independent-contractor draft, not legal advice.
+DEFAULT_SUB_AGREEMENT = """\
+This Subcontractor Agreement ("Agreement") is between {company} ("Company") and {sub} ("Subcontractor") and applies to work order {work_order} at {job_address} (the "Work Order"). It also governs any later revision of that Work Order.
+
+## 1. Independent contractor
+
+Subcontractor is an independent contractor and not an employee, partner, or agent of Company. Subcontractor controls the means, methods, and sequence of its work, supplies its own tools and equipment, and is solely responsible for its own employees, crews, wages, taxes, and benefits.
+
+## 2. Scope of work
+
+Subcontractor will perform the work described in the Work Order, including every item, quantity, callout, and special instruction listed in it. Subcontractor will not perform work outside the Work Order, and Company will not owe payment for it, unless Company approves it in writing in a revised Work Order before the work is done.
+
+## 3. Payment
+
+Company will pay Subcontractor the amounts listed in the Work Order for the work completed and accepted. Payment is due after the work is completed, inspected, and accepted by Company, and after Subcontractor has provided any lien waiver Company requests. Company may withhold payment for work that is incomplete, defective, or not as specified, until it is corrected.
+
+## 4. Changes
+
+Company may change the scope, quantities, or schedule by issuing a revised Work Order. Only the most recent revision controls. If a change affects pay or time, the revised Work Order will say so, and Subcontractor must raise any objection before starting the changed work.
+
+## 5. Materials
+
+Where the Work Order says Company supplies materials, Subcontractor will inspect them on delivery, use them as intended, and report any shortage or damage promptly. Where the Work Order says Subcontractor supplies materials, they are included in the pay shown and must be new, of good quality, and suitable for the job. Subcontractor is responsible for materials once delivered to it or to the job site until the work is accepted.
+
+## 6. Quality and warranty
+
+All work will be performed in a professional, workmanlike manner, in accordance with the Work Order, the manufacturer's installation requirements, applicable codes, and accepted industry standards. Subcontractor warrants its work against defects in workmanship for one (1) year from acceptance, or for any longer period stated in the Work Order, and will correct defective work promptly at its own cost, including any damage caused by the defect or its repair.
+
+## 7. Licenses, permits, and compliance
+
+Subcontractor represents that it holds every license and registration required for its work and will comply with all applicable laws, codes, and safety rules, including those on worker safety and on immigration and employment eligibility. Subcontractor will obtain any permit specific to its trade unless the Work Order says otherwise.
+
+## 8. Insurance
+
+Before starting work, Subcontractor will provide proof of general liability insurance and workers' compensation insurance (or a valid exemption) in amounts reasonably acceptable to Company, and will keep them in force until the work is accepted. Company may delay starting or payment until proof is received.
+
+## 9. Site conduct, safety, and schedule
+
+Subcontractor will start on the date in the Work Order or as otherwise agreed, notify Company promptly of any delay, and finish without unnecessary interruption. Subcontractor will follow the access instructions, protect the customer's property, keep the work area clean and safe, remove its debris, and treat the customer and neighbors courteously. Subcontractor will not bring unauthorized persons to the site.
+
+## 10. Indemnification
+
+To the fullest extent permitted by law, Subcontractor will defend, indemnify, and hold harmless Company and the customer from claims, losses, damages, and expenses (including reasonable attorney fees) arising from Subcontractor's work, its negligence or misconduct, its breach of this Agreement, or the acts of its employees, crews, and suppliers.
+
+## 11. Liens and payment of others
+
+Subcontractor will pay its employees, suppliers, and lower-tier subcontractors on time and will keep the property free of liens arising from its work. If a lien or claim is filed because Subcontractor did not pay, Subcontractor will have it released promptly at its own cost.
+
+## 12. Customer relationship
+
+Subcontractor will not solicit the customer for other work, or accept work directly from the customer for this project or for a period of one (1) year for any related project, without Company's written consent. Questions about scope, price, or changes go to Company's project manager, not the customer. Subcontractor will keep customer and pricing information confidential.
+
+## 13. Termination
+
+Company may terminate this Agreement or any Work Order for convenience on written notice, paying for work completed and accepted to that point, or immediately for cause, including unsafe or defective work, repeated delays, lapsed insurance, or breach of this Agreement. Company may complete the work itself or use others and recover from Subcontractor the reasonable additional cost caused by Subcontractor's default.
+
+## 14. General
+
+This Agreement and the Work Order are the entire agreement on this job and replace earlier discussions. They may be changed only in writing, including by a revised Work Order. If any part is unenforceable, the rest remains in effect. This Agreement is governed by the laws of the state where the job site is located. Subcontractor may not assign this Agreement or subcontract the work without Company's written consent.
+
+## 15. Acceptance
+
+Subcontractor accepts this Agreement and the Work Order by signing below, by accepting the Work Order electronically, or by starting the work described in it, whichever happens first.
+"""
+
+
+@migration
+def add_default_sub_agreement(conn):
+    """Jim wants a subcontractor agreement on every work order, editable in Admin. Seeds a starting
+    draft only where nothing has been entered yet -- never overwrites terms he has already pasted in."""
+    row = conn.execute("SELECT sub_terms_text FROM company_settings WHERE id=1").fetchone()
+    if row is not None and not (row[0] or '').strip():
+        conn.execute("UPDATE company_settings SET sub_terms_text=? WHERE id=1", (DEFAULT_SUB_AGREEMENT,))

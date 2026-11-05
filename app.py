@@ -9,7 +9,7 @@ load_dotenv()
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, g, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-from database import init_db, init_auth, init_materials, init_company_settings, generate_payment_schedule, run_migrations, init_pebble_pros_surfaces, init_skimmer_material, init_cap_tile_trim_materials, init_finishing_flooring_pros_sub, get_db
+from database import init_db, init_auth, init_materials, init_company_settings, generate_payment_schedule, run_migrations, init_pebble_pros_surfaces, init_skimmer_material, init_cap_tile_trim_materials, init_finishing_flooring_pros_sub, get_db, DEFAULT_SUB_AGREEMENT
 from line_item_logic import build_line_item, calc_component, price_component
 import hashlib
 import secrets
@@ -2788,7 +2788,23 @@ def _wo_doc_html(db, quote, wo, revision_label_ref=None, issued_date=None):
     from datetime import date
     return render_template('work_order_doc.html', **ctx, settings=settings,
                            issued_date=issued_date or date.today().strftime('%B %d, %Y'),
-                           terms_paragraphs=[p.strip() for p in (settings['sub_terms_text'] or '').replace('\r\n', '\n').split('\n\n') if p.strip()] if settings else [])
+                           agreement=_wo_agreement_blocks(settings['sub_terms_text'] if settings else '', ctx, settings, quote))
+
+def _wo_agreement_blocks(text, ctx, settings, quote):
+    """Admin's agreement text as [(kind, text)] with kind 'h' (a '## ' heading) or 'p'; {company}, {sub},
+    {job_address} and {work_order} are filled in for this work order. Plain str.replace, not format(), so
+    a stray brace in text Jim edits can never break document generation."""
+    fills = {'{company}': (settings['company_name'] if settings else '') or 'the Company', '{sub}': ctx['sub_name'],
+             '{job_address}': _full_address(quote['address'], quote['city']) or 'the job site', '{work_order}': ctx['ref']}
+    blocks = []
+    for para in (text or '').replace('\r\n', '\n').split('\n\n'):
+        para = para.strip()
+        if not para:
+            continue
+        for k, v in fills.items():
+            para = para.replace(k, v or '')
+        blocks.append(('h', para[3:].strip()) if para.startswith('## ') else ('p', para))
+    return blocks
 
 @app.route('/quotes/<int:quote_id>/work_orders/<int:wo_id>/preview')
 @login_required
@@ -2849,6 +2865,14 @@ def work_order_revision_pdf(quote_id, wo_id, rev):
 def update_sub_terms():
     db = get_db()
     db.execute("UPDATE company_settings SET sub_terms_text=? WHERE id=1", (request.form.get('sub_terms_text', '').strip(),))
+    db.commit()
+    return redirect(url_for('admin_settings', sub_terms_saved=1) + '#sub-terms')
+
+@app.route('/admin/settings/sub_terms/restore', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def restore_sub_terms():
+    db = get_db()
+    db.execute("UPDATE company_settings SET sub_terms_text=? WHERE id=1", (DEFAULT_SUB_AGREEMENT,))
     db.commit()
     return redirect(url_for('admin_settings', sub_terms_saved=1) + '#sub-terms')
 

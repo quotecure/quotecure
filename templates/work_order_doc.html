@@ -47,6 +47,13 @@
   .gen-notes { font-size: 12px; white-space: pre-wrap; background: #f8fafc; border-radius: 6px; padding: 10px 14px; margin-bottom: 18px; }
   .terms { margin-top: 26px; padding-top: 18px; border-top: 1px solid #e2e8f0; }
   .terms p { font-size: 11px; color: #334155; margin-bottom: 8px; white-space: pre-wrap; }
+  .agreement { page-break-before: always; break-before: page; border-top: none; padding-top: 0; margin-top: 0; }
+  .agr-title { font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em; margin: 6px 0 12px; }
+  .agreement h3 { font-size: 12px; font-weight: 700; color: #0f172a; margin: 12px 0 3px; page-break-after: avoid; break-after: avoid; }
+  .agreement p { page-break-inside: avoid; break-inside: avoid; }
+  .sigs { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; margin-top: 40px; page-break-inside: avoid; break-inside: avoid; }
+  .sig .line { border-bottom: 1px solid #0f172a; height: 34px; }
+  .sig .cap { font-size: 10.5px; color: #64748b; margin-top: 4px; line-height: 1.4; }
   .agree { margin-top: 14px; padding: 12px 16px; border: 2px solid #0f172a; border-radius: 6px; font-size: 12.5px; font-weight: 600; color: #0f172a; }
 </style>
 </head>
@@ -110,11 +117,15 @@
   </table>
   <div class="total"><span>Total pay to {{ sub_name }}</span><span class="amt">{{ total_pay|usd }}</span></div>
 
-  {% if terms_paragraphs %}
-  <div class="terms">
-    <div class="section-title">Subcontractor terms</div>
-    {% for para in terms_paragraphs %}<p>{{ para }}</p>{% endfor %}
-    <div class="agree">By accepting this work order, or by starting the work described in it, {{ sub_name }} agrees to be bound by the subcontractor terms above.</div>
+  {% if agreement %}
+  <div class="terms agreement">
+    <div class="agr-title">Subcontractor Agreement</div>
+    {% for kind, txt in agreement %}{% if kind == 'h' %}<h3>{{ txt }}</h3>{% else %}<p>{{ txt }}</p>{% endif %}{% endfor %}
+    <div class="agree">By accepting this work order, or by starting the work described in it, {{ sub_name }} agrees to be bound by this Subcontractor Agreement.</div>
+    <div class="sigs">
+      <div class="sig"><div class="line"></div><div class="cap">Subcontractor &mdash; {{ sub_name }}<br>Signature / printed name / date</div></div>
+      <div class="sig"><div class="line"></div><div class="cap">{{ settings.company_name if settings else 'Company' }}<br>Signature / printed name / date</div></div>
+    </div>
   </div>
   {% else %}
   <div class="terms"><div class="agree">By accepting this work order, or by starting the work described in it, {{ sub_name }} agrees to perform it as described above.</div></div>

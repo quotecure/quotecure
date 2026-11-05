@@ -4,6 +4,12 @@ Plain-English running log of what's been built and why — kept so a fresh sessi
 
 ---
 
+## 2026-11-05 — Subcontractor Agreement on every work order (editable in Admin)
+
+Jim: before phase 2, put a real subcontractor agreement on the work order, editable in Admin. The Admin "Subcontractor Terms" box already existed but was empty, so it is now the **Subcontractor Agreement**: a starting draft (15 sections: independent contractor, scope, payment, changes, materials, warranty, licenses, insurance, site conduct, indemnification, liens, customer non-solicitation, termination, general, acceptance) is seeded into it by migration `add_default_sub_agreement` -- **only where the box was blank**, never over text Jim had already entered. The draft text lives in `database.DEFAULT_SUB_AGREEMENT`. On the work order PDF it now starts on its own page, with the heading "Subcontractor Agreement", the "by accepting or starting the work, [sub] agrees to be bound by this Subcontractor Agreement" box, and signature lines for the sub and the company (phase 2's Accept link will add the electronic version). **Editing:** Admin Settings -> Subcontractor Agreement; blank line = new paragraph, a line starting `## ` = bold section heading, and `{company}`, `{sub}`, `{job_address}`, `{work_order}` are filled in per work order (plain string replace, so a stray brace can't break PDF generation). **Restore original draft** button (with a confirm) puts the seeded text back (`POST /admin/settings/sub_terms/restore`). Blank agreement -> falls back to the short "agrees to perform it as described" line, no agreement page. The draft is generic independent-contractor language, not legal advice -- needs an attorney's review (and probably a state-specific governing-law line) before Jim leans on it. Past generated revisions are unchanged (their PDFs were already stored).
+
+---
+
 ## 2026-11-05 — Sub work orders, phase 1: draft, edit, generate a PDF
 
 Jim: hand each sub a work order once a quote becomes a contract -- their company name clearly, the job, access instructions, start date, every line of their work with quantities and notes, editable by the PM before it's generated, ending in subcontractor terms and "accepting or starting = agreeing". Scoped with Jim earlier (defaults: show the sub's pay, material supplier per line, no customer phone, one terms document for all subs); this is **phase 1 only -- no emailing and no accept link yet** (phase 2), so it's safe to try on real jobs.
