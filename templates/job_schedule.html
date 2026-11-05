@@ -76,6 +76,33 @@
   <div class="card" style="padding:12px 16px;margin-bottom:16px;border-color:var(--red);color:var(--red);font-size:13px;">{{ error }}</div>
   {% endif %}
 
+  {% if work_orders %}
+  <div class="card" style="padding:14px 16px;margin-bottom:16px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:4px;">Work Orders</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">The sheet you hand each sub: their company name, the job, access, start date, and every line of their work. Draft it from the contract, edit it, then generate the PDF.</div>
+    {% for w in work_orders %}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;{% if not loop.last %}border-bottom:1px solid var(--border2);{% endif %}flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="chip" style="font-size:12px;">{{ w.name }}</span>
+        <span style="font-size:11px;color:var(--text3);">{{ w.item_count }} item{{ '' if w.item_count == 1 else 's' }}{% if w.pay is not none %} &middot; pay {{ w.pay|usd }}{% endif %}</span>
+        {% if w.state == 'none' %}<span class="badge badge-gray">No work order yet</span>
+        {% elif w.state == 'draft' %}<span class="badge badge-gray">Draft</span>
+        {% elif w.state == 'issued' %}<span class="badge badge-green">Issued rev {{ w.wo.revision }}</span>
+        {% else %}<span class="badge badge-amber">Edited since rev {{ w.wo.revision }}</span>{% endif %}
+      </div>
+      <div style="display:flex;gap:8px;">
+        {% if w.wo %}
+        <a class="btn btn-secondary btn-sm" href="/quotes/{{ quote.quote_id }}/work_orders/{{ w.wo.id }}">{{ 'Edit' if can_edit else 'View' }}</a>
+        {% if w.wo.revision %}<a class="btn btn-secondary btn-sm" href="/quotes/{{ quote.quote_id }}/work_orders/{{ w.wo.id }}/revisions/{{ w.wo.revision }}/pdf" target="_blank">📄 PDF</a>{% endif %}
+        {% elif can_edit %}
+        <form method="POST" action="/quotes/{{ quote.quote_id }}/work_orders/new" style="display:inline"><input type="hidden" name="sub_id" value="{{ w.sub_id }}"><button class="btn btn-primary btn-sm" type="submit">Draft work order</button></form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div class="table-wrap">
     <table>
       <thead>

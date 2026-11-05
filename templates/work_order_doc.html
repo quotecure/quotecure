@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ ref }} — {{ sub_name }}</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Chivo+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: white; color: #1e293b; font-size: 13px; line-height: 1.5; }
+  .page { max-width: 820px; margin: 0 auto; padding: 40px 48px 56px; }
+  @media print { .page { padding: 16px; } .no-print { display: none !important; } }
+  .header { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 24px; padding-bottom: 20px; border-bottom: 2px solid #0f172a; }
+  .company-name { font-size: 20px; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; }
+  .company-info { font-size: 11px; color: #64748b; margin-top: 4px; line-height: 1.6; }
+  .doc-title { text-align: right; }
+  .doc-title .t { font-weight: 800; font-size: 30px; color: #0f172a; letter-spacing: -0.02em; line-height: 1.1; }
+  .doc-title .r { font-family: 'Chivo Mono', monospace; font-size: 14px; font-weight: 700; color: #1d4ed8; margin-top: 4px; }
+  .doc-title .d { font-size: 11px; color: #64748b; margin-top: 2px; }
+  .sub-block { margin: 22px 0 18px; padding: 16px 20px; background: #0f172a; color: white; border-radius: 8px; }
+  .sub-block .lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #94a3b8; }
+  .sub-block .name { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 2px; }
+  .sub-block .contact { font-size: 12px; color: #cbd5e1; margin-top: 2px; }
+  .job { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; background: #f8fafc; border-radius: 8px; padding: 16px 20px; margin-bottom: 18px; }
+  .job .lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 2px; }
+  .job .val { font-size: 14px; font-weight: 600; color: #0f172a; white-space: pre-wrap; }
+  .job .wide { grid-column: 1 / -1; }
+  .access { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 10px 14px; }
+  .access .val { font-weight: 500; font-size: 13px; }
+  .section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #94a3b8; margin: 8px 0 8px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  thead th { padding: 8px 10px; text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #94a3b8; border-bottom: 2px solid #e2e8f0; }
+  thead th.r, td.r { text-align: right; }
+  tbody td { padding: 12px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  .item-label { font-weight: 700; font-size: 14px; color: #0f172a; }
+  .item-details { font-size: 12px; color: #334155; margin-top: 1px; }
+  .item-desc { font-size: 12px; color: #475569; margin-top: 4px; white-space: pre-wrap; }
+  .item-notes { font-size: 12px; color: #0f172a; margin-top: 6px; padding-left: 10px; border-left: 3px solid #1d4ed8; white-space: pre-wrap; }
+  .callout { display: inline-block; margin-top: 8px; padding: 4px 10px; border: 2px solid #0f172a; border-radius: 4px; font-weight: 800; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .callout.yes { background: #0f172a; color: white; }
+  .mono { font-family: 'Chivo Mono', monospace; }
+  .qty { white-space: nowrap; font-weight: 600; }
+  .mat { font-size: 12px; color: #475569; }
+  .total { display: flex; justify-content: flex-end; gap: 24px; font-size: 15px; padding: 8px 10px 18px; border-top: 2px solid #0f172a; }
+  .total .amt { font-family: 'Chivo Mono', monospace; font-weight: 700; }
+  .gen-notes { font-size: 12px; white-space: pre-wrap; background: #f8fafc; border-radius: 6px; padding: 10px 14px; margin-bottom: 18px; }
+  .terms { margin-top: 26px; padding-top: 18px; border-top: 1px solid #e2e8f0; }
+  .terms p { font-size: 11px; color: #334155; margin-bottom: 8px; white-space: pre-wrap; }
+  .agree { margin-top: 14px; padding: 12px 16px; border: 2px solid #0f172a; border-radius: 6px; font-size: 12.5px; font-weight: 600; color: #0f172a; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div>
+      {% if settings and settings.logo_path %}<img src="{{ settings.logo_path }}" style="max-height:90px;max-width:220px;object-fit:contain;display:block;">
+      {% else %}<div class="company-name">{{ settings.company_name if settings else 'Your Company' }}</div>{% endif %}
+      <div class="company-info">
+        {% if settings and settings.address %}{{ settings.address }}<br>{% endif %}
+        {% if settings and settings.phone %}{{ settings.phone }}{% endif %}{% if settings and settings.email %} &middot; {{ settings.email }}{% endif %}
+        {% if settings and settings.license_number %}<br>License: {{ settings.license_number }}{% endif %}
+      </div>
+    </div>
+    <div class="doc-title">
+      <div class="t">WORK ORDER</div>
+      <div class="r">{{ ref }}</div>
+      <div class="d">Issued {{ issued_date }}</div>
+    </div>
+  </div>
+
+  <div class="sub-block">
+    <div class="lbl">Subcontractor</div>
+    <div class="name">{{ sub_name }}</div>
+    {% if sub_phone or sub_email %}<div class="contact">{{ sub_phone }}{% if sub_phone and sub_email %} &middot; {% endif %}{{ sub_email }}</div>{% endif %}
+  </div>
+
+  <div class="job">
+    <div><div class="lbl">Customer</div><div class="val">{{ quote.customer_name }}</div></div>
+    <div><div class="lbl">Job address</div><div class="val">{{ quote.address|full_address(quote.city) }}</div></div>
+    <div><div class="lbl">Start date</div><div class="val">{{ wo.start_date or 'To be scheduled' }}</div></div>
+    <div><div class="lbl">Project manager</div><div class="val">{{ wo.pm_name }}{% if wo.pm_phone %}<br><span style="font-weight:500;">{{ wo.pm_phone }}</span>{% endif %}</div></div>
+    {% if wo.access_instructions %}
+    <div class="wide access"><div class="lbl">Access instructions</div><div class="val">{{ wo.access_instructions }}</div></div>
+    {% endif %}
+  </div>
+
+  {% if wo.general_notes %}<div class="gen-notes">{{ wo.general_notes }}</div>{% endif %}
+
+  <div class="section-title">Scope of work</div>
+  <table>
+    <thead><tr><th style="width:4%;">#</th><th>Work item</th><th class="r" style="width:14%;">Quantity</th><th style="width:20%;">Material</th><th class="r" style="width:14%;">Pay</th></tr></thead>
+    <tbody>
+    {% for l in lines %}
+    <tr>
+      <td class="mono" style="color:#94a3b8;">{{ loop.index }}</td>
+      <td>
+        <div class="item-label">{{ l.label }}</div>
+        {% if l.details %}<div class="item-details">{{ l.details }}</div>{% endif %}
+        {% if l.description %}<div class="item-desc">{{ l.description }}</div>{% endif %}
+        {% if l.callout_label and l.callout_value %}<div class="callout {{ 'yes' if l.callout_value == 'YES' else '' }}">{{ l.callout_label }}: {{ l.callout_value }}</div>{% endif %}
+        {% if l.notes %}<div class="item-notes">{{ l.notes }}</div>{% endif %}
+      </td>
+      <td class="r qty mono">{{ ('%g'|format(l.quantity)) }} {{ l.unit }}</td>
+      <td class="mat">{% if l.material_supplier == 'company' %}Supplied by {{ settings.company_name if settings else 'us' }}{% elif l.material_supplier == 'sub' %}Supplied by subcontractor{% else %}&mdash;{% endif %}</td>
+      <td class="r mono">{{ l.pay|usd }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="total"><span>Total pay to {{ sub_name }}</span><span class="amt">{{ total_pay|usd }}</span></div>
+
+  {% if terms_paragraphs %}
+  <div class="terms">
+    <div class="section-title">Subcontractor terms</div>
+    {% for para in terms_paragraphs %}<p>{{ para }}</p>{% endfor %}
+    <div class="agree">By accepting this work order, or by starting the work described in it, {{ sub_name }} agrees to be bound by the subcontractor terms above.</div>
+  </div>
+  {% else %}
+  <div class="terms"><div class="agree">By accepting this work order, or by starting the work described in it, {{ sub_name }} agrees to perform it as described above.</div></div>
+  {% endif %}
+</div>
+</body>
+</html>

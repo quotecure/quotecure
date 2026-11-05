@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block title %}{{ ref }} — {{ sub_name }}{% endblock %}
+{% block extra_css %}
+<style>
+.wo-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px; }
+.wo-card h3 { font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:12px; }
+.wo-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px; }
+.wo-field label { display:block;font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.04em; }
+.wo-field input, .wo-field select, .wo-field textarea { width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;padding:6px 8px;box-sizing:border-box;font-family:inherit; }
+.wo-field input, .wo-field select { height:32px; }
+.wo-field textarea { min-height:34px;resize:vertical; }
+.wo-field.wide { grid-column:1 / -1; }
+.wo-line { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px; }
+.wo-line .num { font-family:'Chivo Mono',monospace;font-size:11px;color:var(--text3);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center; }
+.wo-bar { display:flex;gap:8px;flex-wrap:wrap;align-items:center; }
+.wo-total { display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:14px; }
+.wo-total .val { font-family:'Chivo Mono',monospace;font-size:18px;font-weight:700; }
+.callout-yn { display:flex;gap:6px; }
+.callout-yn label { display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text);cursor:pointer;padding:5px 10px;border:1px solid var(--border);border-radius:4px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-wide">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:12px;flex-wrap:wrap;">
+    <div>
+      <div class="page-title">Work Order — {{ sub_name }}</div>
+      <div class="page-subtitle">
+        <span class="mono">{{ ref }}</span> &middot; {{ quote.customer_name }} (QT-{{ '%04d'|format(quote.quote_id) }})
+        {% if state == 'draft' %}<span class="badge badge-gray" style="margin-left:6px;">Draft — not generated</span>
+        {% elif state == 'issued' %}<span class="badge badge-green" style="margin-left:6px;">Issued — rev {{ wo.revision }}</span>
+        {% else %}<span class="badge badge-amber" style="margin-left:6px;">Edited since rev {{ wo.revision }}</span>{% endif %}
+      </div>
+    </div>
+    <a href="/quotes/{{ quote.quote_id }}/schedule" class="btn btn-secondary">← Back to Schedule</a>
+  </div>
+
+  {% if error %}<div class="card" style="padding:12px 16px;margin-bottom:14px;border-color:var(--red);color:var(--red);font-size:13px;">{{ error }}</div>{% endif %}
+  {% if msg %}<div class="card" style="padding:10px 16px;margin-bottom:14px;font-size:13px;color:var(--text);">{{ msg }}</div>{% endif %}
+
+  <form method="POST" action="/quotes/{{ quote.quote_id }}/work_orders/{{ wo.id }}/save">
+    <div class="wo-card">
+      <h3>Job details (printed at the top)</h3>
+      <div class="wo-grid">
+        <div class="wo-field"><label>Start date</label><input type="date" name="start_date" value="{{ wo.start_date }}" {{ '' if can_edit else 'disabled' }}></div>
+        <div class="wo-field"><label>Project manager</label><input type="text" name="pm_name" value="{{ wo.pm_name }}" {{ '' if can_edit else 'disabled' }}></div>
+        <div class="wo-field"><label>PM phone</label><input type="text" name="pm_phone" value="{{ wo.pm_phone }}" {{ '' if can_edit else 'disabled' }}></div>
+        <div class="wo-field wide"><label>Access instructions (gate code, dogs, where to park…)</label><textarea name="access_instructions" rows="2" {{ '' if can_edit else 'disabled' }}>{{ wo.access_instructions }}</textarea></div>
+        <div class="wo-field wide"><label>Notes for the whole job (optional — printed above the scope)</label><textarea name="general_notes" rows="2" {{ '' if can_edit else 'disabled' }}>{{ wo.general_notes }}</textarea></div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;">Customer: {{ quote.customer_name }} &middot; {{ quote.address|full_address(quote.city) }}. The customer's phone and email are never printed on a work order.</div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin:4px 0 8px;">Scope of work — what {{ sub_name }} is being paid to do</div>
+    {% for l in lines %}
+    <div class="wo-line">
+      <div class="num"><span>#{{ loop.index }}{% if l.source == 'manual' %} &middot; added by hand{% endif %}</span>
+        {% if can_edit %}<label style="font-size:11px;color:var(--text3);cursor:pointer;"><input type="checkbox" name="line-{{ l.id }}-delete" value="1"> remove this line</label>{% endif %}</div>
+      <div class="wo-grid">
+        <div class="wo-field" style="grid-column:span 2;"><label>Work item</label><input type="text" name="line-{{ l.id }}-label" value="{{ l.label }}" {{ '' if can_edit else 'disabled' }}></div>
+        <div class="wo-field" style="grid-column:span 2;"><label>Finish / material detail</label><input type="text" name="line-{{ l.id }}-details" value="{{ l.details }}" {{ '' if can_edit else 'disabled' }}></div>
+        <div class="wo-field"><label>Quantity</label><input type="number" step="0.01" name="line-{{ l.id }}-quantity" value="{{ '%g'|format(l.quantity) }}" {{ '' if can_edit else 'disabled' }}></div>
+        <div class="wo-field"><label>Unit</label><input type="text" name="line-{{ l.id }}-unit" value="{{ l.unit }}" {{ '' if can_edit else 'disabled' }}></div>
+        <div class="wo-field"><label>Material supplied by</label>
+          <select name="line-{{ l.id }}-material_supplier" {{ '' if can_edit else 'disabled' }}>
+            <option value="" {{ 'selected' if not l.material_supplier }}>— n/a —</option>
+            <option value="company" {{ 'selected' if l.material_supplier == 'company' }}>Us</option>
+            <option value="sub" {{ 'selected' if l.material_supplier == 'sub' }}>The sub</option>
+          </select></div>
+        <div class="wo-field"><label>Pay to sub ($)</label><input type="number" step="0.01" name="line-{{ l.id }}-pay" value="{{ '%.2f'|format(l.pay) }}" {{ '' if can_edit else 'disabled' }}></div>
+        <div class="wo-field wide"><label>Scope description</label><textarea name="line-{{ l.id }}-description" rows="2" {{ '' if can_edit else 'disabled' }}>{{ l.description }}</textarea></div>
+        <div class="wo-field wide"><label>Special instructions for this line (printed with a bar beside it)</label><textarea name="line-{{ l.id }}-notes" rows="2" placeholder="e.g. Custom bench per the attached drawing — 18&quot; seat height." {{ '' if can_edit else 'disabled' }}>{{ l.notes }}</textarea></div>
+        <div class="wo-field" style="grid-column:span 2;"><label>Bold callout (optional — e.g. “Remove existing tile”)</label><input type="text" name="line-{{ l.id }}-callout_label" value="{{ l.callout_label }}" {{ '' if can_edit else 'disabled' }}></div>
+        <div class="wo-field"><label>Callout answer</label>
+          <div class="callout-yn">
+            <label><input type="radio" name="line-{{ l.id }}-callout_value" value="YES" {{ 'checked' if l.callout_value == 'YES' }} {{ '' if can_edit else 'disabled' }}> YES</label>
+            <label><input type="radio" name="line-{{ l.id }}-callout_value" value="NO" {{ 'checked' if l.callout_value == 'NO' }} {{ '' if can_edit else 'disabled' }}> NO</label>
+            <label><input type="radio" name="line-{{ l.id }}-callout_value" value="" {{ 'checked' if not l.callout_value }} {{ '' if can_edit else 'disabled' }}> —</label>
+          </div></div>
+      </div>
+    </div>
+    {% endfor %}
+    {% if not lines %}<div class="wo-card" style="color:var(--text3);">No lines. Add one below.</div>{% endif %}
+
+    <div class="wo-total"><span style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;">Total pay to {{ sub_name }} (as last saved)</span><span class="val">{{ total_pay|usd }}</span></div>
+
+    {% if can_edit %}
+    <div class="wo-bar">
+      <button class="btn btn-secondary" type="submit" name="action" value="save">Save</button>
+      <button class="btn btn-secondary" type="submit" name="action" value="add_line">+ Add a line</button>
+      <a class="btn btn-secondary" href="/quotes/{{ quote.quote_id }}/work_orders/{{ wo.id }}/preview" target="_blank">Preview (saved version)</a>
+      <button class="btn btn-primary" type="submit" name="action" value="generate"
+              onclick="return confirm('Generate {{ ref }}{% if wo.revision %} (revision {{ wo.revision + 1 }}){% endif %} as a PDF? This saves your edits and keeps the PDF on file.')">Save &amp; Generate PDF</button>
+    </div>
+    {% else %}<div style="font-size:12px;color:var(--text3);">View only — ask an Owner or Coordinator to edit work orders.</div>{% endif %}
+  </form>
+
+  <div class="wo-card" style="margin-top:20px;">
+    <h3>Issued revisions</h3>
+    {% if revisions %}
+    {% for r in revisions %}
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;{% if not loop.last %}border-bottom:1px solid var(--border2);{% endif %}">
+      <div style="font-size:13px;color:var(--text);">Revision {{ r.revision }} <span style="font-size:11px;color:var(--text3);">&middot; {{ r.generated_at[:16] }}{% if r.generated_by %} by {{ r.generated_by }}{% endif %}</span></div>
+      <a class="btn btn-secondary btn-sm" href="/quotes/{{ quote.quote_id }}/work_orders/{{ wo.id }}/revisions/{{ r.revision }}/pdf" target="_blank">📄 View PDF</a>
+    </div>
+    {% endfor %}
+    {% else %}<div style="font-size:12px;color:var(--text3);">Nothing generated yet.</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -2583,7 +2583,274 @@ def job_schedule(quote_id):
     can_edit = bool(g.role and g.role['can_enter_actuals'])
     modifier_labels = _contract_modifier_labels(db, quote_id)
     return render_template('job_schedule.html', quote=quote, items=items, subs=subs, can_edit=can_edit,
-                           modifier_labels=modifier_labels, error=request.args.get('error'))
+                           modifier_labels=modifier_labels, error=request.args.get('error'),
+                           work_orders=_wo_summaries(db, quote_id))
+
+# ── Sub work orders ──────────────────────────────────────────────────────────
+# The document handed to a subcontractor once a quote is a signed contract. Draft (copied from the
+# contract, freely editable by the PM) -> Generate (numbered PDF, kept as a revision). See the
+# add_sub_work_orders migration for the model.
+
+def _wo_ref(quote_id, wo, revision=None):
+    rev = wo['revision'] if revision is None else revision
+    return f"QT-{quote_id:04d}-WO{wo['wo_number']}" + (f" rev {rev}" if rev and rev > 1 else '')
+
+def _sub_display(db, sub_id):
+    """(name, phone, email) for a sub or a surface applicator id."""
+    row = db.execute("SELECT name, phone, email FROM subs WHERE sub_id=?", (sub_id,)).fetchone()
+    if row:
+        return row['name'], row['phone'] or '', row['email'] or ''
+    row = db.execute("SELECT name FROM surface_applicators WHERE sub_id=?", (sub_id,)).fetchone()
+    return (row['name'] if row else sub_id), '', ''
+
+def _wo_line_pay(it, supplier):
+    """What we pay the sub for one contract line: the quoted labor cost (plus labor-side modifier costs),
+    and the quoted material cost too when the sub is the one buying the material. Same quoted-cost
+    arithmetic the Ledger uses -- never the customer price or markup."""
+    labor = float(it.get('labor_total_cost') or 0)
+    mat = float(it.get('material_total_cost') or 0)
+    total = float(it.get('total_cost') or 0)
+    if labor == 0 and mat == 0 and total != 0:
+        labor = total          # one-part items (freeform / tracking rows) carry only total_cost
+    else:
+        labor += float(it.get('ledger_mod_labor') or 0)
+        mat += float(it.get('ledger_mod_material') or 0)
+    return round(labor + (mat if supplier == 'sub' else 0), 2)
+
+def _wo_contract_lines(db, quote_id, sub_id):
+    """This sub's lines from the signed contract (original lines + signed Change Orders), as dicts of
+    work_order_lines columns."""
+    lines = []
+    for it in _ledger_items(db, quote_id):
+        if (it.get('sub_id') or '') != sub_id:
+            continue
+        label = it.get('work_type_label') or it.get('label') or 'Work item'
+        details = ' — '.join(x for x in ((it.get('product_label') or '').strip(), (it.get('material_label') or '').strip()) if x)
+        has_mat = float(it.get('material_total_cost') or 0) > 0
+        supplier = 'company' if has_mat else ''
+        lines.append({
+            'source': it['source'], 'source_id': it['id'], 'label': label, 'details': details,
+            'description': (it.get('description') or '').strip(),
+            'quantity': float(it.get('labor_quantity') or 0) or 1.0, 'unit': it.get('labor_unit') or '',
+            'material_supplier': supplier, 'pay': _wo_line_pay(it, supplier),
+            'callout_label': 'Remove existing tile' if label.startswith('Surface Removal') else '',
+            'callout_value': '', 'notes': '', '_sort': it.get('sort_order') or 0,
+        })
+    lines.sort(key=lambda l: l['_sort'])
+    return lines
+
+def _wo_fingerprint(db, wo_id):
+    """Hash of everything the PDF shows, to tell 'edited since it was issued'."""
+    import hashlib
+    wo = db.execute("SELECT * FROM work_orders WHERE id=?", (wo_id,)).fetchone()
+    lines = db.execute("SELECT * FROM work_order_lines WHERE work_order_id=? ORDER BY sort_order, id", (wo_id,)).fetchall()
+    blob = json.dumps({
+        'h': [wo['start_date'], wo['access_instructions'], wo['pm_name'], wo['pm_phone'], wo['general_notes']],
+        'l': [[l['label'], l['details'], l['description'], round(float(l['quantity'] or 0), 4), l['unit'], l['material_supplier'],
+               round(float(l['pay'] or 0), 2), l['callout_label'], l['callout_value'], l['notes']] for l in lines]}, sort_keys=True)
+    return hashlib.md5(blob.encode()).hexdigest()
+
+def _wo_state(db, wo):
+    """'draft' (never issued), 'issued' (matches the last revision) or 'edited' (changed since)."""
+    if not wo['revision']:
+        return 'draft'
+    return 'issued' if _wo_fingerprint(db, wo['id']) == (wo['issued_fingerprint'] or '') else 'edited'
+
+def _wo_summaries(db, quote_id):
+    """One row per sub with work on this contract, for the Schedule page's Work Orders card."""
+    subs = {}
+    for it in _ledger_items(db, quote_id):
+        sid = it.get('sub_id') or ''
+        if sid:
+            subs.setdefault(sid, 0)
+            subs[sid] += 1
+    existing = {w['sub_id']: w for w in db.execute("SELECT * FROM work_orders WHERE quote_id=?", (quote_id,)).fetchall()}
+    rows = []
+    for sid, n in subs.items():
+        wo = existing.get(sid)
+        name = wo['sub_name'] if wo and wo['sub_name'] else _sub_display(db, sid)[0]
+        pay = db.execute("SELECT COALESCE(SUM(pay),0) FROM work_order_lines WHERE work_order_id=?", (wo['id'],)).fetchone()[0] if wo else None
+        rows.append({'sub_id': sid, 'name': name, 'item_count': n, 'wo': wo, 'state': _wo_state(db, wo) if wo else 'none', 'pay': pay})
+    rows.sort(key=lambda r: r['name'].lower())
+    return rows
+
+def _wo_owned(db, quote_id, wo_id):
+    wo = db.execute("SELECT * FROM work_orders WHERE id=? AND quote_id=?", (wo_id, quote_id)).fetchone()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    if not wo or not quote or not _is_locked_contract(db, quote_id):
+        return None, None
+    return wo, quote
+
+@app.route('/quotes/<int:quote_id>/work_orders/new', methods=['POST'])
+@require_permission('can_enter_actuals')
+def work_order_new(quote_id):
+    db = get_db()
+    quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (quote_id,)).fetchone()
+    sub_id = (request.form.get('sub_id') or '').strip()
+    if not quote or not _is_locked_contract(db, quote_id) or not sub_id:
+        return redirect(url_for('job_schedule', quote_id=quote_id))
+    wo = db.execute("SELECT id FROM work_orders WHERE quote_id=? AND sub_id=?", (quote_id, sub_id)).fetchone()
+    if wo:
+        return redirect(url_for('work_order_edit', quote_id=quote_id, wo_id=wo['id']))
+    lines = _wo_contract_lines(db, quote_id, sub_id)
+    if not lines:
+        return redirect(url_for('job_schedule', quote_id=quote_id, error='That sub has no work assigned on this contract yet.'))
+    settings = db.execute("SELECT phone FROM company_settings WHERE id=1").fetchone()
+    pm_name = (g.user['display_name'] or g.user['username']) if g.user else ''
+    starts = [r[0] for r in db.execute(
+        "SELECT scheduled_start_date FROM quote_line_items WHERE quote_id=? AND sub_id=? AND scheduled_start_date != ''", (quote_id, sub_id)).fetchall()]
+    number = (db.execute("SELECT COALESCE(MAX(wo_number),0) FROM work_orders WHERE quote_id=?", (quote_id,)).fetchone()[0] or 0) + 1
+    name = _sub_display(db, sub_id)[0]
+    wo_id = db.execute(
+        "INSERT INTO work_orders (quote_id, sub_id, sub_name, wo_number, start_date, pm_name, pm_phone) VALUES (?,?,?,?,?,?,?) RETURNING id",
+        (quote_id, sub_id, name, number, min(starts) if starts else '', pm_name, (settings['phone'] if settings else '') or '')).fetchone()[0]
+    for i, l in enumerate(lines):
+        db.execute("INSERT INTO work_order_lines (work_order_id, sort_order, source, source_id, label, details, description, quantity, unit, "
+                   "material_supplier, pay, callout_label, callout_value, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (wo_id, i, l['source'], l['source_id'], l['label'], l['details'], l['description'], l['quantity'], l['unit'],
+                    l['material_supplier'], l['pay'], l['callout_label'], l['callout_value'], l['notes']))
+    db.commit()
+    return redirect(url_for('work_order_edit', quote_id=quote_id, wo_id=wo_id))
+
+def _wo_context(db, quote, wo):
+    lines = db.execute("SELECT * FROM work_order_lines WHERE work_order_id=? ORDER BY sort_order, id", (wo['id'],)).fetchall()
+    name, phone, email = _sub_display(db, wo['sub_id'])
+    return {'quote': quote, 'wo': wo, 'lines': lines, 'sub_name': wo['sub_name'] or name, 'sub_phone': phone, 'sub_email': email,
+            'total_pay': round(sum(float(l['pay'] or 0) for l in lines), 2), 'ref': _wo_ref(quote['quote_id'], wo)}
+
+@app.route('/quotes/<int:quote_id>/work_orders/<int:wo_id>')
+@login_required
+def work_order_edit(quote_id, wo_id):
+    db = get_db()
+    wo, quote = _wo_owned(db, quote_id, wo_id)
+    if not wo:
+        return redirect(url_for('job_schedule', quote_id=quote_id))
+    ctx = _wo_context(db, quote, wo)
+    revisions = db.execute("SELECT id, revision, generated_at, generated_by FROM work_order_revisions WHERE work_order_id=? ORDER BY revision DESC", (wo_id,)).fetchall()
+    return render_template('work_order_edit.html', **ctx, state=_wo_state(db, wo), revisions=revisions,
+                           can_edit=bool(g.role and g.role['can_enter_actuals']), error=request.args.get('error'), msg=request.args.get('msg'))
+
+_WO_LINE_FIELD = re.compile(r'^line-(\d+)-(\w+)$')
+
+def _wo_save_form(db, wo_id):
+    """Apply the editor form: header fields, every line's fields, and ticked deletions."""
+    f = request.form
+    db.execute("UPDATE work_orders SET start_date=?, access_instructions=?, pm_name=?, pm_phone=?, general_notes=?, updated_at=now()::text WHERE id=?",
+               ((f.get('start_date') or '').strip(), (f.get('access_instructions') or '').strip(), (f.get('pm_name') or '').strip(),
+                (f.get('pm_phone') or '').strip(), (f.get('general_notes') or '').strip(), wo_id))
+    per_line = {}
+    for key, value in f.items():
+        m = _WO_LINE_FIELD.match(key)
+        if m:
+            per_line.setdefault(int(m.group(1)), {})[m.group(2)] = value
+    owned = {r['id'] for r in db.execute("SELECT id FROM work_order_lines WHERE work_order_id=?", (wo_id,)).fetchall()}
+    for lid, v in per_line.items():
+        if lid not in owned:
+            continue
+        if v.get('delete'):
+            db.execute("DELETE FROM work_order_lines WHERE id=?", (lid,))
+            continue
+        def num(key):
+            try:
+                return float(v.get(key) or 0)
+            except ValueError:
+                return 0.0
+        supplier = v.get('material_supplier') if v.get('material_supplier') in ('', 'company', 'sub') else ''
+        cval = (v.get('callout_value') or '').upper()
+        db.execute("UPDATE work_order_lines SET label=?, details=?, description=?, quantity=?, unit=?, material_supplier=?, pay=?, "
+                   "callout_label=?, callout_value=?, notes=? WHERE id=?",
+                   ((v.get('label') or '').strip(), (v.get('details') or '').strip(), (v.get('description') or '').strip(), num('quantity'),
+                    (v.get('unit') or '').strip(), supplier, round(num('pay'), 2), (v.get('callout_label') or '').strip(),
+                    cval if cval in ('YES', 'NO') else '', (v.get('notes') or '').strip(), lid))
+    db.commit()
+
+@app.route('/quotes/<int:quote_id>/work_orders/<int:wo_id>/save', methods=['POST'])
+@require_permission('can_enter_actuals')
+def work_order_save(quote_id, wo_id):
+    db = get_db()
+    wo, quote = _wo_owned(db, quote_id, wo_id)
+    if not wo:
+        return redirect(url_for('job_schedule', quote_id=quote_id))
+    _wo_save_form(db, wo_id)
+    action = request.form.get('action')
+    if action == 'generate':
+        return work_order_generate(quote_id, wo_id, _saved=True)
+    if action == 'add_line':
+        n = db.execute("SELECT COALESCE(MAX(sort_order),-1)+1 FROM work_order_lines WHERE work_order_id=?", (wo_id,)).fetchone()[0]
+        db.execute("INSERT INTO work_order_lines (work_order_id, sort_order, source, label) VALUES (?,?,'manual','New line')", (wo_id, n))
+        db.commit()
+    return redirect(url_for('work_order_edit', quote_id=quote_id, wo_id=wo_id, msg='Saved.'))
+
+def _wo_doc_html(db, quote, wo, revision_label_ref=None, issued_date=None):
+    ctx = _wo_context(db, quote, wo)
+    ctx['ref'] = revision_label_ref or ctx['ref']
+    settings = db.execute("SELECT * FROM company_settings WHERE id=1").fetchone()
+    from datetime import date
+    return render_template('work_order_doc.html', **ctx, settings=settings,
+                           issued_date=issued_date or date.today().strftime('%B %d, %Y'),
+                           terms_paragraphs=[p.strip() for p in (settings['sub_terms_text'] or '').replace('\r\n', '\n').split('\n\n') if p.strip()] if settings else [])
+
+@app.route('/quotes/<int:quote_id>/work_orders/<int:wo_id>/preview')
+@login_required
+def work_order_preview(quote_id, wo_id):
+    db = get_db()
+    wo, quote = _wo_owned(db, quote_id, wo_id)
+    if not wo:
+        return redirect(url_for('job_schedule', quote_id=quote_id))
+    # The preview is the next revision as it would be issued now.
+    return _wo_doc_html(db, quote, wo, revision_label_ref=_wo_ref(quote_id, wo, (wo['revision'] or 0) + 1))
+
+def work_order_generate(quote_id, wo_id, _saved=False):
+    db = get_db()
+    wo, quote = _wo_owned(db, quote_id, wo_id)
+    if not wo:
+        return redirect(url_for('job_schedule', quote_id=quote_id))
+    lines = db.execute("SELECT * FROM work_order_lines WHERE work_order_id=? ORDER BY sort_order, id", (wo_id,)).fetchall()
+    if not lines:
+        return redirect(url_for('work_order_edit', quote_id=quote_id, wo_id=wo_id, error='Add at least one line before generating.'))
+    for l in lines:
+        if (l['callout_label'] or '').strip() and not l['callout_value']:
+            return redirect(url_for('work_order_edit', quote_id=quote_id, wo_id=wo_id,
+                                    error=f"Pick YES or NO for \"{l['callout_label']}\" on {l['label']}, or clear the callout."))
+    new_rev = (wo['revision'] or 0) + 1
+    ref = _wo_ref(quote_id, wo, new_rev)
+    try:
+        pdf = _generate_quote_pdf_bytes(_wo_doc_html(db, quote, wo, revision_label_ref=ref))
+    except Exception as e:
+        return redirect(url_for('work_order_edit', quote_id=quote_id, wo_id=wo_id, error=f"Couldn't build the PDF: {e}"))
+    snapshot = json.dumps({'header': {k: wo[k] for k in ('start_date', 'access_instructions', 'pm_name', 'pm_phone', 'general_notes')},
+                           'lines': [dict(l) for l in lines]})
+    by = (g.user['display_name'] or g.user['username']) if g.user else ''
+    db.execute("INSERT INTO work_order_revisions (work_order_id, revision, pdf, snapshot, generated_by) VALUES (?,?,?,?,?)",
+               (wo_id, new_rev, pdf, snapshot, by))
+    db.execute("UPDATE work_orders SET revision=?, status='issued', issued_fingerprint=? WHERE id=?",
+               (new_rev, _wo_fingerprint(db, wo_id), wo_id))
+    db.commit()
+    return redirect(url_for('work_order_edit', quote_id=quote_id, wo_id=wo_id, msg=f'Generated {ref}.'))
+
+@app.route('/quotes/<int:quote_id>/work_orders/<int:wo_id>/generate', methods=['POST'])
+@require_permission('can_enter_actuals')
+def work_order_generate_route(quote_id, wo_id):
+    return work_order_generate(quote_id, wo_id)
+
+@app.route('/quotes/<int:quote_id>/work_orders/<int:wo_id>/revisions/<int:rev>/pdf')
+@login_required
+def work_order_revision_pdf(quote_id, wo_id, rev):
+    db = get_db()
+    wo, quote = _wo_owned(db, quote_id, wo_id)
+    row = db.execute("SELECT pdf FROM work_order_revisions WHERE work_order_id=? AND revision=?", (wo_id, rev)).fetchone() if wo else None
+    if not row or not row['pdf']:
+        return redirect(url_for('job_schedule', quote_id=quote_id))
+    return Response(bytes(row['pdf']), mimetype='application/pdf',
+                    headers={'Content-Disposition': f'inline; filename="{_wo_ref(quote_id, wo, rev).replace(" ", "_")}.pdf"'})
+
+@app.route('/admin/settings/sub_terms', methods=['POST'])
+@require_permission('can_edit_commission_policy')
+def update_sub_terms():
+    db = get_db()
+    db.execute("UPDATE company_settings SET sub_terms_text=? WHERE id=1", (request.form.get('sub_terms_text', '').strip(),))
+    db.commit()
+    return redirect(url_for('admin_settings', sub_terms_saved=1) + '#sub-terms')
 
 def _owned_schedule_item(db, quote_id, item_id, source):
     """Same ownership-verification pattern as save_ledger_actual: confirms item_id actually
@@ -6364,7 +6631,8 @@ def admin_settings():
     ghl_webhook_url = url_for('ghl_webhook', secret=settings['ghl_webhook_secret'], _external=True) if settings and settings['ghl_webhook_secret'] else ''
     followup_templates = db.execute("SELECT * FROM quote_followup_templates ORDER BY active DESC, id").fetchall()
     webhook_log = db.execute("SELECT * FROM ghl_webhook_log ORDER BY id DESC LIMIT 25").fetchall()
-    return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs, webhook_log=webhook_log,
+    sub_terms_saved = bool(request.args.get('sub_terms_saved'))
+    return render_template('admin_settings.html', settings=settings, terms_docs=terms_docs, webhook_log=webhook_log, sub_terms_saved=sub_terms_saved,
                            terms_msg=request.args.get('terms_msg'), terms_open=request.args.get('terms_open', type=int),
                             ghl_webhook_url=ghl_webhook_url, followup_templates=followup_templates)
 
