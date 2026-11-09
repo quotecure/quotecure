@@ -344,7 +344,14 @@
     </div>
   </div>
 
+  {% endif %}
+
+  {# Change Orders are listed whatever the quote's status is now: unlocking a contract sets it back to 'sent',
+     and a signed Change Order must never vanish from the page just because the parent was unlocked. #}
   {% if change_orders %}
+  {% if quote.status not in ('contract', 'in_progress', 'complete') %}
+  <div style="padding:8px 16px;margin-bottom:6px;font-size:12px;color:#fbbf24;background:#78350f22;border:1px solid #78350f;border-radius:var(--radius);">This quote is not currently a signed contract ({{ quote.status }}), but these Change Orders are still on file{% if change_orders|selectattr('status','equalto','signed')|list %} &mdash; signed ones still count toward the contract total{% endif %}.</div>
+  {% endif %}
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;">
     {% for co in change_orders %}
     <a href="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}{{ '/preview' if co.status == 'signed' else '' }}"
@@ -360,7 +367,6 @@
     </a>
     {% endfor %}
   </div>
-  {% endif %}
   {% endif %}
 
   {% if versions %}
