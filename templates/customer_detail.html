@@ -180,6 +180,16 @@
             <td class="right mono" style="font-weight:600">{{ q.total_price|usd }}</td>
             <td style="color:var(--text3); font-size:12px">{{ q.created_at[:10] if q.created_at else '—' }}</td>
           </tr>
+          {% for co in cos_by_quote.get(q.quote_id, []) %}
+          <tr style="background:var(--surface2);">
+            <td class="mono" style="padding-left:28px;"><span style="color:var(--text3);">&#8627;</span> <a href="/quotes/{{ q.quote_id }}/change_orders/{{ co.id }}{{ '/preview' if co.status == 'signed' else '' }}">{{ co.ref }}</a></td>
+            <td style="color:var(--text2);font-size:12px;">Change Order</td>
+            <td><span class="badge badge-{{ 'purple' if co.status == 'signed' else 'amber' if co.status == 'sent' else 'gray' if co.status == 'voided' else 'blue' }}">{{ co.status }}</span></td>
+            <td><span style="color:var(--text3);font-size:12px;">{% if co.status == 'signed' %}counts toward the contract{% elif co.status == 'voided' %}voided{% else %}not signed &mdash; not counted{% endif %}</span></td>
+            <td class="right mono" style="font-weight:600;{{ 'color:#f87171;' if (co.total_price or 0) < 0 else '' }}">{{ co.total_price|usd }}</td>
+            <td style="color:var(--text3); font-size:12px">{{ (co.signed_at if co.status == 'signed' and co.signed_at else co.created_at[:10]) if (co.signed_at or co.created_at) else '—' }}</td>
+          </tr>
+          {% endfor %}
           {% endfor %}
         </tbody>
       </table>

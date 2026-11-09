@@ -1551,7 +1551,17 @@ def customer_detail(customer_id):
     competitors = db.execute("SELECT * FROM competitors WHERE active='Y' ORDER BY name").fetchall()
     competitor_work_types = db.execute("SELECT work_type_id, work_type, unit FROM work_types WHERE active='Y' ORDER BY work_type").fetchall()
 
-    return render_template('customer_detail.html', customer=customer, quotes=quotes,
+    # Change Orders sit under their quote in the Quotes & Contracts table (Jim: they should be in the same
+    # section as the quotes) -- every status, so a draft/sent/voided one is visible too, not only signed.
+    cos_by_quote = {}
+    if quotes:
+        qids = [q['quote_id'] for q in quotes]
+        for co in db.execute(f"SELECT * FROM change_orders WHERE quote_id IN ({','.join('?' * len(qids))}) ORDER BY quote_id, co_number",
+                             tuple(qids)).fetchall():
+            d = dict(co)
+            d['ref'] = _co_ref(co['quote_id'], co)
+            cos_by_quote.setdefault(co['quote_id'], []).append(d)
+    return render_template('customer_detail.html', customer=customer, quotes=quotes, cos_by_quote=cos_by_quote,
                            archived_ids=archived_ids, photos=photos, history=history, current_role=g.role,
                            competitor_quotes=competitor_quotes, competitors=competitors,
                            competitor_work_types=competitor_work_types, error=request.args.get('error', ''),
