@@ -1289,6 +1289,56 @@ def contracts_list():
                            quote_counts=quote_counts, current_role=g.role,
                            net_commissions=net_commissions)
 
+@app.route('/admin/reconcile')
+@require_permission('can_edit_commission_policy')
+def admin_reconcile():
+    """Read-only audit of one customer's contracts: every quote they have (siblings included), each
+    quote's Change Orders with status and amount, the payment schedule, and flags for anything that
+    doesn't add up. Built so a confusing contract can be understood from one screen."""
+    db = get_db()
+    term = (request.args.get('q') or '').strip()
+    quotes = []
+    if term:
+        num = re.sub(r'(?i)^qt-?', '', term)
+        found = db.execute("SELECT quote_id, customer_id FROM quotes WHERE customer_name ILIKE ? OR address ILIKE ? OR quote_id = ?",
+                           (f'%{term}%', f'%{term}%', int(num) if num.isdigit() else -1)).fetchall()
+        ids = {r['quote_id'] for r in found}
+        for cid in {r['customer_id'] for r in found if r['customer_id']}:
+            ids |= {r['quote_id'] for r in db.execute("SELECT quote_id FROM quotes WHERE customer_id=?", (cid,)).fetchall()}
+        for qid in sorted(ids)[:25]:
+            quote = db.execute("SELECT * FROM quotes WHERE quote_id=?", (qid,)).fetchone()
+            cos = []
+            for co in db.execute("SELECT * FROM change_orders WHERE quote_id=? ORDER BY co_number", (qid,)).fetchall():
+                items = db.execute("SELECT kind, action, label, total_price FROM change_order_items WHERE change_order_id=? ORDER BY sort_order, id", (co['id'],)).fetchall()
+                cos.append({'co': co, 'lines': items, 'item_sum': round(sum(float(i['total_price'] or 0) for i in items), 2)})
+            sched = db.execute("SELECT * FROM payment_schedules WHERE quote_id=? ORDER BY sort_order, id", (qid,)).fetchall()
+            signed = [c['co'] for c in cos if c['co']['status'] == 'signed']
+            signed_net = round(sum(float(c['total_price'] or 0) for c in signed), 2)
+            contract_total = round(float(quote['total_price'] or 0) + signed_net, 2)
+            sched_total = round(sum(float(r['amount'] or 0) for r in sched), 2)
+            collected = round(sum(float(r['collected_amount'] or 0) for r in sched if r['collected']), 2)
+            flags = []
+            sched_labels = {r['label'] for r in sched}
+            for c in signed:
+                if f"Change Order #{c['co_number']}" not in sched_labels:
+                    flags.append(f"Change Order #{c['co_number']} is signed but has no row in the payment schedule (it may have been renamed or deleted there).")
+            signed_nums = {c['co_number'] for c in signed}
+            for r in sched:
+                m = re.match(r'^Change Order #(\d+)$', r['label'] or '')
+                if m and int(m.group(1)) not in signed_nums:
+                    flags.append(f"Payment schedule has a \"{r['label']}\" row but that Change Order is not signed.")
+            if quote['status'] in ('contract', 'in_progress', 'complete') and abs(sched_total - contract_total) > 0.01:
+                flags.append(f"Payment schedule adds up to {sched_total:,.2f} but the contract total is {contract_total:,.2f} (difference {sched_total - contract_total:+,.2f}).")
+            for c in cos:
+                if abs(c['item_sum'] - float(c['co']['total_price'] or 0)) > 0.01 and c['co']['status'] != 'voided':
+                    flags.append(f"Change Order #{c['co']['co_number']}: its lines add up to {c['item_sum']:,.2f} but its stored total is {float(c['co']['total_price'] or 0):,.2f}.")
+            quotes.append({'quote': quote, 'cos': cos, 'sched': sched, 'signed_net': signed_net, 'contract_total': contract_total,
+                           'sched_total': sched_total, 'collected': collected, 'flags': flags,
+                           'unsigned_cos': [c['co'] for c in cos if c['co']['status'] in ('draft', 'sent')]})
+    orphans = db.execute("SELECT co.id, co.quote_id, co.co_number, co.status, co.total_price FROM change_orders co "
+                         "LEFT JOIN quotes q ON q.quote_id = co.quote_id WHERE q.quote_id IS NULL").fetchall()
+    return render_template('admin_reconcile.html', term=term, quotes=quotes, orphans=orphans)
+
 @app.route('/quotes/<int:quote_id>/archive', methods=['POST'])
 @login_required
 def archive_quote(quote_id):

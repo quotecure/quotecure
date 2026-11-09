@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block title %}Contract Reconciliation — QuoteCure{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Contract Reconciliation</div>
+      <div class="page-subtitle">Read-only. Search a customer name, address, or quote number to see every quote they have, each quote's Change Orders, the payment schedule, and anything that doesn't add up.</div>
+    </div>
+  </div>
+
+  <form method="GET" style="display:flex;gap:10px;margin-bottom:18px;">
+    <input class="form-control" name="q" value="{{ term }}" placeholder="e.g. Henry, 123 Main St, or QT-0035" style="max-width:360px;" autofocus>
+    <button class="btn btn-primary" type="submit">Search</button>
+  </form>
+
+  {% if term and not quotes %}<div class="card" style="padding:16px 20px;color:var(--text2);">No quotes matched "{{ term }}".</div>{% endif %}
+
+  {% if quotes|length > 1 %}
+  <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">{{ quotes|length }} quotes found for this search (including other quotes under the same customer). A Change Order belongs to exactly one of them.</div>
+  {% endif %}
+
+  {% for r in quotes %}
+  {% set q = r.quote %}
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <div class="card-title"><a href="/quotes/{{ q.quote_id }}">QT-{{ '%04d'|format(q.quote_id) }}</a> &middot; {{ q.customer_name }}</div>
+      <span class="badge badge-{{ 'purple' if q.status == 'contract' else 'amber' if q.status == 'in_progress' else 'green' if q.status == 'complete' else 'gray' }}">{{ q.status }}</span>
+    </div>
+    <div style="padding:14px 20px;">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">{{ q.address or '' }}{% if q.signed_at %} &middot; signed {{ q.signed_at }}{% if q.signed_name %} by {{ q.signed_name }}{% endif %}{% endif %}</div>
+
+      {% if r.flags %}
+      <div style="background:rgba(251,191,36,0.10);border:1px solid #b45309;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:13px;">
+        <b>Needs a look:</b>
+        <ul style="margin:6px 0 0 18px;">{% for f in r.flags %}<li>{{ f }}</li>{% endfor %}</ul>
+      </div>
+      {% else %}
+      <div style="font-size:12px;color:var(--green-light);margin-bottom:12px;">Nothing looks off: the payment schedule adds up to the contract total.</div>
+      {% endif %}
+
+      <table style="width:100%;max-width:520px;margin-bottom:16px;">
+        <tr><td>Original quote price</td><td class="right mono">{{ q.total_price|usd }}</td></tr>
+        <tr><td>+ Signed Change Orders (net)</td><td class="right mono">{{ r.signed_net|usd }}</td></tr>
+        <tr style="font-weight:700;"><td>= Contract total</td><td class="right mono">{{ r.contract_total|usd }}</td></tr>
+        <tr><td>Payment schedule adds up to</td><td class="right mono">{{ r.sched_total|usd }}</td></tr>
+        <tr><td>Collected so far</td><td class="right mono">{{ r.collected|usd }}</td></tr>
+      </table>
+
+      <div class="section-label" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin:6px 0;">Change Orders on this quote</div>
+      {% if r.cos %}
+        {% for c in r.cos %}
+        <div style="border:1px solid var(--border2);border-radius:6px;padding:10px 14px;margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div><b>Change Order #{{ c.co.co_number }}</b>
+              <span class="badge badge-{{ 'purple' if c.co.status == 'signed' else 'amber' if c.co.status == 'sent' else 'gray' if c.co.status == 'voided' else 'blue' }}">{{ c.co.status }}</span>
+              {% if c.co.status == 'signed' %}<span style="font-size:12px;color:var(--text3);">signed {{ c.co.signed_at }}{% if c.co.signed_name %} by {{ c.co.signed_name }}{% endif %}</span>{% else %}<span style="font-size:12px;color:var(--text3);">not counted toward the contract</span>{% endif %}
+              <a href="/quotes/{{ q.quote_id }}/change_orders/{{ c.co.id }}{{ '/preview' if c.co.status == 'signed' else '' }}" style="font-size:12px;margin-left:8px;">open</a></div>
+            <div class="mono" style="font-weight:600;">{{ c.co.total_price|usd }}</div>
+          </div>
+          {% if c.lines %}
+          <table style="width:100%;margin-top:8px;font-size:12px;">
+            {% for i in c.lines %}<tr><td style="color:var(--text3);width:90px;">{{ i.action or i.kind }}</td><td>{{ i.label }}</td><td class="right mono">{{ (i.total_price or 0)|usd }}</td></tr>{% endfor %}
+          </table>
+          {% else %}<div style="font-size:12px;color:var(--text3);margin-top:6px;">No lines.</div>{% endif %}
+        </div>
+        {% endfor %}
+      {% else %}
+        <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">None. No Change Order is attached to this quote number.</div>
+      {% endif %}
+
+      <div class="section-label" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin:14px 0 6px;">Payment schedule</div>
+      <table style="width:100%;">
+        <thead><tr><th>Row</th><th class="right">Amount</th><th>Collected</th></tr></thead>
+        <tbody>
+          {% for p in r.sched %}<tr><td>{{ p.label }}</td><td class="right mono">{{ p.amount|usd }}</td><td style="font-size:12px;color:var(--text2);">{% if p.collected %}{{ (p.collected_amount or 0)|usd }}{% if p.collected_date %} on {{ p.collected_date }}{% endif %}{% else %}&mdash;{% endif %}</td></tr>
+          {% else %}<tr><td colspan="3" style="color:var(--text3);">No payment rows.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if orphans %}
+  <div class="card" style="padding:14px 20px;">
+    <b>Change Orders pointing at a quote that no longer exists:</b>
+    <ul style="margin:6px 0 0 18px;">{% for o in orphans %}<li>CO #{{ o.co_number }} (id {{ o.id }}, quote {{ o.quote_id }}, {{ o.status }}, {{ o.total_price|usd }})</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
