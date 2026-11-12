@@ -158,6 +158,11 @@
       <form method="POST" action="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/resend_signed_copy" style="display:inline" onsubmit="return confirm('Email the signed copy to the customer and to the company address?')">
         <button class="btn btn-secondary btn-sm" type="submit">✉ Email signed copy</button>
       </form>
+      {% if can_override %}
+      <form method="POST" action="/quotes/{{ quote.quote_id }}/change_orders/{{ co.id }}/unsign" style="display:inline" onsubmit="return confirm('Clear this signature so the customer can sign again? This removes the signature, the saved signed PDF, and the payment-schedule row this Change Order added.')">
+        <button class="btn btn-secondary btn-sm" type="submit">Clear signature (re-sign)</button>
+      </form>
+      {% endif %}
     </div>
     <div style="font-size:11px;color:var(--text3);margin-top:8px;">
       {% if signed_doc and signed_doc.has_pdf %}{% if signed_doc.regenerated %}PDF rebuilt from the Change Order as it stands.{% else %}PDF saved at the moment of signing.{% endif %}{% else %}No PDF saved yet — opening "View signed PDF" builds and keeps one.{% endif %}

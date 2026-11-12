@@ -461,6 +461,14 @@ async function includeItem(itemId) {
   canvas.addEventListener('touchmove', move, {passive:false});
   canvas.addEventListener('touchend', end);
 
+  // The mouse having moved is not proof anything was drawn (strokes can land off the canvas), so look at the pixels.
+  function canvasHasInk() {
+    const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) { if (d[i] > 40) { n++; if (n >= 30) return true; } }
+    return false;
+  }
+
   window.clearSig = function() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     hasStroke = false;
@@ -468,7 +476,7 @@ async function includeItem(itemId) {
 
   window.saveSig = async function() {
     const name = document.getElementById('sig-name').value.trim();
-    if (!hasStroke) { alert('Please sign above before submitting.'); return; }
+    if (!hasStroke || !canvasHasInk()) { alert('Please draw your signature in the box above before pressing Sign.'); return; }
     if (!name) { alert('Please enter a printed name.'); return; }
     const resp = await fetch({{ sign_action_url|tojson }}, {
       method: 'POST', headers: {'Content-Type':'application/json'},

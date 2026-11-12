@@ -1329,6 +1329,11 @@ def admin_reconcile():
                     flags.append(f"Payment schedule has a \"{r['label']}\" row but that Change Order is not signed.")
             if quote['status'] in ('contract', 'in_progress', 'complete') and abs(sched_total - contract_total) > 0.01:
                 flags.append(f"Payment schedule adds up to {sched_total:,.2f} but the contract total is {contract_total:,.2f} (difference {sched_total - contract_total:+,.2f}).")
+            if quote['signature_data'] and not _signature_has_ink(quote['signature_data']):
+                flags.append("The signature image on the signed contract is blank (no ink). The customer's typed name and the date are recorded, but the drawn signature is empty.")
+            for c in cos:
+                if c['co']['status'] == 'signed' and not _signature_has_ink(c['co']['signature_data'] or ''):
+                    flags.append(f"Change Order #{c['co']['co_number']} is signed but its signature image is blank (no ink). Open it and use \"Clear signature\" so the customer can sign again.")
             for c in cos:
                 if abs(c['item_sum'] - float(c['co']['total_price'] or 0)) > 0.01 and c['co']['status'] != 'voided':
                     flags.append(f"Change Order #{c['co']['co_number']}: its lines add up to {c['item_sum']:,.2f} but its stored total is {float(c['co']['total_price'] or 0):,.2f}.")
@@ -3503,6 +3508,32 @@ def reopen_change_order(quote_id, co_id):
         return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id))
     return redirect(url_for('edit_quote', quote_id=quote_id))
 
+@app.route('/quotes/<int:quote_id>/change_orders/<int:co_id>/unsign', methods=['POST'])
+@login_required
+def unsign_change_order(quote_id, co_id):
+    """Takes a signed Change Order back to 'sent' so the customer can sign it again -- for a signature that
+    turned out to be blank or unusable. Owner-level (same permission as Unlock Contract). Removes the
+    signature, the kept signed PDF, and the 'Change Order #N' payment row it added (refused if any money has
+    been collected against that row -- that needs a human decision). The emailed sign link works again."""
+    if not (g.role and g.role['can_override_min_markup']):
+        return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id, signed_msg='Not permitted.'))
+    db = get_db()
+    co = db.execute("SELECT * FROM change_orders WHERE id=? AND quote_id=?", (co_id, quote_id)).fetchone()
+    if not co or co['status'] != 'signed':
+        return redirect(url_for('edit_quote', quote_id=quote_id))
+    row = db.execute("SELECT id, collected FROM payment_schedules WHERE quote_id=? AND label=?",
+                     (quote_id, f"Change Order #{co['co_number']}")).fetchone()
+    if row and row['collected']:
+        return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id,
+                                signed_msg="A payment has already been collected against this Change Order's payment row, so the signature can't be cleared here."))
+    if row:
+        db.execute("DELETE FROM payment_schedules WHERE id=?", (row['id'],))
+    db.execute("DELETE FROM change_order_signed_documents WHERE co_id=?", (co_id,))
+    db.execute("UPDATE change_orders SET signature_data='', signed_at='', signed_name='', signed_ip='', signed_user_agent='', status='sent' WHERE id=?", (co_id,))
+    db.commit()
+    return redirect(url_for('change_order_builder', quote_id=quote_id, co_id=co_id,
+                            signed_msg='Signature cleared. The Change Order is back to "sent" -- the customer can sign it again from the link they were emailed (or use Sign in person).'))
+
 def _change_order_money(db, quote_id, co_id):
     """The running-balance math shown on a signed Change Order document -- confirmed
     against a real example: Original Contract Total (frozen at signing) plus the net of
@@ -3618,6 +3649,8 @@ def sign_change_order(quote_id, co_id):
     printed_name = (data.get('printed_name') or '').strip()
     if not signature_data or not printed_name:
         return jsonify({'error': 'Signature and printed name are required'}), 400
+    if not _signature_has_ink(signature_data):
+        return jsonify({'error': _BLANK_SIGNATURE_MSG}), 400
     signed_at, err = _capture_co_signature(db, quote_id, co_id, signature_data, printed_name,
                                            ip=_client_ip(), user_agent=request.headers.get('User-Agent', ''))
     if err:
@@ -3651,6 +3684,8 @@ def public_co_sign(token):
     printed_name = (data.get('printed_name') or '').strip()
     if not signature_data or not printed_name:
         return jsonify({'error': 'Signature and printed name are required'}), 400
+    if not _signature_has_ink(signature_data):
+        return jsonify({'error': _BLANK_SIGNATURE_MSG}), 400
     signed_at, err = _capture_co_signature(db, quote_id, co_id, signature_data, printed_name,
                                            ip=_client_ip(), user_agent=request.headers.get('User-Agent', ''))
     if err:
@@ -7059,6 +7094,32 @@ def quote_sign_link(quote_id):
     token = _get_or_create_sign_token(db, quote_id)
     return jsonify({'url': url_for('public_sign', token=token, _external=True)})
 
+def _signature_has_ink(data_url, min_pixels=30):
+    """True only if the drawn signature image actually contains ink. The signing canvas produces a valid
+    (but blank, fully transparent) PNG even when nothing was drawn or the strokes landed off-canvas, and a
+    blank image is not a signature -- so the server checks the pixels itself rather than trusting the
+    browser. Anything undecodable, oversized, or (nearly) empty is rejected."""
+    try:
+        import base64, io
+        from PIL import Image
+        header, b64 = (data_url or '').split(',', 1)
+        if not header.startswith('data:image/'):
+            return False
+        im = Image.open(io.BytesIO(base64.b64decode(b64)))
+        if im.width * im.height > 4_000_000:
+            return False
+        inked = 0
+        for r, g, b, a in im.convert('RGBA').getdata():
+            if a > 40 and not (r > 235 and g > 235 and b > 235):
+                inked += 1
+                if inked >= min_pixels:
+                    return True
+        return False
+    except Exception:
+        return False
+
+_BLANK_SIGNATURE_MSG = 'The signature box is blank. Please draw your signature in the box, then press Sign.'
+
 def _capture_signature(db, quote_id, signature_data, printed_name, via='electronically', ip='', user_agent=''):
     """Shared by the staff-side /sign route, the public /sign/<token> link, and the manual
     "pen and paper" override -- exact same effect either way: the status flip to 'contract'
@@ -7228,6 +7289,8 @@ def public_sign(token):
     printed_name = (data.get('printed_name') or '').strip()
     if not signature_data or not printed_name:
         return jsonify({'error': 'Signature and printed name are required'}), 400
+    if not _signature_has_ink(signature_data):
+        return jsonify({'error': _BLANK_SIGNATURE_MSG}), 400
     signed_at = _capture_signature(db, quote_id, signature_data, printed_name,
                                    ip=_client_ip(), user_agent=request.headers.get('User-Agent', ''))
     return jsonify({'success': True, 'signed_at': signed_at})
@@ -7968,6 +8031,8 @@ def sign_quote(quote_id):
     printed_name = (data.get('printed_name') or '').strip()
     if not signature_data or not printed_name:
         return jsonify({'error': 'Signature and printed name are required'}), 400
+    if not _signature_has_ink(signature_data):
+        return jsonify({'error': _BLANK_SIGNATURE_MSG}), 400
     signed_at = _capture_signature(db, quote_id, signature_data, printed_name,
                                    ip=_client_ip(), user_agent=request.headers.get('User-Agent', ''))
     return jsonify({'success': True, 'signed_at': signed_at})

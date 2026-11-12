@@ -560,7 +560,7 @@ def generate_payment_schedule(conn, quote_id, total_price):
         draws = [
             ('Due at Signing',           round(total_price * 0.10, 2), 10.0, 0),
             ('Due at Commencement',      round(total_price * 0.40, 2), 40.0, 1),
-            ('Due at Milestone',         round(total_price * 0.40, 2), 40.0, 2),
+            ('Due at Tile/Pavers/or other Milestone', round(total_price * 0.40, 2), 40.0, 2),
             ('Due at Surface Install',   round(total_price * 0.10, 2), 10.0, 3),
         ]
         # Fix rounding so draws add up exactly
